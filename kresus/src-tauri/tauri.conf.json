@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "kresus",
+  "productName": "Kresus",
   "version": "0.1.0",
   "identifier": "com.kissifrot.kresus",
   "build": {
@@ -13,9 +13,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "kresus",
-        "width": 800,
-        "height": 600
+        "title": "Kresus — Finances familiales",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 620
       }
     ],
     "security": {

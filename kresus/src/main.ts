@@ -1,22 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Account, Schedule, Category } from "./types";
+import { accounts, setAccounts, setSelectedAccount, setSchedules, setCategories } from "./state";
+import { migrateBrowserTransactions, refreshTransactions } from "./transactions";
 
-let greetInputEl: HTMLInputElement | null;
-let greetMsgEl: HTMLElement | null;
-
-async function greet() {
-  if (greetMsgEl && greetInputEl) {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsgEl.textContent = await invoke("greet", {
-      name: greetInputEl.value,
-    });
-  }
+async function initialize() {
+  setAccounts(await invoke<Account[]>("list_accounts"));
+  setSelectedAccount(accounts[0]);
+  setSchedules(await invoke<Schedule[]>("list_schedules"));
+  setCategories(await invoke<Category[]>("list_categories"));
+  await migrateBrowserTransactions();
+  await refreshTransactions();
 }
-
-window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
-});
+void initialize();

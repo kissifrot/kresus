@@ -1,0 +1,17 @@
+# SQLite databases and their sidecar files can contain private financial data.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.db3
+*.db3-journal
+*.db3-wal
+*.db3-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
