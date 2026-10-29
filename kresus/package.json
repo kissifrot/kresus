@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:performance": "vitest run --config vitest.performance.config.ts --reporter=verbose",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:e2e": "node e2e/tauri-smoke.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

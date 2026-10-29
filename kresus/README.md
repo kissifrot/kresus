@@ -32,11 +32,25 @@ yarn test
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Vitest utilise un DOM simulé et des commandes Tauri simulées : les tests de `tests/` couvrent comptes et foyer, opérations et virements, catégories, échéances et rapport de dépenses. Ils ne modifient pas la base de l’utilisateur. Les comptes et opérations partagent les outils de `tests/register-fixtures.ts`.
+Vitest utilise un DOM simulé et des commandes Tauri simulées : les tests de `tests/` couvrent comptes et foyer, opérations et commentaires, virements, catégories, échéances, conversions monétaires et rapport de dépenses. Ils ne modifient pas la base de l’utilisateur. Les comptes et opérations partagent les outils de `tests/register-fixtures.ts`.
 
 Les tests Rust, placés près de chaque domaine, utilisent des bases SQLite isolées, en mémoire ou dans un fichier temporaire. Ils couvrent notamment les opérations, les catégories, les virements et les échéances : périodicité, années bissextiles, modifications ponctuelles et de série, enregistrement et persistance. Ces tests ne touchent pas à la base de l’utilisateur.
 
 Pour de futurs tests des commandes Tauri ou de l’interface, voir la documentation officielle : [tests Tauri](https://v2.tauri.app/develop/tests/), [simulation des API](https://v2.tauri.app/develop/tests/mocking/) et [WebDriver](https://v2.tauri.app/develop/tests/webdriver/).
+
+### Parcours Tauri avec WebDriver sous Linux
+
+Le parcours `e2e/tauri-smoke.mjs` lance la vraie application dans sa WebView, avec une base fictive temporaire de 12 000 opérations. Il vérifie la navigation, la pagination et le filtre « À pointer », puis la création d’un compte, la gestion d’une opération avec commentaire et son pointage, la création, la modification et la suppression d’un virement, la gestion des catégories, ainsi que la création, la modification ponctuelle et de série, l’enregistrement et la suppression d’une échéance. Les confirmations sont acceptées automatiquement dans cette base temporaire. Les durées affichées incluent les échanges WebDriver ; ce parcours ne couvre pas encore tous les scénarios du document initial et ne remplace pas une inspection visuelle manuelle.
+
+Il nécessite `tauri-driver`, le pilote WebKitGTK et, pour un affichage virtuel, `xvfb-run`. Sur Ubuntu 26.04, les paquets système correspondants sont `webkitgtk-webdriver` et `xvfb` ; le pilote Tauri s’installe avec `cargo install tauri-driver --locked`. Les noms des paquets peuvent varier selon la distribution. Après installation :
+
+```sh
+nvm use
+yarn tauri build --debug --no-bundle
+xvfb-run -a yarn test:e2e
+```
+
+Le test crée son propre répertoire de données temporaire et ne charge pas la base habituelle. Les ports sont choisis localement pour la durée du test. Un exécutable `tauri-driver` situé ailleurs peut être fourni avec la variable `TAURI_DRIVER`.
 
 ### Mesure de performance
 
@@ -47,7 +61,7 @@ yarn test:performance
 cargo test --manifest-path src-tauri/Cargo.toml performance_reference_10000_operations -- --ignored --nocapture
 ```
 
-Le premier mesure le registre, un filtre, le pointage et les changements de compte dans jsdom avec un backend simulé. Le second utilise une base SQLite temporaire et mesure l’insertion groupée, les soldes, la lecture complète et paginée avec totaux, leur sérialisation JSON et les suggestions de destinataires. Les mesures sont indicatives, sans seuil automatique : elles varient selon la machine et la charge. Le DOM simulé ne mesure ni le rendu de la WebView Tauri, ni le transport réel entre Rust et l’interface ; il faudra compléter par un test de bout en bout avant de conclure sur la fluidité de l’application. L’insertion mesurée n’est pas un import Money, qui reste à développer.
+Le premier mesure le registre, un filtre, le pointage et les changements de compte dans jsdom avec un backend simulé. Le second utilise une base SQLite temporaire et mesure l’insertion groupée, les soldes, la lecture complète et paginée avec totaux, leur sérialisation JSON et les suggestions de destinataires. Les mesures sont indicatives, sans seuil automatique : elles varient selon la machine et la charge. Le DOM simulé ne mesure ni le rendu de la WebView Tauri, ni le transport réel entre Rust et l’interface ; le parcours WebDriver ci-dessus les exerce séparément, avec les délais propres à l’automatisation. L’insertion mesurée n’est pas un import Money, qui reste à développer.
 
 ### Générer une base de test
 
@@ -73,6 +87,6 @@ Les données d’exemple sont insérées uniquement à la création d’une nouv
 
 ## Organisation
 
-Dans `src-tauri/src/`, `lib.rs` initialise Tauri et enregistre les commandes ; `database.rs` gère la connexion et le schéma SQLite ; `database_tests.rs` vérifie son initialisation et la conservation des suppressions. `accounts.rs`, `transactions.rs`, `schedules.rs` et `categories.rs` regroupent commandes et logique métier. Les tests propres à chaque domaine se trouvent dans les fichiers suffixés `_tests.rs` ; `test_support.rs` fournit les éléments communs.
+Dans `src-tauri/src/`, `lib.rs` initialise Tauri et enregistre les commandes ; `database.rs` gère la connexion et l’initialisation SQLite et utilise `schema.sql`, partagé avec le générateur de données fictives. `database_tests.rs` vérifie notamment l’initialisation et la conservation des suppressions. `accounts.rs`, `transactions.rs`, `schedules.rs` et `categories.rs` regroupent commandes et logique métier. Les tests propres à chaque domaine se trouvent dans les fichiers suffixés `_tests.rs` ; `test_support.rs` fournit les éléments communs.
 
 Dans `src/`, `main.ts` charge les données au démarrage. `accounts.ts`, `household.ts`, `transactions.ts`, `transfers.ts`, `schedules.ts`, `categories.ts` et `spending-report.ts` regroupent les vues et interactions par domaine ; `payees.ts` partage les suggestions de destinataires. `state.ts`, `types.ts` et `format.ts` contiennent l’état partagé, les types et les fonctions communes de présentation. `styles.css` contient les styles communs de l’interface.

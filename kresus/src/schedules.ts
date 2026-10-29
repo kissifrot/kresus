@@ -69,7 +69,7 @@ function renderScheduleView(showOverdue: boolean) {
     const currentDay = day > 0 && day <= daysInMonth;
     const date = currentDay ? `${monthKey}-${String(day).padStart(2, "0")}` : "";
     const entries = monthSchedules.filter((schedule) => schedule.nextDue === date);
-    return `<div class="calendar-cell ${currentDay ? "" : "outside"}"><span>${currentDay ? day : ""}</span>${entries.map((entry) => `<small class="calendar-event ${entry.kind}">${escapeHtml(entry.label)}</small>`).join("")}</div>`;
+    return `<div class="calendar-cell ${currentDay ? "" : "outside"}"><span>${currentDay ? day : ""}</span>${entries.map((entry) => `<small class="calendar-event ${entry.kind}" title="${escapeHtml(entry.label)}">${escapeHtml(entry.label)}</small>`).join("")}</div>`;
   }).join("");
   const totalDue = monthSchedules.filter((schedule) => schedule.kind === "debit").reduce((sum, schedule) => sum + Math.abs(schedule.amount), 0);
   document.querySelector<HTMLDivElement>(".page-content")!.innerHTML = `

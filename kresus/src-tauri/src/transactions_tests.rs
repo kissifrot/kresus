@@ -3,7 +3,7 @@ use crate::accounts::create_account_in_db;
 use crate::test_support::{account, database};
 
 fn operation(id: &str, account_id: &str, amount: f64) -> NewTransaction {
-    NewTransaction { id: id.into(), account_id: account_id.into(), date: "2027-01-15".into(), label: "Groceries".into(), category: "Food".into(), cheque: Some("0012345".into()), amount: (amount * 100.0).round() as i64 }
+    NewTransaction { id: id.into(), account_id: account_id.into(), date: "2027-01-15".into(), label: "Groceries".into(), category: "Food".into(), cheque: Some("0012345".into()), amount: (amount * 100.0).round() as i64, note: None }
 }
 
 #[test]
@@ -142,6 +142,32 @@ fn operation_edit_preserves_reconciliation_and_note_and_checks_account() {
 }
 
 #[test]
+fn operation_comments_are_saved_edited_cleared_and_survive_reopening() {
+    let path = crate::test_support::temporary_database_path();
+    {
+        let db = Connection::open(&path.0).unwrap();
+        crate::database::initialize_database(&db).unwrap();
+        let mut entry = operation("comment-test", "ccp", -1.0);
+        entry.note = Some("Première ligne\n<seconde ligne>".into());
+        create_transaction_in_db(&db, entry).unwrap();
+    }
+    let db = Connection::open(&path.0).unwrap();
+    crate::database::initialize_database(&db).unwrap();
+    let stored = list_transactions_in_db(&db, "ccp").unwrap().into_iter().find(|item| item.id == "comment-test").unwrap();
+    assert_eq!(stored.note.as_deref(), Some("Première ligne\n<seconde ligne>"));
+    let mut edit = operation("comment-test", "ccp", -1.0);
+    edit.note = Some("Commentaire modifié".into());
+    update_transaction_in_db(&db, edit).unwrap();
+    let stored = list_transactions_in_db(&db, "ccp").unwrap().into_iter().find(|item| item.id == "comment-test").unwrap();
+    assert_eq!(stored.note.as_deref(), Some("Commentaire modifié"));
+    let mut clear = operation("comment-test", "ccp", -1.0);
+    clear.note = Some(String::new());
+    update_transaction_in_db(&db, clear).unwrap();
+    let stored = list_transactions_in_db(&db, "ccp").unwrap().into_iter().find(|item| item.id == "comment-test").unwrap();
+    assert_eq!(stored.note, None);
+}
+
+#[test]
 fn deleting_an_operation_keeps_other_operations() {
     let db = database();
     create_transaction_in_db(&db, operation("delete-me", "ccp", -10.0)).unwrap();
@@ -181,6 +207,10 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
     assert_eq!((first.total_count, first.filtered_count, first.page_count, first.rows.len()), (205, 205, 3, 100));
     assert_eq!((&first.rows[0].transaction.id, first.rows[0].running_balance), (&"row-204".to_string(), 11040));
     assert_eq!((first.income, first.expenses, first.credit_count, first.debit_count, first.unreconciled_count), (2060, -1020, 103, 102, 205));
+    let monthly = list_register_in_db(&db, "paged", "month-credit", 1, "2027-01").unwrap();
+    assert_eq!((monthly.filtered_count, monthly.rows.len()), (103, 100));
+    let other_month = list_register_in_db(&db, "paged", "month-debit", 1, "2027-02").unwrap();
+    assert_eq!((other_month.filtered_count, other_month.rows.len()), (0, 0));
     let second = list_register_in_db(&db, "paged", "all", 2, "2027-01").unwrap();
     assert_eq!((&second.rows[0].transaction.id, second.rows[0].running_balance), (&"row-104".to_string(), 10540));
     let debit = list_register_in_db(&db, "paged", "debit", 99, "2027-02").unwrap();

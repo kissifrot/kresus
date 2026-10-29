@@ -4,7 +4,7 @@ body{margin:0;min-width:840px;min-height:100vh}
 button,input,select{font:inherit}
 button{cursor:pointer}
 .sidebar{position:fixed;inset:0 auto 0 0;width:258px;background:#fff;border-right:1px solid #e9ece8;padding:27px 15px 14px;display:flex;flex-direction:column;z-index:2}
-.sidebar>.brand,.sidebar>.nav-item,.sidebar>.sidebar-divider,.sidebar>.section-heading,.sidebar>.database-controls,.sidebar>.sidebar-bottom{flex-shrink:0}
+.sidebar>.brand,.sidebar>.nav-item,.sidebar>.sidebar-divider,.sidebar>.section-heading,.sidebar>.database-controls{flex-shrink:0}
 .sidebar-accounts{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .brand{display:flex;align-items:center;gap:11px;padding:0 11px 34px}
 .brand-mark{display:grid;place-items:center;width:37px;height:37px;border-radius:12px;background:#27734f;color:#fff;font:800 23px Manrope,sans-serif}
@@ -30,12 +30,6 @@ button{cursor:pointer}
 .account-copy strong{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .account-copy small{font-size:9px;color:#929b94}
 .account-balance{margin-left:auto;font-size:9px;font-weight:600;color:#606b62;white-space:nowrap}
-.sidebar-bottom{margin-top:auto;border-top:1px solid #edf0ed;padding:16px 5px 4px;display:flex;align-items:center;gap:9px}
-.avatar{border:0;width:31px;height:31px;border-radius:50%;display:grid;place-items:center;background:#efe6d9;color:#785b39;font-size:11px;font-weight:700;flex:none}
-.sidebar-bottom strong,.sidebar-bottom small{display:block}
-.sidebar-bottom strong{font-size:11px}
-.sidebar-bottom small{font-size:9px;color:#8c978f;margin-top:2px}
-.more{margin-left:auto;border:0;background:transparent;color:#879188;font-size:20px}
 .main-area{margin-left:258px;min-height:100vh}
 .topbar{height:64px;border-bottom:1px solid #e9ece8;background:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 39px}
 .breadcrumb{font-size:11px;color:#858f87}
@@ -45,12 +39,7 @@ button{cursor:pointer}
 .accounts-overview{background:#fff;border:1px solid #e7ebe7;border-radius:8px;overflow:hidden}.accounts-overview-group+.accounts-overview-group{border-top:1px solid #e7ebe7}.accounts-overview-group h2{padding:16px 20px;background:#fafbfa;color:#637168;font:700 11px Manrope,sans-serif}.accounts-overview-group h2 span{margin-left:5px;color:#9aa49c;font-size:10px}.accounts-overview-row{display:flex;width:100%;align-items:center;gap:12px;padding:13px 20px;border:0;border-top:1px solid #f0f2f0;background:#fff;text-align:left;color:#344037}.accounts-overview-row:hover{background:#f5f9f5}.accounts-overview-row:focus-visible{outline:2px solid #6ea77e;outline-offset:-2px}.accounts-overview-name{flex:1;min-width:0}.accounts-overview-name strong,.accounts-overview-name small{display:block}.accounts-overview-name strong{font-size:12px}.accounts-overview-name small{margin-top:3px;font-size:10px;color:#8b958d}.accounts-overview-balance{font:700 13px Manrope,sans-serif;white-space:nowrap}.accounts-overview-arrow{font-size:20px;color:#9aa49c;margin-left:8px}.accounts-overview-empty{padding:25px;color:#879188;font-size:12px}
 .household-list-heading{padding:18px 20px}.household-list-heading h2{font:700 14px Manrope,sans-serif}
 .household-schedules{margin-top:16px}.household-schedules-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 20px}.household-schedules-heading h2{font:700 14px Manrope,sans-serif}.household-schedules-heading p{margin-top:4px;color:#879188;font-size:10px}.household-schedule-row{display:flex;align-items:center;gap:14px;padding:12px 20px;border-top:1px solid #f0f2f0;font-size:11px}.household-schedule-row time{width:88px;flex:none;color:#758078}.household-schedule-name{flex:1;min-width:0}.household-schedule-name strong,.household-schedule-name small{display:block}.household-schedule-name small{margin-top:4px;color:#8b958d;font-size:10px}.household-overdue{color:#a45237}.household-overdue-link{display:block;margin-top:6px;padding:0;border:0;background:none;color:#a45237;font-family:inherit;font-size:10px;font-weight:700;cursor:pointer}.household-overdue-link:hover{text-decoration:underline}.household-schedule-amount{white-space:nowrap;color:#a45237}.household-schedule-amount.credit{color:#398054}.household-schedule-amount.transfer{color:#52699b}
-.top-actions{display:flex;align-items:center;gap:16px}
-.updated{font-size:10px;color:#849087}
-.updated i,.status-dot{display:inline-block;width:6px;height:6px;background:#4c9a68;border-radius:50%;margin-right:6px;vertical-align:1px}
-.icon-button{background:#fff;border:1px solid #e8ece8;border-radius:7px;width:31px;height:31px;color:#637067;font-size:15px}
-.icon-button.muted{color:#8c978e;background:#fff}
-.avatar.small{width:29px;height:29px}
+.status-dot{display:inline-block;width:6px;height:6px;background:#4c9a68;border-radius:50%;margin-right:6px;vertical-align:1px}
 .page-content{padding:35px 39px;max-width:1480px;margin:0 auto}
 .page-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:25px}
 .eyebrow{text-transform:uppercase;letter-spacing:.8px;font-weight:700;font-size:9px;color:#77837a}
@@ -70,12 +59,19 @@ h1{font:700 27px Manrope,sans-serif;letter-spacing:-.9px;margin:5px 0 4px;color:
 .summary-card small{display:block;color:#8b958d;font-size:9px}
 .balance-card>strong{font-size:24px;color:#205f40}
 .balance-decoration{position:absolute;right:11px;bottom:-26px;font:800 90px Manrope;color:#e2eee4}
+.balance-card.negative-balance{background:#fdf1ed;border-color:#f1d9cf}
+.balance-card.negative-balance>strong{color:#a04b35}
+.negative-balance .balance-decoration{color:#f6e2da}
 .metric-icon{margin-left:auto;width:22px;height:22px;display:grid;place-items:center;border-radius:6px;font-size:13px}
 .positive{background:#e9f5ec;color:#4b9662}
 .negative{background:#faf0e9;color:#c58359}
 .positive-text{color:#4d9360!important}
 .summary-card em{font:500 11px 'DM Sans';color:#879188}
 .reconciliation-card>strong{color:#28342b}
+.summary-card>strong button{border:0;background:transparent;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.summary-card>strong button:hover{color:#286e49}
+.summary-card>strong #filter-month-debit:hover{color:#a45237}
+.summary-card>strong button:focus-visible{outline:2px solid #6ea77e;outline-offset:3px;border-radius:2px}
 .reconciliation-card>strong em{font-style:normal}
 .reconciliation-card small{margin-top:0}
 .reconciliation-card .status-dot{width:6px;height:6px}
@@ -99,7 +95,7 @@ tbody tr{height:55px;border-bottom:1px solid #f0f2f0}
 tbody tr:last-child{border-bottom:0}
 .date-cell{font-size:10px;color:#667269;white-space:nowrap}
 .transaction-label{display:block;font-size:10px;font-weight:600;color:#344037}
-.transaction-note{display:block;font-size:8px;color:#9aa39b;margin-top:3px}
+.transaction-note{display:block;font-size:8px;color:#9aa39b;margin-top:3px;white-space:pre-wrap;overflow-wrap:anywhere}
 .category-pill{display:inline-block;border-radius:4px;background:#f2f4f1;color:#68736a;padding:4px 7px;font-size:9px;white-space:nowrap}
 .cheque-cell{font-size:9px;color:#89938b}
 .amount{text-align:right;white-space:nowrap;font-size:10px;font-weight:600}
@@ -154,8 +150,8 @@ dialog::backdrop{background:#202b2470;backdrop-filter:blur(2px)}
 .dialog-heading h2{font:700 20px Manrope,sans-serif;margin-top:5px}
 .dialog-close{border:0;background:transparent;color:#8b958c;font-size:23px;line-height:20px}
 #transaction-form label{display:flex;flex-direction:column;gap:6px;font-size:10px;font-weight:600;color:#59655c}
-#transaction-form input,#transaction-form select{height:37px;border:1px solid #dfe5df;border-radius:5px;background:#fff;padding:0 10px;color:#344037;font-size:11px;outline:none}
-#transaction-form input:focus,#transaction-form select:focus{border-color:#69a27a;box-shadow:0 0 0 3px #e8f3ea}
+#transaction-form input,#transaction-form select,#transaction-form textarea{height:37px;border:1px solid #dfe5df;border-radius:5px;background:#fff;padding:0 10px;color:#344037;font-size:11px;outline:none}
+#transaction-form input:focus,#transaction-form select:focus,#transaction-form textarea:focus{border-color:#69a27a;box-shadow:0 0 0 3px #e8f3ea}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .optional{font-weight:400;color:#98a199}
 .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:7px}
@@ -228,7 +224,7 @@ dialog::backdrop{background:#202b2470;backdrop-filter:blur(2px)}
 .schedule-record:hover{border-color:#75a984;background:#dcefe0;color:#1e5b3c}
 .schedule-record:active{background:#cee5d3}
 .schedule-record:focus-visible{outline:3px solid #c6e1cc;outline-offset:2px}
-.summary-grid[hidden]{display:none}.transaction-editor-panel{margin-top:15px;padding:16px 18px;border:1px solid #e3e9e3;border-radius:8px;background:#f1f6f1}.transaction-editor-panel h2{font:700 14px Manrope,sans-serif;margin-bottom:12px}.transaction-editor{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.transaction-editor label{display:flex;flex-direction:column;gap:5px;font-size:10px;color:#59655c}.transaction-editor input,.transaction-editor select{height:34px;max-width:155px;padding:0 8px;border:1px solid #dfe5df;border-radius:5px;background:white;color:#344037}.editor-actions{display:flex;gap:6px}.editor-error{color:#a33;font-size:11px;width:100%}tr[data-transaction]{cursor:pointer}tr[data-transaction].editing{background:#edf5ef}
+.summary-grid[hidden]{display:none}.transaction-editor-panel{margin-top:15px;padding:16px 18px;border:1px solid #e3e9e3;border-radius:8px;background:#f1f6f1}.transaction-editor-panel h2{font:700 14px Manrope,sans-serif;margin-bottom:12px}.transaction-editor{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;align-items:end}.transaction-editor label{display:flex;flex-direction:column;gap:5px;font-size:10px;color:#59655c}.transaction-editor input,.transaction-editor select,.transaction-editor textarea{width:100%;min-width:0;height:37px;padding:0 8px;border:1px solid #dfe5df;border-radius:5px;background:white;color:#344037}.transaction-editor .editor-note{grid-column:span 4}.transaction-editor .editor-actions{grid-column:span 2;justify-content:flex-end}.editor-actions{display:flex;gap:6px}.editor-error{color:#a33;font-size:11px;width:100%}.transaction-editor .editor-error{grid-column:1 / -1}tr[data-transaction]{cursor:pointer}tr[data-transaction].editing{background:#edf5ef}
 .transaction-editor-panel{position:sticky;bottom:0;z-index:1;max-height:45vh;overflow:auto;box-shadow:0 -6px 20px #202a2214}
 @media(max-width:1100px){.schedules-workspace{grid-template-columns:1fr}
 .schedule-list{max-height:none}
@@ -236,6 +232,12 @@ dialog::backdrop{background:#202b2470;backdrop-filter:blur(2px)}
 }
 
 .register-error:not(:empty){color:#a33;margin:10px 0;font-size:11px}
-.database-controls{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:10px 5px;border-top:1px solid #edf0ed}.database-controls small{color:#758078;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.database-controls button{border:0;background:none;padding:3px 0;text-align:left;color:#286e49;font-size:10px;cursor:pointer}.database-controls button:hover{text-decoration:underline}.database-error{color:#a33;font-size:10px;overflow-wrap:anywhere}.database-controls + .sidebar-bottom{margin-top:0}.database-switching #app{pointer-events:none}
+.database-controls{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:10px 5px;border-top:1px solid #edf0ed}.database-controls small{color:#758078;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.database-controls button{border:0;background:none;padding:3px 0;text-align:left;color:#286e49;font-size:10px;cursor:pointer}.database-controls button:hover{text-decoration:underline}.database-error{color:#a33;font-size:10px;overflow-wrap:anywhere}.database-switching #app{pointer-events:none}
 
 .database-fatal{padding:32px;color:#a33;display:flex;flex-direction:column;align-items:flex-start;gap:16px}
+
+#transaction-form textarea,.transaction-editor textarea{height:auto;min-height:44px;padding:8px 10px;resize:vertical;font:inherit;font-size:11px}
+
+.transaction-editor input:focus,.transaction-editor select:focus,.transaction-editor textarea:focus{outline:none;border-color:#69a27a;box-shadow:0 0 0 3px #e8f3ea}
+.transaction-editor .editor-error:empty{display:none}
+@media(max-width:1100px){.transaction-editor{grid-template-columns:repeat(3,minmax(0,1fr))}.transaction-editor .editor-note{grid-column:span 2}.transaction-editor .editor-actions{grid-column:span 1;flex-wrap:wrap}}

@@ -12,6 +12,66 @@ describe("transaction register", () => {
   });
   afterEach(() => { vi.useRealTimers(); vi.doUnmock("@tauri-apps/api/core"); });
 
+  it("shows the year for historical operations with the same day and month", async () => {
+    await openRegister({ transactions: [
+      { id: "old", accountId: "one", date: "2016-10-29", label: "Ancienne", category: "Divers", amount: -1, reconciled: false },
+      { id: "recent", accountId: "one", date: "2026-10-29", label: "Récente", category: "Divers", amount: -1, reconciled: false },
+    ] });
+    expect(document.querySelector('tr[data-transaction="old"] .date-cell')?.textContent).toContain("2016");
+    expect(document.querySelector('tr[data-transaction="recent"] .date-cell')?.textContent).toContain("2026");
+  });
+
+  it("distinguishes negative balances from zero and updates after an operation", async () => {
+    await openRegister({ accounts: [{ id: "one", name: "Principal", kind: "Compte courant", openingBalance: 0, bank: "" }], transactions: [] });
+    expect(document.querySelector(".balance-card")?.classList.contains("negative-balance")).toBe(false);
+    click("#new-transaction");
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    field(form, "label").value = "Paiement";
+    field(form, "date").value = "2027-01-01";
+    field(form, "amount").value = "0.01";
+    submit(form);
+    await vi.waitFor(() => expect(document.querySelector(".balance-card")?.classList.contains("negative-balance")).toBe(true));
+    expect(document.querySelector(".balance-card strong")?.textContent).toContain("0,01");
+    click("[data-delete]");
+    await vi.waitFor(() => expect(document.querySelector(".balance-card")?.classList.contains("negative-balance")).toBe(false));
+  });
+
+  it("filters unreconciled operations from the summary and returns to the first page", async () => {
+    const entries = Array.from({ length: 150 }, (_, i) => ({ id: `item-${String(i).padStart(3, "0")}`, accountId: "one", date: "2027-01-01", label: `Opération ${i}`, category: "Divers", amount: -1, reconciled: i % 2 === 0 }));
+    const invoke = await openRegister({ transactions: entries });
+    click("#next-page");
+    await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>("#page-input")?.value).toBe("2"));
+    click("#filter-unreconciled");
+    await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>("#transaction-filter")?.value).toBe("unreconciled"));
+    expect(document.querySelector<HTMLInputElement>("#page-input")?.value).toBe("1");
+    expect(document.querySelectorAll("tr[data-transaction]")).toHaveLength(75);
+    expect(invoke).toHaveBeenCalledWith("list_register", expect.objectContaining({ filter: "unreconciled", page: 1 }));
+    expect(document.querySelector(".reconciliation-card")?.textContent).toContain("75");
+  });
+
+  it("allows the summary filter when no operations are awaiting reconciliation", async () => {
+    await openRegister({ transactions: [] });
+    click("#filter-unreconciled");
+    await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>("#transaction-filter")?.value).toBe("unreconciled"));
+    expect(document.querySelector("tbody")?.textContent).toContain("Aucune opération");
+  });
+
+  it("filters current-month credits and debits from their summary cards", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 0, 15, 12));
+    const entry = (id: string, date: string, amount: number) => ({ id, accountId: "one", date, label: id, category: "Divers", amount, reconciled: false });
+    const invoke = await openRegister({ transactions: [entry("Entrée du mois", "2027-01-01", 15), entry("Sortie du mois", "2027-01-02", -5), entry("Ancienne entrée", "2026-12-01", 30), entry("Ancienne sortie", "2026-12-02", -10)] });
+    click("#filter-month-credit");
+    await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>("#transaction-filter")?.value).toBe("month-credit"));
+    expect(document.querySelector("tbody")?.textContent).toContain("Entrée du mois");
+    expect(document.querySelector("tbody")?.textContent).not.toContain("Ancienne entrée");
+    expect(invoke).toHaveBeenCalledWith("list_register", expect.objectContaining({ filter: "month-credit", month: "2027-01", page: 1 }));
+    click("#filter-month-debit");
+    await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>("#transaction-filter")?.value).toBe("month-debit"));
+    expect(document.querySelector("tbody")?.textContent).toContain("Sortie du mois");
+    expect(document.querySelector("tbody")?.textContent).not.toContain("Ancienne sortie");
+  });
+
   it("paginates filtered history with stable same-day ordering and cent-accurate balances", async () => {
     const entries = Array.from({ length: 205 }, (_, i) => ({ id: `id-${String(i).padStart(3, "0")}`, accountId: "one", date: "2027-01-01", label: `Opération ${i}`, category: "Divers", amount: i % 2 ? -0.1 : 0.2, reconciled: false }));
     await openRegister({ transactions: entries.reverse() });
@@ -72,6 +132,34 @@ describe("transaction register", () => {
     expect(invoke).toHaveBeenCalledWith("create_transaction", { transaction: expect.objectContaining({ accountId: "one", amount: -1234, cheque: "0012345" }) });
     expect(document.querySelector(".balance-card")?.textContent).toContain("117,66");
     expect(document.querySelector('.account-item.active .account-balance')?.textContent).toContain("117,66");
+  });
+
+  it("creates, edits, cancels and clears an operation comment safely", async () => {
+    const invoke = await openRegister({ transactions: [] });
+    click("#new-transaction");
+    let form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    field(form, "label").value = "Test commentaire";
+    field(form, "date").value = "2027-01-03";
+    field(form, "amount").value = "12.34";
+    field(form, "note").value = "Note <importante>\nSeconde ligne";
+    submit(form);
+    await vi.waitFor(() => expect(document.querySelector(".transaction-note")?.textContent).toContain("Note <importante>"));
+    expect(invoke).toHaveBeenCalledWith("create_transaction", expect.objectContaining({ transaction: expect.objectContaining({ note: "Note <importante>\nSeconde ligne" }) }));
+    expect(document.querySelector(".transaction-note > importante")).toBeNull();
+    click("tr[data-transaction] .date-cell");
+    form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    expect(field(form, "note").value).toBe("Note <importante>\nSeconde ligne");
+    field(form, "note").value = "Annulé";
+    click(".cancel-editor");
+    expect(document.querySelector(".transaction-note")?.textContent).not.toContain("Annulé");
+    click("tr[data-transaction] .date-cell");
+    form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    field(form, "note").value = "Modifié"; submit(form);
+    await vi.waitFor(() => expect(document.querySelector(".transaction-note")?.textContent).toBe("Modifié"));
+    click("tr[data-transaction] .date-cell");
+    form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    field(form, "note").value = ""; submit(form);
+    await vi.waitFor(() => expect(document.querySelector(".transaction-note")).toBeNull());
   });
 
   it("suggests previous payees from other accounts while allowing a new label", async () => {

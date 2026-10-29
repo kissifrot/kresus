@@ -44,6 +44,9 @@ pub struct NewTransaction {
     pub(crate) category: String,
     pub(crate) cheque: Option<String>,
     pub(crate) amount: i64,
+    // Missing notes preserve existing data on updates from older clients.
+    #[serde(default)]
+    pub(crate) note: Option<String>,
 }
 
 #[tauri::command]
@@ -82,7 +85,9 @@ pub fn list_register(account_id: String, filter: String, page: i64, month: Strin
 pub(crate) fn list_register_in_db(db: &Connection, account_id: &str, filter: &str, page: i64, month: &str) -> Result<RegisterPage, String> {
     let predicate = match filter {
         "all" => "1", "unreconciled" => "reconciled = 0", "reconciled" => "reconciled = 1",
-        "debit" => "amount_cents < 0", "credit" => "amount_cents > 0", _ => return Err("Filtre invalide.".into()),
+        "debit" => "amount_cents < 0", "credit" => "amount_cents > 0",
+        "month-debit" => "amount_cents < 0 AND substr(operation_date,1,7)=?2",
+        "month-credit" => "amount_cents > 0 AND substr(operation_date,1,7)=?2", _ => return Err("Filtre invalide.".into()),
     };
     if page < 1 || page > 10_000_000 || month.len() != 7 || !month.bytes().enumerate().all(|(i, b)| if i == 4 { b == b'-' } else { b.is_ascii_digit() }) {
         return Err("Page ou mois invalide.".into());
@@ -92,9 +97,9 @@ pub(crate) fn list_register_in_db(db: &Connection, account_id: &str, filter: &st
     let page_count = ((filtered_count + 99) / 100).max(1);
     let page = page.min(page_count);
     // Compute balances before filtering; hidden rows must still affect them.
-    let sql = format!("WITH history AS (SELECT t.*, a.opening_balance_cents + SUM(t.amount_cents) OVER (ORDER BY t.operation_date,t.id ROWS UNBOUNDED PRECEDING) AS running_balance FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE t.account_id=?1) SELECT h.id,h.account_id,h.operation_date,h.label,h.category,h.cheque,h.amount_cents,h.reconciled,h.note,x.id,h.running_balance FROM history h LEFT JOIN transfers x ON x.debit_id=h.id OR x.credit_id=h.id WHERE {predicate} ORDER BY h.operation_date DESC,h.id DESC LIMIT 100 OFFSET ?2");
+    let sql = format!("WITH history AS (SELECT t.*, a.opening_balance_cents + SUM(t.amount_cents) OVER (ORDER BY t.operation_date,t.id ROWS UNBOUNDED PRECEDING) AS running_balance FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE t.account_id=?1) SELECT h.id,h.account_id,h.operation_date,h.label,h.category,h.cheque,h.amount_cents,h.reconciled,h.note,x.id,h.running_balance FROM history h LEFT JOIN transfers x ON x.debit_id=h.id OR x.credit_id=h.id WHERE {predicate} ORDER BY h.operation_date DESC,h.id DESC LIMIT 100 OFFSET ?3");
     let mut statement = db.prepare(&sql).map_err(database_error)?;
-    let rows = statement.query_map(params![account_id,(page-1)*100], |row| Ok(RegisterRow { transaction: Transaction { id:row.get(0)?, account_id:row.get(1)?, date:row.get(2)?, label:row.get(3)?, category:row.get(4)?, cheque:row.get(5)?, amount:row.get(6)?, reconciled:row.get::<_,i64>(7)? != 0, note:row.get(8)?, transfer_id:row.get(9)? }, running_balance: row.get(10)? })).map_err(database_error)?.collect::<rusqlite::Result<Vec<_>>>().map_err(database_error)?;
+    let rows = statement.query_map(params![account_id,month,(page-1)*100], |row| Ok(RegisterRow { transaction: Transaction { id:row.get(0)?, account_id:row.get(1)?, date:row.get(2)?, label:row.get(3)?, category:row.get(4)?, cheque:row.get(5)?, amount:row.get(6)?, reconciled:row.get::<_,i64>(7)? != 0, note:row.get(8)?, transfer_id:row.get(9)? }, running_balance: row.get(10)? })).map_err(database_error)?.collect::<rusqlite::Result<Vec<_>>>().map_err(database_error)?;
     Ok(RegisterPage { rows, total_count, filtered_count, unreconciled_count, income, expenses, credit_count, debit_count, page, page_count })
 }
 
@@ -196,7 +201,7 @@ pub fn create_transaction(transaction: NewTransaction, state: tauri::State<'_, A
 pub(crate) fn create_transaction_in_db(connection: &Connection, transaction: NewTransaction) -> Result<(), String> {
     validate_transaction_amount(transaction.amount)?;
     let cents = transaction.amount;
-    connection.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![transaction.id, transaction.account_id, transaction.date, transaction.label, transaction.category, transaction.cheque, cents]).map_err(database_error)?;
+    connection.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''))", params![transaction.id, transaction.account_id, transaction.date, transaction.label, transaction.category, transaction.cheque, cents, transaction.note]).map_err(database_error)?;
     Ok(())
 }
 
@@ -223,7 +228,7 @@ pub(crate) fn update_transaction_in_db(connection: &Connection, transaction: New
     validate_transaction_amount(transaction.amount)?;
     let linked: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM transfers WHERE debit_id=?1 OR credit_id=?1)", [&transaction.id], |row| row.get(0)).map_err(database_error)?;
     if linked { return Err("La modification d’un virement lié n’est pas encore disponible.".into()); }
-    let changed = connection.execute("UPDATE transactions SET operation_date = ?1, label = ?2, category = ?3, cheque = ?4, amount_cents = ?5 WHERE id = ?6 AND account_id = ?7", params![transaction.date, transaction.label, transaction.category, transaction.cheque, transaction.amount, transaction.id, transaction.account_id]).map_err(database_error)?;
+    let changed = connection.execute("UPDATE transactions SET operation_date = ?1, label = ?2, category = ?3, cheque = ?4, amount_cents = ?5, note = CASE WHEN ?8 IS NULL THEN note ELSE NULLIF(?8, '') END WHERE id = ?6 AND account_id = ?7", params![transaction.date, transaction.label, transaction.category, transaction.cheque, transaction.amount, transaction.id, transaction.account_id, transaction.note]).map_err(database_error)?;
     if changed == 0 { return Err("Opération introuvable.".to_string()); }
     Ok(())
 }

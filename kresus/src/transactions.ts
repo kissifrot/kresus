@@ -7,9 +7,9 @@ import { categoryOptions } from "./categories";
 import { openTransferEditor } from "./transfers";
 import { loadPayeeSuggestions } from "./payees";
 
-type TransactionFilter = "all" | "unreconciled" | "reconciled" | "debit" | "credit";
+type TransactionFilter = "all" | "unreconciled" | "reconciled" | "debit" | "credit" | "month-debit" | "month-credit";
 export let transactionFilter: TransactionFilter = "all";
-export const transactionFilters: Record<TransactionFilter, string> = { all: "Toutes les opérations", unreconciled: "À pointer", reconciled: "Pointées", debit: "Débits", credit: "Crédits" };
+export const transactionFilters: Record<TransactionFilter, string> = { all: "Toutes les opérations", unreconciled: "À pointer", reconciled: "Pointées", debit: "Débits", credit: "Crédits", "month-credit": "Entrées ce mois", "month-debit": "Sorties ce mois" };
 const pageSize = 100;
 let transactionPage = 1;
 let pageAccountId: string | undefined;
@@ -27,6 +27,10 @@ export function registerSummary() {
 }
 
 export function bindTransactionFilter() {
+  // Summary shortcuts apply the same filters as the list and restart at page one.
+  for (const [id, filter] of [["filter-unreconciled", "unreconciled"], ["filter-month-credit", "month-credit"], ["filter-month-debit", "month-debit"]] as const) {
+    document.querySelector<HTMLButtonElement>(`#${id}`)?.addEventListener("click", () => { transactionFilter = filter; transactionPage = 1; void refreshTransactions(); });
+  }
   document.querySelector<HTMLSelectElement>("#transaction-filter")?.addEventListener("change", (event) => { transactionFilter = (event.currentTarget as HTMLSelectElement).value as TransactionFilter; transactionPage = 1; void refreshTransactions(); });
   document.querySelector<HTMLButtonElement>("#previous-page")?.addEventListener("click", () => { transactionPage--; void refreshTransactions(); });
   document.querySelector<HTMLButtonElement>("#next-page")?.addEventListener("click", () => { transactionPage++; void refreshTransactions(); });
@@ -56,7 +60,7 @@ export function bindTransactionActions() {
     summary.hidden = true;
     const editor = document.createElement("section");
     editor.className = "transaction-editor-panel";
-    editor.innerHTML = `<h2>Modifier l’opération</h2><form class="transaction-editor"><label>Date<input name="date" type="date" required value="${escapeHtml(item.date)}"></label><label>Destinataire<input name="label" list="edit-payee-suggestions" required maxlength="80" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label><label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label><label>N° chèque<input name="cheque" pattern="[0-9]{7}" maxlength="7" value="${escapeHtml(item.cheque ?? "")}"></label><label>Type<select name="type"><option value="debit" ${item.amount < 0 ? "selected" : ""}>Débit</option><option value="credit" ${item.amount > 0 ? "selected" : ""}>Crédit</option></select></label><label>Montant (€)<input name="amount" type="number" min="0.01" step="0.01" required value="${centsInput(Math.abs(item.amount))}"></label><div class="editor-actions"><button type="submit" class="primary-button">Enregistrer</button><button type="button" class="secondary-button cancel-editor">Annuler</button></div><p class="editor-error" role="alert"></p></form>`;
+    editor.innerHTML = `<h2>Modifier l’opération</h2><form class="transaction-editor"><label>Date<input name="date" type="date" required value="${escapeHtml(item.date)}"></label><label>Destinataire<input name="label" list="edit-payee-suggestions" required maxlength="80" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label><label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label><label>N° chèque<input name="cheque" pattern="[0-9]{7}" maxlength="7" value="${escapeHtml(item.cheque ?? "")}"></label><label>Type<select name="type"><option value="debit" ${item.amount < 0 ? "selected" : ""}>Débit</option><option value="credit" ${item.amount > 0 ? "selected" : ""}>Crédit</option></select></label><label>Montant (€)<input name="amount" type="number" min="0.01" step="0.01" required value="${centsInput(Math.abs(item.amount))}"></label><label class="editor-note">Commentaire<textarea name="note" rows="2" placeholder="Ajouter un commentaire (facultatif)">${escapeHtml(item.note ?? "")}</textarea></label><div class="editor-actions"><button type="submit" class="primary-button">Enregistrer</button><button type="button" class="secondary-button cancel-editor">Annuler</button></div><p class="editor-error" role="alert"></p></form>`;
     document.querySelector(".transactions-panel")!.after(editor);
     void loadPayeeSuggestions(editor.querySelector<HTMLDataListElement>("#edit-payee-suggestions")!);
     editor.querySelector(".cancel-editor")?.addEventListener("click", () => { editor.remove(); row.classList.remove("editing"); summary.hidden = false; });
@@ -66,7 +70,7 @@ export function bindTransactionActions() {
       const values = new FormData(form);
       try {
         const amount = parseCents(String(values.get("amount")));
-        await invoke("update_transaction", { transaction: { id: item.id, accountId: item.accountId, date: String(values.get("date")), label: String(values.get("label")).trim(), category: String(values.get("category")).trim(), cheque: String(values.get("cheque")).trim() || null, amount: values.get("type") === "credit" ? amount : -amount } });
+        await invoke("update_transaction", { transaction: { id: item.id, accountId: item.accountId, date: String(values.get("date")), label: String(values.get("label")).trim(), category: String(values.get("category")).trim(), cheque: String(values.get("cheque")).trim() || null, note: String(values.get("note") ?? ""), amount: values.get("type") === "credit" ? amount : -amount } });
         await refreshTransactions();
       } catch (error) { editor.querySelector<HTMLElement>(".editor-error")!.textContent = `Enregistrement impossible : ${String(error)}`; }
     });
@@ -87,7 +91,7 @@ export function bindTransactionActions() {
     if (cheque && !/^\d{7}$/.test(cheque)) { (form.elements.namedItem("cheque") as HTMLInputElement).setCustomValidity("Le numéro de chèque doit comporter 7 chiffres."); (form.elements.namedItem("cheque") as HTMLInputElement).reportValidity(); return; }
     try {
       const amount = parseCents(String(values.get("amount")));
-      await invoke("create_transaction", { transaction: { id: crypto.randomUUID(), accountId: selectedAccount.id, date: String(values.get("date")), label: String(values.get("label")).trim(), category: String(values.get("category")), cheque: cheque || null, amount: values.get("type") === "credit" ? amount : -amount } });
+      await invoke("create_transaction", { transaction: { id: crypto.randomUUID(), accountId: selectedAccount.id, date: String(values.get("date")), label: String(values.get("label")).trim(), category: String(values.get("category")), cheque: cheque || null, note: String(values.get("note") ?? ""), amount: values.get("type") === "credit" ? amount : -amount } });
       closeDialog();
       await refreshTransactions();
     } catch (error) { form.querySelector<HTMLElement>(".transaction-error")!.textContent = `Enregistrement impossible : ${String(error)}`; }

@@ -28,7 +28,7 @@ export async function openRegister(options: { failAccount?: boolean; accounts?: 
         const all = transactions.filter((item) => item.accountId === account.id).sort((a, b) => a.date.localeCompare(b.date) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
         let balance = account.openingBalance;
         const withBalance = all.map((item) => ({ ...item, runningBalance: balance += item.amount })).reverse();
-        const filtered = withBalance.filter((item) => args?.filter === "all" || (args?.filter === "credit" && item.amount > 0) || (args?.filter === "debit" && item.amount < 0) || (args?.filter === "reconciled" && item.reconciled) || (args?.filter === "unreconciled" && !item.reconciled));
+        const filtered = withBalance.filter((item) => args?.filter === "all" || (args?.filter === "credit" && item.amount > 0) || (args?.filter === "debit" && item.amount < 0) || (args?.filter === "reconciled" && item.reconciled) || (args?.filter === "unreconciled" && !item.reconciled) || (args?.filter === "month-credit" && item.amount > 0 && item.date.startsWith(args!.month)) || (args?.filter === "month-debit" && item.amount < 0 && item.date.startsWith(args!.month)));
         const month = all.filter((item) => item.date.startsWith(args!.month));
         const credit = month.filter((item) => item.amount > 0), debit = month.filter((item) => item.amount < 0);
         const pageCount = Math.max(1, Math.ceil(filtered.length / 100)), page = Math.min(args!.page, pageCount);

@@ -68,6 +68,17 @@ describe("schedule calendar", () => {
   });
   afterEach(() => { vi.useRealTimers(); vi.doUnmock("@tauri-apps/api/core"); });
 
+  it("exposes the full calendar label in a native tooltip", async () => {
+    vi.setSystemTime(new Date(2027, 0, 1, 12));
+    const entry = recurring("2027-01-15", 15, "Mensuelle");
+    entry.label = 'Abonnement <internet> "maison"';
+    await openCalendar([entry]);
+    const event = document.querySelector<HTMLElement>(".calendar-event")!;
+    expect(event.title).toBe('Abonnement <internet> "maison"');
+    expect(event.textContent).toBe(entry.label);
+    expect(event.querySelector("internet")).toBeNull();
+  });
+
   it("distinguishes an overdue occurrence from the next future projection", async () => {
     vi.setSystemTime(new Date(2026, 9, 29, 12));
     await openCalendar([recurring("2026-09-29", 29, "Annuelle")]);
