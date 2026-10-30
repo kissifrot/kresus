@@ -251,7 +251,9 @@ export function inspect(buffer: Buffer) {
     const category = categories.find((c) => c.hcat === id);
     if (!category || category.nLevel === 0) return "Divers";
     const parent = categories.find((c) => c.hcat === category.hcatParent);
-    return category.nLevel === 2 ? `${parent?.szFull} · ${category.szFull}` : category.szFull;
+    return category.nLevel === 2
+      ? `${String(parent?.szFull ?? "").trim()} · ${String(category.szFull ?? "").trim()}`
+      : String(category.szFull ?? "").trim();
   };
   const operations = tx
     .filter((t) => bank.some((a) => a.hacct === t.hacct) && t.frq === -1)

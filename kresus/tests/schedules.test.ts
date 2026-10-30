@@ -267,7 +267,7 @@ describe("schedule calendar", () => {
     const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
     const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
     field("label").value = "Mensualité";
-    field("amount").value = "10";
+    field("amount").value = "10,00";
     field("limitType").value = "count";
     field("limitType").dispatchEvent(new Event("change"));
     field("remainingCount").value = "3";
@@ -326,7 +326,7 @@ describe("schedule calendar", () => {
     expect(document.querySelector(".schedule-summary")?.textContent).toContain("0,30");
     (document.querySelector('[data-edit-schedule="schedule"]') as HTMLButtonElement).click();
     const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
-    expect((form.elements.namedItem("amount") as HTMLInputElement).value).toBe("0.10");
+    expect((form.elements.namedItem("amount") as HTMLInputElement).value).toBe("0,10");
     (form.elements.namedItem("amount") as HTMLInputElement).value = "0.29";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() =>
@@ -586,13 +586,17 @@ describe("schedule calendar", () => {
     method.value = "cheque";
     method.dispatchEvent(new Event("change"));
     expect(cheque.disabled).toBe(false);
-    cheque.value = "00123";
+    cheque.value = "123";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(invoke).not.toHaveBeenCalledWith("update_future_occurrence", expect.anything());
+    expect(form.querySelector(".editor-error")?.textContent).toContain("7 chiffres");
+    cheque.value = "0012345";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
         "update_future_occurrence",
         expect.objectContaining({
-          schedule: expect.objectContaining({ paymentMethod: "cheque", cheque: "00123" }),
+          schedule: expect.objectContaining({ paymentMethod: "cheque", cheque: "0012345" }),
         }),
       ),
     );
@@ -600,7 +604,7 @@ describe("schedule calendar", () => {
       expect(document.querySelector("#schedule-dialog")!.hasAttribute("open")).toBe(false),
     );
     (document.querySelector("[data-edit-future]") as HTMLButtonElement).click();
-    expect(document.querySelector<HTMLInputElement>('[name="cheque"]')!.value).toBe("00123");
+    expect(document.querySelector<HTMLInputElement>('[name="cheque"]')!.value).toBe("0012345");
   });
 
   it("saves an occurrence edit and displays its updated date and amount", async () => {

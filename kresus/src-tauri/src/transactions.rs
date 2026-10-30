@@ -454,8 +454,9 @@ pub(crate) fn create_transaction_in_db(
     transaction: NewTransaction,
 ) -> Result<(), String> {
     validate_transaction_amount(transaction.amount)?;
+    validate_cheque(transaction.cheque.as_deref())?;
     let cents = transaction.amount;
-    connection.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''))", params![transaction.id, transaction.account_id, transaction.date, transaction.label, transaction.category, transaction.cheque, cents, transaction.note]).map_err(database_error)?;
+    connection.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''))", params![transaction.id, transaction.account_id, transaction.date, transaction.label.trim(), transaction.category.trim(), transaction.cheque.as_deref().map(str::trim), cents, transaction.note.as_deref().map(str::trim)]).map_err(database_error)?;
     Ok(())
 }
 
@@ -500,6 +501,7 @@ pub(crate) fn update_transaction_in_db(
     transaction: NewTransaction,
 ) -> Result<(), String> {
     validate_transaction_amount(transaction.amount)?;
+    validate_cheque(transaction.cheque.as_deref())?;
     let linked: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM transfers WHERE debit_id=?1 OR credit_id=?1)",
@@ -510,9 +512,19 @@ pub(crate) fn update_transaction_in_db(
     if linked {
         return Err("La modification d’un virement lié n’est pas encore disponible.".into());
     }
-    let changed = connection.execute("UPDATE transactions SET operation_date = ?1, label = ?2, category = ?3, cheque = ?4, amount_cents = ?5, note = CASE WHEN ?8 IS NULL THEN note ELSE NULLIF(?8, '') END WHERE id = ?6 AND account_id = ?7", params![transaction.date, transaction.label, transaction.category, transaction.cheque, transaction.amount, transaction.id, transaction.account_id, transaction.note]).map_err(database_error)?;
+    let changed = connection.execute("UPDATE transactions SET operation_date = ?1, label = ?2, category = ?3, cheque = ?4, amount_cents = ?5, note = CASE WHEN ?8 IS NULL THEN note ELSE NULLIF(?8, '') END WHERE id = ?6 AND account_id = ?7", params![transaction.date, transaction.label.trim(), transaction.category.trim(), transaction.cheque.as_deref().map(str::trim), transaction.amount, transaction.id, transaction.account_id, transaction.note.as_deref().map(str::trim)]).map_err(database_error)?;
     if changed == 0 {
         return Err("Opération introuvable.".to_string());
+    }
+    Ok(())
+}
+
+// A cheque reference is optional, but when supplied it must contain seven ASCII digits.
+pub(crate) fn validate_cheque(cheque: Option<&str>) -> Result<(), String> {
+    if let Some(number) = cheque.map(str::trim).filter(|number| !number.is_empty()) {
+        if number.len() != 7 || !number.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err("Le numéro de chèque doit comporter 7 chiffres.".into());
+        }
     }
     Ok(())
 }

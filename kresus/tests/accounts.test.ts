@@ -229,7 +229,7 @@ describe("accounts", () => {
     field(form, "name").value = "  Livret A  ";
     field(form, "kind").value = "Épargne";
     field(form, "bank").value = "  Banque  ";
-    field(form, "balance").value = "-12.50";
+    field(form, "balance").value = "-12,50";
     submit(form);
     await vi.waitFor(() =>
       expect(document.querySelector(".page-heading h1")?.textContent).toBe("Livret A"),

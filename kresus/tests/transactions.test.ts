@@ -305,7 +305,7 @@ describe("transaction register", () => {
     const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
     field(form, "label").value = "Réparation";
     field(form, "date").value = "2027-01-03";
-    field(form, "amount").value = "12.34";
+    field(form, "amount").value = "12,34 €";
     field(form, "cheque").value = "0012345";
     submit(form);
     await vi.waitFor(() =>
@@ -320,6 +320,19 @@ describe("transaction register", () => {
     );
   });
 
+  it("rejects excessive or non-positive amounts before sending an operation", async () => {
+    const invoke = await openRegister();
+    click("#new-transaction");
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    field(form, "label").value = "Test plafond";
+    for (const amount of ["1 000 000 000,01 €", "0", "-1"]) {
+      field(form, "amount").value = amount;
+      submit(form);
+      expect(invoke).not.toHaveBeenCalledWith("create_transaction", expect.anything());
+      expect(form.querySelector(".transaction-error")?.textContent).toBeTruthy();
+    }
+  });
+
   it("creates, edits, cancels and clears an operation comment safely", async () => {
     const invoke = await openRegister({ transactions: [] });
     click("#new-transaction");
@@ -327,7 +340,7 @@ describe("transaction register", () => {
     field(form, "label").value = "Test commentaire";
     field(form, "date").value = "2027-01-03";
     field(form, "amount").value = "12.34";
-    field(form, "note").value = "Note <importante>\nSeconde ligne";
+    field(form, "note").value = "  Note <importante>\nSeconde ligne  ";
     submit(form);
     await vi.waitFor(() =>
       expect(document.querySelector(".transaction-note")?.textContent).toContain(

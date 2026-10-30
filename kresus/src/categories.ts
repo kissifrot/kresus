@@ -115,12 +115,15 @@ export function renderCategories() {
         await invoke("create_category", {
           category: {
             id: crypto.randomUUID(),
-            name: String(values.get("name")),
+            name: String(values.get("name")).trim(),
             parentId: String(values.get("parent")) || null,
           },
         });
       if (mode === "rename")
-        await invoke("rename_category", { id: selected!.id, name: String(values.get("name")) });
+        await invoke("rename_category", {
+          id: selected!.id,
+          name: String(values.get("name")).trim(),
+        });
       if (mode === "merge")
         await invoke("merge_category", {
           sourceId: selected!.id,

@@ -296,7 +296,9 @@ fn operation_comments_are_saved_edited_cleared_and_survive_reopening() {
         let db = Connection::open(&path.0).unwrap();
         crate::database::initialize_database(&db).unwrap();
         let mut entry = operation("comment-test", "ccp", -1.0);
-        entry.note = Some("Première ligne\n<seconde ligne>".into());
+        entry.label = "  Libellé  ".into();
+        entry.category = "  Divers  ".into();
+        entry.note = Some("  Première ligne\n<seconde ligne>  ".into());
         create_transaction_in_db(&db, entry).unwrap();
     }
     let db = Connection::open(&path.0).unwrap();
@@ -306,12 +308,14 @@ fn operation_comments_are_saved_edited_cleared_and_survive_reopening() {
         .into_iter()
         .find(|item| item.id == "comment-test")
         .unwrap();
+    assert_eq!(stored.label, "Libellé");
+    assert_eq!(stored.category, "Divers");
     assert_eq!(
         stored.note.as_deref(),
         Some("Première ligne\n<seconde ligne>")
     );
     let mut edit = operation("comment-test", "ccp", -1.0);
-    edit.note = Some("Commentaire modifié".into());
+    edit.note = Some("  Commentaire modifié  ".into());
     update_transaction_in_db(&db, edit).unwrap();
     let stored = list_transactions_in_db(&db, "ccp")
         .unwrap()
@@ -320,7 +324,7 @@ fn operation_comments_are_saved_edited_cleared_and_survive_reopening() {
         .unwrap();
     assert_eq!(stored.note.as_deref(), Some("Commentaire modifié"));
     let mut clear = operation("comment-test", "ccp", -1.0);
-    clear.note = Some(String::new());
+    clear.note = Some("  \n  ".into());
     update_transaction_in_db(&db, clear).unwrap();
     let stored = list_transactions_in_db(&db, "ccp")
         .unwrap()
@@ -504,4 +508,26 @@ fn register_search_matches_text_across_history_and_combines_with_filters() {
             .filtered_count,
         0
     );
+}
+
+#[test]
+fn cheque_validation_is_shared_by_creation_and_editing() {
+    let db = database();
+    let mut item = operation("cheque-test", "ccp", -1.0);
+    item.cheque = Some("123".into());
+    assert!(create_transaction_in_db(&db, item).is_err());
+    let mut valid = operation("cheque-test", "ccp", -1.0);
+    valid.cheque = Some("0012345".into());
+    create_transaction_in_db(&db, valid).unwrap();
+    let mut invalid = operation("cheque-test", "ccp", -2.0);
+    invalid.cheque = Some("abcdefg".into());
+    assert!(update_transaction_in_db(&db, invalid).is_err());
+    let saved: (Option<String>, i64) = db
+        .query_row(
+            "SELECT cheque,amount_cents FROM transactions WHERE id='cheque-test'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(saved, (Some("0012345".into()), -100));
 }

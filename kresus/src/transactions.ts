@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { transactions, accounts, selectedAccount, setTransactions, setAccounts } from "./state";
 import type { Account, Transaction } from "./types";
-import { escapeHtml, parseCents, centsInput, localDate } from "./format";
+import { escapeHtml, parseCents, parsePositiveCents, centsInput, localDate } from "./format";
 import { render } from "./accounts";
 import { categoryOptions } from "./categories";
 import { openTransferEditor } from "./transfers";
@@ -150,7 +150,7 @@ export function bindTransactionActions() {
             <option value="debit" ${item.amount < 0 ? "selected" : ""}>Débit</option>
             <option value="credit" ${item.amount > 0 ? "selected" : ""}>Crédit</option>
           </select></label>
-          <label>Montant (€)<input name="amount" type="number" min="0.01" step="0.01" required value="${centsInput(Math.abs(item.amount))}"></label>
+          <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required value="${centsInput(Math.abs(item.amount))}"></label>
           <label class="editor-note">Commentaire<textarea name="note" rows="2" placeholder="Ajouter un commentaire (facultatif)">${escapeHtml(item.note ?? "")}</textarea></label>
           <div class="editor-actions">
             <button type="submit" class="primary-button">Enregistrer</button>
@@ -172,7 +172,7 @@ export function bindTransactionActions() {
         const form = submitEvent.currentTarget as HTMLFormElement;
         const values = new FormData(form);
         try {
-          const amount = parseCents(String(values.get("amount")));
+          const amount = parsePositiveCents(String(values.get("amount")));
           await invoke("update_transaction", {
             transaction: {
               id: item.id,
@@ -181,7 +181,7 @@ export function bindTransactionActions() {
               label: String(values.get("label")).trim(),
               category: String(values.get("category")).trim(),
               cheque: String(values.get("cheque")).trim() || null,
-              note: String(values.get("note") ?? ""),
+              note: String(values.get("note") ?? "").trim(),
               amount: values.get("type") === "credit" ? amount : -amount,
             },
           });
@@ -217,7 +217,7 @@ export function bindTransactionActions() {
       return;
     }
     try {
-      const amount = parseCents(String(values.get("amount")));
+      const amount = parsePositiveCents(String(values.get("amount")));
       await invoke("create_transaction", {
         transaction: {
           id: crypto.randomUUID(),
@@ -226,7 +226,7 @@ export function bindTransactionActions() {
           label: String(values.get("label")).trim(),
           category: String(values.get("category")),
           cheque: cheque || null,
-          note: String(values.get("note") ?? ""),
+          note: String(values.get("note") ?? "").trim(),
           amount: values.get("type") === "credit" ? amount : -amount,
         },
       });

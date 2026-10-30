@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { accounts, selectedAccount } from "./state";
-import { escapeHtml, parseCents, centsInput } from "./format";
+import { escapeHtml, parsePositiveCents, centsInput } from "./format";
 import { categoryOptions } from "./categories";
 import { refreshTransactions } from "./transactions";
 
@@ -67,7 +67,7 @@ export function transferDialog(): string {
         <label>Compte crédité<select name="destinationId" required>${options}</select></label>
         <div class="form-row">
           <label>Date<input name="date" type="date" required></label>
-          <label>Montant (€)<input name="amount" type="number" min="0.01" max="1000000000" step="0.01" required></label>
+          <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label>
         </div>
         <label>Catégorie<select name="category" required>${categoryOptions()}</select></label>
         <label>Commentaire <span class="optional">(facultatif)</span><input name="note" maxlength="200"></label>
@@ -121,7 +121,7 @@ export function bindTransferActions() {
           sourceId,
           destinationId,
           date: String(values.get("date")),
-          amount: parseCents(String(values.get("amount"))),
+          amount: parsePositiveCents(String(values.get("amount"))),
           category: String(values.get("category")),
           note: String(values.get("note")).trim(),
         },

@@ -651,7 +651,7 @@ fn cheque_number_is_recorded_once_while_the_payment_method_stays_on_the_series()
     let mut db = database();
     let mut item = schedule("2028-01-31", "Mensuelle");
     item.payment_method = Some("cheque".into());
-    item.cheque = Some(" 00123 ".into());
+    item.cheque = Some(" 0012345 ".into());
     save_schedule_in_db(&mut db, item, None).unwrap();
     record_schedule_in_db(&mut db, "test-schedule", "one").unwrap();
     let item = list_schedules_in_db(&db)
@@ -672,7 +672,7 @@ fn cheque_number_is_recorded_once_while_the_payment_method_stays_on_the_series()
             r.get(0)
         })
         .unwrap();
-    assert_eq!(first.as_deref(), Some("00123"));
+    assert_eq!(first.as_deref(), Some("0012345"));
     assert_eq!(second, None);
 }
 
@@ -684,7 +684,7 @@ fn future_cheque_override_is_promoted_without_changing_series_payment() {
     save_schedule_in_db(&mut db, series, None).unwrap();
     let mut future = schedule("2028-02-29", "Mensuelle");
     future.payment_method = Some("cheque".into());
-    future.cheque = Some("0042".into());
+    future.cheque = Some("0000042".into());
     update_future_in_db(&mut db, future, "2028-02-29").unwrap();
     record_schedule_in_db(&mut db, "test-schedule", "first").unwrap();
     let item = list_schedules_in_db(&db)
@@ -694,7 +694,7 @@ fn future_cheque_override_is_promoted_without_changing_series_payment() {
         .unwrap();
     assert_eq!(
         (item.payment_method.as_deref(), item.cheque.as_deref()),
-        (Some("cheque"), Some("0042"))
+        (Some("cheque"), Some("0000042"))
     );
     assert_eq!(
         item.series.unwrap().payment_method.as_deref(),
@@ -708,7 +708,7 @@ fn future_cheque_override_is_promoted_without_changing_series_payment() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(cheque.as_deref(), Some("0042"));
+    assert_eq!(cheque.as_deref(), Some("0000042"));
     let item = list_schedules_in_db(&db)
         .unwrap()
         .into_iter()
@@ -728,4 +728,39 @@ fn invalid_payment_fields_are_rejected() {
     let mut item = recurring_transfer();
     item.payment_method = Some("cheque".into());
     assert!(save_schedule_in_db(&mut db, item, None).is_err());
+}
+
+#[test]
+fn invalid_cheque_numbers_are_rejected_for_new_future_and_legacy_occurrences() {
+    let mut db = database();
+    for number in ["123", "12345678", "12345a7", "１２３４５６７"] {
+        let mut item = schedule("2028-01-31", "Mensuelle");
+        item.payment_method = Some("cheque".into());
+        item.cheque = Some(number.into());
+        assert!(
+            save_schedule_in_db(&mut db, item, None).is_err(),
+            "{number}"
+        );
+    }
+    save_schedule_in_db(&mut db, schedule("2028-01-31", "Mensuelle"), None).unwrap();
+    let mut future = schedule("2028-02-29", "Mensuelle");
+    future.payment_method = Some("cheque".into());
+    future.cheque = Some("123".into());
+    assert!(update_future_in_db(&mut db, future, "2028-02-29").is_err());
+    db.execute(
+        "UPDATE schedules SET payment_method='cheque',cheque='123' WHERE id='test-schedule'",
+        [],
+    )
+    .unwrap();
+    assert!(record_schedule_in_db(&mut db, "test-schedule", "invalid-cheque").is_err());
+    assert_eq!(next_date(&db), "2028-01-31");
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM transactions WHERE id='invalid-cheque'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
 }

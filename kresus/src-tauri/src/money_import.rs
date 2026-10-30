@@ -231,7 +231,7 @@ fn import_into_database(
             "INSERT INTO categories (id,name,parent_id) VALUES (?1,?2,?3)",
             params![
                 format!("money-cat-{}", c.id),
-                c.name,
+                c.name.trim(),
                 c.parent_id.map(|id| format!("money-cat-{id}"))
             ],
         )
@@ -240,7 +240,7 @@ fn import_into_database(
     if !preview
         .categories
         .iter()
-        .any(|c| c.parent_id.is_none() && c.name.eq_ignore_ascii_case("Divers"))
+        .any(|c| c.parent_id.is_none() && c.name.trim().eq_ignore_ascii_case("Divers"))
     {
         tx.execute(
             "INSERT INTO categories VALUES ('money-fallback','Divers',NULL)",
@@ -254,7 +254,7 @@ fn import_into_database(
                 "INSERT INTO accounts VALUES (?1,?2,?3,?4,'')",
                 params![
                     format!("money-account-{}", account.id),
-                    account.name,
+                    account.name.trim(),
                     kind,
                     account.opening_balance
                 ],
@@ -264,7 +264,7 @@ fn import_into_database(
     }
     for op in &preview.operations {
         if selected.contains_key(&op.account_id) {
-            tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![format!("money-transaction-{}",op.id),format!("money-account-{}",op.account_id),op.date,op.label,op.category,op.amount,op.reconciled,op.note]).map_err(database_error)?;
+            tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![format!("money-transaction-{}",op.id),format!("money-account-{}",op.account_id),op.date,op.label.trim(),op.category.trim(),op.amount,op.reconciled,op.note.trim()]).map_err(database_error)?;
         }
     }
     for schedule in &preview.schedules {
@@ -330,7 +330,7 @@ fn import_into_database(
         } else {
             &schedule.kind
         };
-        tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![id,format!("money-account-{}",schedule.account_id),schedule.label,schedule.category,schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method]).map_err(database_error)?;
+        tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![id,format!("money-account-{}",schedule.account_id),schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method]).map_err(database_error)?;
         tx.execute("INSERT INTO schedule_anchors (schedule_id,anchor_day) VALUES (?1, CAST(strftime('%d',?2) AS INTEGER))", params![id,schedule.next_due]).map_err(database_error)?;
         // Persist the reviewed limit alongside the imported series.
         tx.execute(
@@ -451,6 +451,60 @@ mod tests {
                 )
                 .unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn import_trims_text_without_changing_internal_spacing() {
+        let mut preview = fixture();
+        preview.accounts[0].name = "  Compte  ".into();
+        preview.categories[0].name = "  Maison  ".into();
+        preview.categories[1].name = "  Charges  ".into();
+        preview.operations[0].label = "  Mon  loyer  ".into();
+        preview.operations[0].category = "  Maison · Charges  ".into();
+        preview.operations[0].note = "  Une ligne\n  Une autre  ".into();
+        let mut db = Connection::open_in_memory().unwrap();
+        import_into_database(
+            &mut db,
+            &preview,
+            &[MoneySelection {
+                id: 1,
+                kind: "Compte courant".into(),
+            }],
+        )
+        .unwrap();
+        let row: (String, String, String) = db
+            .query_row(
+                "SELECT label,category,note FROM transactions WHERE id='money-transaction-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (
+                "Mon  loyer".into(),
+                "Maison · Charges".into(),
+                "Une ligne\n  Une autre".into()
+            )
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT name FROM accounts WHERE id='money-account-1'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "Compte"
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT name FROM categories WHERE id='money-cat-3'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "Maison"
         );
     }
 

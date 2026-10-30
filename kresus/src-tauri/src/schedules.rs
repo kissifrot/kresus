@@ -1,5 +1,5 @@
 use crate::database::{AppState, database_error};
-use crate::transactions::{NewTransfer, insert_transfer_in_tx};
+use crate::transactions::{NewTransfer, insert_transfer_in_tx, validate_cheque};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -67,12 +67,12 @@ pub(crate) struct ScheduleSeries {
 
 // A cheque number identifies one occurrence and is never reused automatically.
 fn validate_payment(schedule: &Schedule) -> Result<(), String> {
+    validate_cheque(schedule.cheque.as_deref())?;
     if !matches!(
         schedule.payment_method.as_deref(),
         None | Some("cheque" | "bank_transfer" | "direct_debit")
     ) || schedule.cheque.as_ref().is_some_and(|n| {
-        n.len() > 40
-            || (!n.trim().is_empty() && schedule.payment_method.as_deref() != Some("cheque"))
+        !n.trim().is_empty() && schedule.payment_method.as_deref() != Some("cheque")
     }) || (schedule.kind == "transfer"
         && schedule
             .payment_method
@@ -252,7 +252,7 @@ fn update_future_in_db(
     } else {
         None
     };
-    db.execute("INSERT INTO schedule_future_overrides (schedule_id,original_due,account_id,label,category,due_date,amount_cents,kind,destination_account_id,payment_method,cheque) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULLIF(TRIM(?11),'')) ON CONFLICT(schedule_id,original_due) DO UPDATE SET account_id=excluded.account_id,label=excluded.label,category=excluded.category,due_date=excluded.due_date,amount_cents=excluded.amount_cents,kind=excluded.kind,destination_account_id=excluded.destination_account_id,payment_method=excluded.payment_method,cheque=excluded.cheque", params![schedule.id,original,schedule.account_id,schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.amount,kind,destination,schedule.payment_method,schedule.cheque]).map_err(database_error)?;
+    db.execute("INSERT INTO schedule_future_overrides (schedule_id,original_due,account_id,label,category,due_date,amount_cents,kind,destination_account_id,payment_method,cheque) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULLIF(TRIM(?11),'')) ON CONFLICT(schedule_id,original_due) DO UPDATE SET account_id=excluded.account_id,label=excluded.label,category=excluded.category,due_date=excluded.due_date,amount_cents=excluded.amount_cents,kind=excluded.kind,destination_account_id=excluded.destination_account_id,payment_method=excluded.payment_method,cheque=excluded.cheque", params![schedule.id,original,schedule.account_id,schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.amount,kind,destination,schedule.payment_method,schedule.cheque.as_deref().map(str::trim)]).map_err(database_error)?;
     Ok(())
 }
 
@@ -395,7 +395,7 @@ pub(crate) fn save_schedule_in_db(
         } else {
             &schedule.kind
         };
-        tx.execute("INSERT INTO schedule_overrides (schedule_id, account_id, label, category, due_date, amount_cents, kind, payment_method, cheque) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULLIF(TRIM(?9),'')) ON CONFLICT(schedule_id) DO UPDATE SET account_id=excluded.account_id, label=excluded.label, category=excluded.category, due_date=excluded.due_date, amount_cents=excluded.amount_cents, kind=excluded.kind,payment_method=excluded.payment_method,cheque=excluded.cheque", params![schedule.id, schedule.account_id, schedule.label.trim(), schedule.category.trim(), schedule.next_due, schedule.amount, stored_kind, schedule.payment_method, schedule.cheque]).map_err(database_error)?;
+        tx.execute("INSERT INTO schedule_overrides (schedule_id, account_id, label, category, due_date, amount_cents, kind, payment_method, cheque) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULLIF(TRIM(?9),'')) ON CONFLICT(schedule_id) DO UPDATE SET account_id=excluded.account_id, label=excluded.label, category=excluded.category, due_date=excluded.due_date, amount_cents=excluded.amount_cents, kind=excluded.kind,payment_method=excluded.payment_method,cheque=excluded.cheque", params![schedule.id, schedule.account_id, schedule.label.trim(), schedule.category.trim(), schedule.next_due, schedule.amount, stored_kind, schedule.payment_method, schedule.cheque.as_deref().map(str::trim)]).map_err(database_error)?;
         tx.execute(
             "DELETE FROM schedule_transfer_overrides WHERE schedule_id=?1",
             [&schedule.id],
@@ -443,7 +443,7 @@ pub(crate) fn save_schedule_in_db(
                 schedule.amount,
                 stored_kind,
                 schedule.payment_method,
-                schedule.cheque
+                schedule.cheque.as_deref().map(str::trim)
             ],
         )
         .map_err(database_error)?;
@@ -507,6 +507,9 @@ pub(crate) fn record_schedule_in_db(
     let occurrence: Option<(String, Option<String>, String, String, String, i64)> = tx.query_row("SELECT COALESCE(o.account_id,s.account_id), CASE WHEN o.schedule_id IS NOT NULL THEN ot.destination_account_id ELSE st.destination_account_id END, COALESCE(o.due_date,s.next_due), COALESCE(o.label,s.label), COALESCE(o.category,s.category), COALESCE(o.amount_cents,s.amount_cents) FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id LEFT JOIN schedule_transfers st ON st.schedule_id=s.id LEFT JOIN schedule_transfer_overrides ot ON ot.schedule_id=s.id WHERE s.id=?1", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional().map_err(database_error)?;
     let (source, destination, date, label, category, cents) =
         occurrence.ok_or_else(|| "Échéance introuvable.".to_string())?;
+    // Old databases may contain an invalid number; ask for correction without changing data.
+    let cheque: Option<String> = tx.query_row("SELECT CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id WHERE s.id=?1", [id], |row| row.get(0)).map_err(database_error)?;
+    validate_cheque(cheque.as_deref())?;
     if let Some(destination) = destination {
         if source == destination || cents >= 0 {
             return Err("Virement récurrent invalide.".into());

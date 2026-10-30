@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Account, Schedule, CalendarOccurrence } from "./types";
 import { accounts, schedules, selectedAccount, setAccounts, setSchedules } from "./state";
-import { euro, escapeHtml, parseCents, centsInput } from "./format";
+import { euro, escapeHtml, parsePositiveCents, centsInput } from "./format";
 import { render } from "./accounts";
 import { categoryOptions } from "./categories";
 import { loadPayeeSuggestions } from "./payees";
@@ -175,8 +175,8 @@ function renderScheduleView(showOverdue: boolean) {
         <label>Destinataire / libellé<input name="label" list="schedule-payee-suggestions" required maxlength="80"><datalist id="schedule-payee-suggestions"></datalist></label>
         <label>Catégorie<select name="category" required>${categoryOptions()}</select></label>
         <div class="form-row"><label>Type<select name="kind"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer">Virement</option></select></label>
-        <label>Montant (€)<input name="amount" type="number" min="0.01" max="1000000000" step="0.01" required></label></div>
-        <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" maxlength="40"></label></div>
+        <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label></div>
+        <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label></div>
         <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" required></label>
         <label>Périodicité<select name="frequency"><option>Mensuelle</option><option>Bimestrielle</option><option>Trimestrielle</option><option>Semestrielle</option><option>Annuelle</option></select></label></div>
         <div class="schedule-limit"><label>Fin de la série<select name="limitType"><option value="none">Sans limite</option><option value="count">Nombre d’occurrences</option><option value="date">Date de fin</option></select></label>
@@ -354,6 +354,12 @@ function renderScheduleView(showOverdue: boolean) {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const values = new FormData(form);
+    const cheque = String(values.get("cheque") ?? "").trim();
+    if (cheque && !/^[0-9]{7}$/.test(cheque)) {
+      form.querySelector<HTMLElement>(".editor-error")!.textContent =
+        "Le numéro de chèque doit comporter 7 chiffres.";
+      return;
+    }
     const kind = String(values.get("kind"));
     const nextDue = String(values.get("nextDue"));
     const accountId = String(values.get("accountId"));
@@ -367,7 +373,7 @@ function renderScheduleView(showOverdue: boolean) {
     const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     button.disabled = true;
     try {
-      const amount = parseCents(String(values.get("amount")));
+      const amount = parsePositiveCents(String(values.get("amount")));
       await invoke(
         editingOriginal
           ? "update_future_occurrence"
@@ -388,7 +394,7 @@ function renderScheduleView(showOverdue: boolean) {
             amount: kind === "credit" ? amount : -amount,
             kind,
             paymentMethod: String(values.get("paymentMethod") ?? "") || null,
-            cheque: String(values.get("cheque") ?? "").trim() || null,
+            cheque: cheque || null,
             remainingCount: values.get("remainingCount")
               ? Number(values.get("remainingCount"))
               : null,
