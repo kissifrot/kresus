@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { transactions, accounts, selectedAccount, setTransactions, setAccounts } from "./state";
 import type { Account, Transaction } from "./types";
-import { escapeHtml, parseCents, centsInput } from "./format";
+import { escapeHtml, parseCents, centsInput, localDate } from "./format";
 import { render } from "./accounts";
 import { categoryOptions } from "./categories";
 import { openTransferEditor } from "./transfers";
@@ -196,6 +196,7 @@ export function bindTransactionActions() {
   document.querySelector("#new-transaction")?.addEventListener("click", () => {
     const dialog = document.querySelector<HTMLDialogElement>("#transaction-dialog")!;
     const suggestions = dialog.querySelector<HTMLDataListElement>("#payee-suggestions")!;
+    dialog.querySelector<HTMLInputElement>('input[name="date"]')!.value = localDate(new Date());
     dialog.showModal();
     void loadPayeeSuggestions(suggestions);
   });

@@ -19,6 +19,22 @@ describe("accounts", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("defaults a new operation to the local calendar date", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 0, 2, 0, 30));
+    const iso = vi.spyOn(Date.prototype, "toISOString").mockReturnValue("2027-01-01T23:30:00.000Z");
+    await openRegister();
+    expect(
+      document.querySelector<HTMLInputElement>('#transaction-form input[name="date"]')?.value,
+    ).toBe("2027-01-02");
+    vi.setSystemTime(new Date(2027, 0, 3, 0, 30));
+    click("#new-transaction");
+    expect(
+      document.querySelector<HTMLInputElement>('#transaction-form input[name="date"]')?.value,
+    ).toBe("2027-01-03");
+    iso.mockRestore();
+  });
+
   it("keeps the account list scroll position after a refresh", async () => {
     await openRegister();
     document.querySelector<HTMLElement>(".sidebar-accounts")!.scrollTop = 120;

@@ -1,4 +1,4 @@
-use super::initialize_database;
+use super::{backup_to_path, initialize_database, restore_from_path};
 use crate::test_support::temporary_database_path;
 use rusqlite::Connection;
 
@@ -236,4 +236,66 @@ fn switching_databases_preserves_each_file_and_rejects_invalid_candidates() {
         })
         .unwrap();
     assert_eq!(name, "Base principale");
+}
+
+#[test]
+fn backup_includes_wal_and_restore_preserves_backup_and_existing_files() {
+    let active = temporary_database_path();
+    let saved = temporary_database_path();
+    let mut db = Connection::open(&active.0).unwrap();
+    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;")
+        .unwrap();
+    initialize_database(&db).unwrap();
+    db.execute(
+        "UPDATE accounts SET name='Avant sauvegarde' WHERE id='ccp'",
+        [],
+    )
+    .unwrap();
+    backup_to_path(&db, &saved.0).unwrap();
+    db.execute(
+        "UPDATE accounts SET name='Après sauvegarde' WHERE id='ccp'",
+        [],
+    )
+    .unwrap();
+    assert!(backup_to_path(&db, &saved.0).is_err());
+    restore_from_path(&mut db, &saved.0).unwrap();
+    let name: String = db
+        .query_row("SELECT name FROM accounts WHERE id='ccp'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(name, "Avant sauvegarde");
+    assert!(restore_from_path(&mut db, &active.0).is_err());
+    let backup =
+        Connection::open_with_flags(&saved.0, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    assert_eq!(
+        backup
+            .query_row("SELECT name FROM accounts WHERE id='ccp'", [], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "Avant sauvegarde"
+    );
+}
+
+#[test]
+fn restore_rejects_incompatible_database_without_touching_current_data() {
+    let invalid = temporary_database_path();
+    let source = Connection::open(&invalid.0).unwrap();
+    source
+        .execute_batch("CREATE TABLE other (id INTEGER);")
+        .unwrap();
+    let mut current = Connection::open_in_memory().unwrap();
+    initialize_database(&current).unwrap();
+    current
+        .execute(
+            "UPDATE accounts SET name='Données conservées' WHERE id='ccp'",
+            [],
+        )
+        .unwrap();
+    assert!(restore_from_path(&mut current, &invalid.0).is_err());
+    assert_eq!(
+        current
+            .query_row("SELECT name FROM accounts WHERE id='ccp'", [], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "Données conservées"
+    );
 }

@@ -1,4 +1,9 @@
-use rusqlite::{Connection, params};
+use rusqlite::{
+    Connection,
+    backup::{Backup, StepResult},
+    params,
+};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri_plugin_dialog::DialogExt;
@@ -18,6 +23,16 @@ pub(crate) struct AppState {
 fn open_existing_database(path: &Path) -> Result<Connection, String> {
     let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| format!("Impossible d’ouvrir le fichier : {e}"))?;
+    validate_database(&db)?;
+    drop(db);
+    let writable = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| format!("La base ne peut pas être ouverte en écriture : {e}"))?;
+    writable.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS schedule_limits (schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE, remaining_count INTEGER CHECK (remaining_count > 0), end_date TEXT, CHECK (remaining_count IS NULL OR end_date IS NULL));").map_err(database_error)?;
+    Ok(writable)
+}
+
+// Validate without modifying the file selected for restoration.
+fn validate_database(db: &Connection) -> Result<(), String> {
     let check: String = db
         .query_row("PRAGMA quick_check", [], |row| row.get(0))
         .map_err(database_error)?;
@@ -45,11 +60,17 @@ fn open_existing_database(path: &Path) -> Result<Connection, String> {
     if count == 0 {
         return Err("Cette base ne contient aucun compte.".into());
     }
-    drop(db);
-    let writable = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
-        .map_err(|e| format!("La base ne peut pas être ouverte en écriture : {e}"))?;
-    writable.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS schedule_limits (schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE, remaining_count INTEGER CHECK (remaining_count > 0), end_date TEXT, CHECK (remaining_count IS NULL OR end_date IS NULL));").map_err(database_error)?;
-    Ok(writable)
+    let foreign_key_error: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(database_error)?;
+    if foreign_key_error {
+        return Err("La base contient des références incohérentes.".into());
+    }
+    Ok(())
 }
 
 fn switch_database(state: &AppState, path: &Path) -> Result<(), String> {
@@ -83,6 +104,123 @@ pub async fn choose_database(
 #[tauri::command]
 pub fn use_default_database(state: tauri::State<'_, AppState>) -> Result<(), String> {
     switch_database(&state, &state.default_path)
+}
+
+// Copy through SQLite so uncheckpointed WAL data is included.
+fn copy_database(source: &Connection, destination: &mut Connection) -> Result<(), String> {
+    let backup = Backup::new(source, destination).map_err(database_error)?;
+    match backup.step(-1).map_err(database_error)? {
+        StepResult::Done => Ok(()),
+        _ => Err("La base est occupée ; réessayez.".into()),
+    }
+}
+
+fn backup_to_path(source: &Connection, path: &Path) -> Result<(), String> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("Impossible de créer la sauvegarde : {e}"))?;
+    let result = (|| {
+        let mut destination = Connection::open(path).map_err(database_error)?;
+        copy_database(source, &mut destination)?;
+        validate_database(&destination)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(path);
+    }
+    result
+}
+
+fn restore_from_path(current: &mut Connection, path: &Path) -> Result<(), String> {
+    if let Some(active) = current.path() {
+        if fs::canonicalize(active).ok() == fs::canonicalize(path).ok() {
+            return Err("Choisissez une sauvegarde différente de la base active.".into());
+        }
+    }
+    let source = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("Impossible d’ouvrir la sauvegarde : {e}"))?;
+    validate_database(&source)?;
+    // Upgrade a private copy first; a failure leaves both files untouched.
+    let mut staged = Connection::open_in_memory().map_err(database_error)?;
+    copy_database(&source, &mut staged)?;
+    initialize_database(&staged).map_err(database_error)?;
+    validate_database(&staged)?;
+    copy_database(&staged, current)
+}
+
+#[tauri::command]
+pub async fn backup_database(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    #[cfg(all(feature = "e2e", debug_assertions))]
+    let path = if let Some(path) = std::env::var_os("KRESUS_E2E_BACKUP") {
+        PathBuf::from(path)
+    } else {
+        let Some(file) = app
+            .dialog()
+            .file()
+            .set_file_name("kresus-sauvegarde.sqlite3")
+            .add_filter("Base SQLite", &["sqlite3", "sqlite", "db"])
+            .blocking_save_file()
+        else {
+            return Ok(None);
+        };
+        file.into_path().map_err(|e| e.to_string())?
+    };
+    #[cfg(not(all(feature = "e2e", debug_assertions)))]
+    let path = {
+        let Some(file) = app
+            .dialog()
+            .file()
+            .set_file_name("kresus-sauvegarde.sqlite3")
+            .add_filter("Base SQLite", &["sqlite3", "sqlite", "db"])
+            .blocking_save_file()
+        else {
+            return Ok(None);
+        };
+        file.into_path().map_err(|e| e.to_string())?
+    };
+    let current = state
+        .database
+        .lock()
+        .map_err(|_| "La base de données est indisponible.".to_string())?;
+    backup_to_path(&current, &path)?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn choose_restore_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    #[cfg(all(feature = "e2e", debug_assertions))]
+    if let Some(path) = std::env::var_os("KRESUS_E2E_BACKUP") {
+        return Ok(Some(PathBuf::from(path).to_string_lossy().into_owned()));
+    }
+    let Some(file) = app
+        .dialog()
+        .file()
+        .add_filter("Base SQLite", &["sqlite3", "sqlite", "db"])
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn restore_database(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut current = state
+        .database
+        .lock()
+        .map_err(|_| "La base de données est indisponible.".to_string())?;
+    let mut preview = state
+        .money_preview
+        .lock()
+        .map_err(|_| "Aperçu indisponible.".to_string())?;
+    restore_from_path(&mut current, Path::new(&path))?;
+    *preview = None;
+    Ok(())
 }
 
 pub(crate) fn database_error(error: rusqlite::Error) -> String {

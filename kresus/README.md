@@ -38,6 +38,12 @@ Les tests Rust, placés près de chaque domaine, utilisent des bases SQLite isol
 
 Pour de futurs tests des commandes Tauri ou de l’interface, voir la documentation officielle : [tests Tauri](https://v2.tauri.app/develop/tests/), [simulation des API](https://v2.tauri.app/develop/tests/mocking/) et [WebDriver](https://v2.tauri.app/develop/tests/webdriver/).
 
+### Sauvegarde et restauration
+
+Dans la barre latérale, « Sauvegarder… » crée un nouveau fichier SQLite à l’emplacement choisi, sans interrompre l’application. Choisir un nom qui n’existe pas encore : la sauvegarde ne remplace aucun fichier. La copie est réalisée par SQLite et inclut les écritures présentes dans le journal WAL.
+
+« Restaurer… » permet de sélectionner une sauvegarde, puis demande confirmation avant de remplacer la **base actuellement ouverte**. Le fichier sélectionné est vérifié et reste intact. Une base temporairement ouverte est restaurée elle aussi dans son fichier ; au redémarrage, l’application ouvre de nouveau la base habituelle.
+
 ### Formatage du code
 
 Depuis le répertoire `kresus`, `yarn format` applique Prettier aux fichiers TypeScript, CSS et HTML et `rustfmt` aux sources Rust. `yarn format:check` vérifie les mêmes fichiers sans les modifier. Les deux formateurs utilisent une largeur cible de 100 caractères ; les requêtes SQL et certains blocs HTML inclus dans des chaînes peuvent nécessiter une mise en forme manuelle.
@@ -54,7 +60,7 @@ yarn tauri build --debug --no-bundle --features e2e
 xvfb-run -a yarn test:e2e
 ```
 
-Le test crée son propre répertoire de données temporaire et ne charge pas la base habituelle. La fonctionnalité de compilation `e2e`, active uniquement en mode debug, remplace les deux boîtes de dialogue natives de l’import par les chemins du fichier de référence et de la nouvelle base temporaire : la WebView, les commandes Tauri, le lecteur et SQLite sont réels, mais le choix de fichier lui-même reste à vérifier manuellement. Sans cette fonctionnalité, le test Money attendrait les boîtes de dialogue natives. Les ports sont choisis localement pour la durée du test. Un exécutable `tauri-driver` situé ailleurs peut être fourni avec la variable `TAURI_DRIVER`.
+Le test crée son propre répertoire de données temporaire et ne charge pas la base habituelle. La fonctionnalité de compilation `e2e`, active uniquement en mode debug, remplace les boîtes de dialogue natives de l’import et de la sauvegarde/restauration par les chemins du fichier de référence et de la nouvelle base temporaire : la WebView, les commandes Tauri, le lecteur et SQLite sont réels, mais le choix de fichier lui-même reste à vérifier manuellement. Sans cette fonctionnalité, le test Money attendrait les boîtes de dialogue natives. Les ports sont choisis localement pour la durée du test. Un exécutable `tauri-driver` situé ailleurs peut être fourni avec la variable `TAURI_DRIVER`.
 
 ### Mesure de performance
 

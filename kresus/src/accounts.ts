@@ -9,7 +9,7 @@ import {
   setSchedules,
   setCategories,
 } from "./state";
-import { euro, dateLabel, escapeHtml, parseCents } from "./format";
+import { euro, dateLabel, escapeHtml, parseCents, localDate } from "./format";
 import {
   transactionFilter,
   transactionFilters,
@@ -72,7 +72,7 @@ export function render() {
       <div class="account-group"><div class="group-label">ÉPARGNE <span>${accounts.filter((account) => account.kind === "Épargne").length}</span></div>${accountList("Épargne")}</div>
       <div class="account-group"><div class="group-label">ASSURANCE VIE <span>${accounts.filter((account) => account.kind === "Assurance vie").length}</span></div>${accountList("Assurance vie")}</div>
       </div>
-      <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><button type="button" id="choose-database">Ouvrir une base…</button><button type="button" id="import-money">Importer Money…</button>${activeDatabase ? '<button type="button" id="default-database">Revenir à la base habituelle</button>' : ""}<p class="database-error" role="alert"></p></div>
+      <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><button type="button" id="choose-database">Ouvrir une base…</button><button type="button" id="import-money">Importer Money…</button><button type="button" id="backup-database">Sauvegarder…</button><button type="button" id="restore-database">Restaurer…</button>${activeDatabase ? '<button type="button" id="default-database">Revenir à la base habituelle</button>' : ""}<p class="database-error" role="status"></p></div>
     </aside>
     <main class="main-area">
       <header class="topbar"><div class="breadcrumb"><button type="button" id="household-breadcrumb">Mon foyer</button> <span>/</span> <button type="button" id="accounts-breadcrumb">Comptes</button> <span>/</span> <strong>${escapeHtml(selectedAccount.name)}</strong></div></header>
@@ -107,7 +107,7 @@ export function render() {
       </div>
     </main>
     <dialog id="account-dialog"><form id="account-form"><div class="dialog-heading"><h2>Nouveau compte</h2><button type="button" class="dialog-close account-close" aria-label="Fermer">×</button></div><label>Nom du compte<input name="name" required maxlength="80" placeholder="Ex. Compte courant"></label><label>Type de compte<select name="kind"><option>Compte courant</option><option>Épargne</option><option>Assurance vie</option></select></label><label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="80" placeholder="Nom de la banque"></label><label>Solde initial (€)<input name="balance" type="number" step="0.01" min="-1000000000" max="1000000000" value="0" required></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button account-close">Annuler</button><button type="submit" class="primary-button">Créer le compte</button></div></form></dialog>
-    <dialog id="transaction-dialog"><form id="transaction-form"><div class="dialog-heading"><div><div class="eyebrow">${escapeHtml(selectedAccount.name)}</div><h2>Nouvelle opération</h2></div><button type="button" class="dialog-close" aria-label="Fermer">×</button></div><label>Type d’opération<select name="type"><option value="debit">Débit</option><option value="credit">Crédit</option></select></label><label>Destinataire / libellé<input name="label" list="payee-suggestions" required maxlength="80" placeholder="Ex. Marché du dimanche"><datalist id="payee-suggestions"></datalist></label><div class="form-row"><label>Date<input name="date" type="date" required value="${new Date().toISOString().slice(0, 10)}"></label><label>Montant (€)<input name="amount" type="number" min="0.01" step="0.01" required placeholder="0,00"></label></div><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><label>Numéro de chèque <span class="optional">(facultatif)</span><input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label><label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label><p class="editor-error transaction-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button dialog-cancel">Annuler</button><button type="submit" class="primary-button">Ajouter l’opération</button></div></form></dialog>${transferDialog()}`;
+    <dialog id="transaction-dialog"><form id="transaction-form"><div class="dialog-heading"><div><div class="eyebrow">${escapeHtml(selectedAccount.name)}</div><h2>Nouvelle opération</h2></div><button type="button" class="dialog-close" aria-label="Fermer">×</button></div><label>Type d’opération<select name="type"><option value="debit">Débit</option><option value="credit">Crédit</option></select></label><label>Destinataire / libellé<input name="label" list="payee-suggestions" required maxlength="80" placeholder="Ex. Marché du dimanche"><datalist id="payee-suggestions"></datalist></label><div class="form-row"><label>Date<input name="date" type="date" required value="${localDate(new Date())}"></label><label>Montant (€)<input name="amount" type="number" min="0.01" step="0.01" required placeholder="0,00"></label></div><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><label>Numéro de chèque <span class="optional">(facultatif)</span><input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label><label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label><p class="editor-error transaction-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button dialog-cancel">Annuler</button><button type="submit" class="primary-button">Ajouter l’opération</button></div></form></dialog>${transferDialog()}`;
 
   document.querySelector<HTMLElement>(".sidebar-accounts")!.scrollTop = accountScroll;
   document.querySelectorAll<HTMLElement>("[data-account]").forEach((button) =>
@@ -122,6 +122,12 @@ export function render() {
   document.querySelector("#household-breadcrumb")?.addEventListener("click", renderHousehold);
   document.querySelector("#household-nav")?.addEventListener("click", renderHousehold);
   document.querySelector("#accounts-breadcrumb")?.addEventListener("click", renderAccountsList);
+  document
+    .querySelector("#backup-database")
+    ?.addEventListener("click", () => void backupDatabase());
+  document
+    .querySelector("#restore-database")
+    ?.addEventListener("click", () => void restoreDatabase());
   document.querySelector("#import-money")?.addEventListener("click", () => void openMoneyImport());
   document
     .querySelector("#choose-database")
@@ -256,4 +262,50 @@ export async function reloadDatabase(path: string | null) {
   setSchedules(newSchedules);
   setCategories(newCategories);
   await refreshTransactions(true);
+}
+
+async function backupDatabase() {
+  const button = document.querySelector<HTMLButtonElement>("#backup-database")!;
+  const message = document.querySelector<HTMLElement>(".database-error")!;
+  button.disabled = true;
+  message.textContent = "";
+  try {
+    const path = await invoke<string | null>("backup_database");
+    if (path) message.textContent = `Sauvegarde créée : ${path}`;
+  } catch (error) {
+    message.textContent = `Sauvegarde impossible : ${String(error)}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function restoreDatabase() {
+  const button = document.querySelector<HTMLButtonElement>("#restore-database")!;
+  const message = document.querySelector<HTMLElement>(".database-error")!;
+  button.disabled = true;
+  message.textContent = "";
+  let restored = false;
+  try {
+    const path = await invoke<string | null>("choose_restore_file");
+    if (
+      !path ||
+      !window.confirm(
+        `Restaurer la sauvegarde « ${path} » dans ${activeDatabase ? `la base « ${activeDatabase} »` : "la base habituelle"} ? Les données actuelles de cette base seront remplacées.`,
+      )
+    )
+      return;
+    document.body.classList.add("database-switching");
+    await invoke("restore_database", { path });
+    restored = true;
+    await reloadDatabase(activeDatabase);
+    document.querySelector<HTMLElement>(".database-error")!.textContent = "Sauvegarde restaurée.";
+  } catch (error) {
+    if (restored) {
+      document.querySelector<HTMLElement>("#app")!.textContent =
+        `Base restaurée, mais actualisation impossible : ${String(error)}. Redémarrez l’application.`;
+    } else message.textContent = `Restauration impossible : ${String(error)}`;
+  } finally {
+    document.body.classList.remove("database-switching");
+    button.disabled = false;
+  }
 }

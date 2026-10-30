@@ -43,6 +43,7 @@ const driver = spawn(executable, ["--port", String(port), "--native-port", Strin
   env: {
     ...process.env,
     XDG_DATA_HOME: data,
+    KRESUS_E2E_BACKUP: join(temp, "backup.sqlite3"),
     ...(moneySample
       ? {
           KRESUS_E2E_MONEY_SOURCE: resolve(moneySample),
@@ -214,6 +215,36 @@ try {
   );
   if (!(await text(".balance-card")).includes("100,00")) throw new Error("Solde initial incorrect");
   console.log("Compte : création et solde initial OK");
+  await click("#backup-database");
+  await waitFor(
+    async () => (await text(".database-error")).includes("Sauvegarde créée"),
+    "Sauvegarde",
+  );
+  await click("#new-transaction");
+  await fill("#transaction-form", { label: "À effacer par restauration", amount: "10.00" });
+  await click('#transaction-form button[type="submit"]');
+  await waitFor(
+    async () => (await text("tbody")).includes("À effacer par restauration"),
+    "Opération après sauvegarde",
+  );
+  await click("#restore-database");
+  await waitFor(
+    async () => (await text(".database-error")).includes("Sauvegarde restaurée"),
+    "Restauration",
+  );
+  await execute(
+    "return [...document.querySelectorAll('[data-account]')].find(button => button.textContent.includes('Compte recette')).click();",
+  );
+  await waitFor(
+    async () => (await text(".page-heading h1")) === "Compte recette",
+    "Compte restauré",
+  );
+  if (
+    (await text("tbody")).includes("À effacer par restauration") ||
+    !(await text(".balance-card")).includes("100,00")
+  )
+    throw new Error("La restauration n’a pas rétabli les données sauvegardées");
+  console.log("Sauvegarde et restauration : données et solde vérifiés");
 
   await click("#new-transaction");
   await fill("#transaction-form", {
