@@ -1,10 +1,11 @@
 import { defineConfig } from "vite";
-// @ts-expect-error type error without @types/node package
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
+  resolve: { alias: { stream: "stream-browserify", events: "events" } },
+  define: { global: "globalThis" },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

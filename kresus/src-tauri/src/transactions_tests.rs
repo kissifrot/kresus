@@ -203,26 +203,26 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
         item.date = "2027-01-01".into();
         create_transaction_in_db(&db, item).unwrap();
     }
-    let first = list_register_in_db(&db, "paged", "all", 1, "2027-01").unwrap();
+    let first = list_register_in_db(&db, "paged", "all", 1, "2027-01", "").unwrap();
     assert_eq!((first.total_count, first.filtered_count, first.page_count, first.rows.len()), (205, 205, 3, 100));
     assert_eq!((&first.rows[0].transaction.id, first.rows[0].running_balance), (&"row-204".to_string(), 11040));
     assert_eq!((first.income, first.expenses, first.credit_count, first.debit_count, first.unreconciled_count), (2060, -1020, 103, 102, 205));
-    let monthly = list_register_in_db(&db, "paged", "month-credit", 1, "2027-01").unwrap();
+    let monthly = list_register_in_db(&db, "paged", "month-credit", 1, "2027-01", "").unwrap();
     assert_eq!((monthly.filtered_count, monthly.rows.len()), (103, 100));
-    let other_month = list_register_in_db(&db, "paged", "month-debit", 1, "2027-02").unwrap();
+    let other_month = list_register_in_db(&db, "paged", "month-debit", 1, "2027-02", "").unwrap();
     assert_eq!((other_month.filtered_count, other_month.rows.len()), (0, 0));
-    let second = list_register_in_db(&db, "paged", "all", 2, "2027-01").unwrap();
+    let second = list_register_in_db(&db, "paged", "all", 2, "2027-01", "").unwrap();
     assert_eq!((&second.rows[0].transaction.id, second.rows[0].running_balance), (&"row-104".to_string(), 10540));
-    let debit = list_register_in_db(&db, "paged", "debit", 99, "2027-02").unwrap();
+    let debit = list_register_in_db(&db, "paged", "debit", 99, "2027-02", "").unwrap();
     assert_eq!((debit.page, debit.page_count, debit.filtered_count, debit.rows.len()), (2, 2, 102, 2));
     assert_eq!((&debit.rows[1].transaction.id, debit.rows[1].running_balance), (&"row-001".to_string(), 10010));
     assert_eq!((debit.income, debit.expenses), (0, 0));
-    assert!(list_register_in_db(&db, "paged", "invalid", 1, "2027-01").is_err());
+    assert!(list_register_in_db(&db, "paged", "invalid", 1, "2027-01", "").is_err());
     toggle_transaction_in_db(&db, "row-001").unwrap();
-    let reconciled = list_register_in_db(&db, "paged", "reconciled", 1, "2027-01").unwrap();
+    let reconciled = list_register_in_db(&db, "paged", "reconciled", 1, "2027-01", "").unwrap();
     assert_eq!((reconciled.filtered_count, reconciled.unreconciled_count, reconciled.rows[0].running_balance), (1, 204, 10010));
     for i in 0..5 { delete_transaction_in_db(&db, &format!("row-{i:03}")).unwrap(); }
-    let last = list_register_in_db(&db, "paged", "all", 3, "2027-01").unwrap();
+    let last = list_register_in_db(&db, "paged", "all", 3, "2027-01", "").unwrap();
     assert_eq!((last.page, last.page_count, last.total_count), (2, 2, 200));
 }
 
@@ -230,7 +230,26 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
 fn register_page_includes_linked_transfer_identity() {
     let mut db = database();
     create_transfer_in_db(&mut db, transfer()).unwrap();
-    let page = list_register_in_db(&db, "sylvie", "credit", 1, "2027-03").unwrap();
+    let page = list_register_in_db(&db, "sylvie", "credit", 1, "2027-03", "").unwrap();
     let item = page.rows.iter().find(|row| row.transaction.id == "transfer-credit").unwrap();
     assert_eq!(item.transaction.transfer_id.as_deref(), Some("transfer"));
+}
+
+#[test]
+fn register_search_matches_text_across_history_and_combines_with_filters() {
+    let db = database();
+    create_account_in_db(&db, account("search", "Compte courant", 100.0)).unwrap();
+    for i in 0..105 {
+        let mut item = operation(&format!("search-{i:03}"), "search", -1.0);
+        item.date = "2027-01-01".into();
+        if i == 0 { item.label = "Électricité".into(); item.note = Some("Facture annuelle".into()); item.cheque = Some("1234567".into()); }
+        create_transaction_in_db(&db, item).unwrap();
+    }
+    let result = list_register_in_db(&db, "search", "debit", 1, "2027-01", "  ÉLECTRICITÉ  ").unwrap();
+    assert_eq!((result.total_count, result.filtered_count, result.rows[0].running_balance), (105, 1, 9900));
+    assert_eq!(list_register_in_db(&db, "search", "credit", 1, "2027-01", "électricité").unwrap().filtered_count, 0);
+    for query in ["annuelle", "1234567"] {
+        assert_eq!(list_register_in_db(&db, "search", "all", 1, "2027-01", query).unwrap().filtered_count, 1);
+    }
+    assert_eq!(list_register_in_db(&db, "search", "all", 1, "2027-01", "%").unwrap().filtered_count, 0);
 }

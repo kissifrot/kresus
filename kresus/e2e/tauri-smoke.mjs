@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -25,8 +25,11 @@ const port = await freePort();
 let nativePort = await freePort();
 while (nativePort === port) nativePort = await freePort();
 const endpoint = `http://127.0.0.1:${port}`;
+const defaultMoneySample = resolve(root, "../references/Money.mny");
+const moneySample = process.env.KRESUS_MONEY_SAMPLE ?? (existsSync(defaultMoneySample) ? defaultMoneySample : undefined);
+const moneyDestination = join(temp, "import.sqlite3");
 const executable = process.env.TAURI_DRIVER || "tauri-driver";
-const driver = spawn(executable, ["--port", String(port), "--native-port", String(nativePort)], { env: { ...process.env, XDG_DATA_HOME: data }, stdio: ["ignore", "inherit", "inherit"] });
+const driver = spawn(executable, ["--port", String(port), "--native-port", String(nativePort)], { env: { ...process.env, XDG_DATA_HOME: data, ...(moneySample ? { KRESUS_E2E_MONEY_SOURCE: resolve(moneySample), KRESUS_E2E_MONEY_DESTINATION: moneyDestination } : {}) }, stdio: ["ignore", "inherit", "inherit"] });
 let driverError;
 driver.on("error", (error) => { driverError = error; });
 let session;
@@ -181,6 +184,42 @@ try {
   await waitFor(async () => (await text("tbody")).includes("Échéance recette"), "Opération issue de l’échéance");
   if (!(await text("tbody")).includes("11,50")) throw new Error("Montant de l’échéance enregistrée incorrect");
   console.log("Échéances : création, modification ponctuelle et de série, enregistrement et suppression OK");
+  // The debug-only E2E build substitutes paths for native portal dialogs.
+  if (moneySample) {
+    if (!existsSync(moneySample)) throw new Error("Fichier Money de test introuvable.");
+    const destination = moneyDestination;
+    await click("#import-money");
+    await waitFor(() => visible(".money-import-dialog[open]"), "Aperçu Money");
+    const preview = await text(".money-import-dialog");
+    if (!preview.includes("138 catégories") || !preview.includes("875,00") || !preview.includes("2 opérations") || !preview.includes("2 échéances") || !preview.includes("exclus")) throw new Error("Aperçu Money incomplet.");
+    if (existsSync(destination)) throw new Error("La base de destination existe avant l’import.");
+    await click('.money-import-dialog button[type="submit"]');
+    await waitFor(async () => existsSync(destination) && (await text(".balance-card")).includes("875,00"), "Import Money et affichage du compte");
+    await waitFor(async () => (await text(".table-footer")).includes("2 opérations") || (await text(".table-footer")).includes("sur 2"), "Opérations importées");
+    const verification = spawnSync("python3", ["-c", `import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+a = c.execute("SELECT name, opening_balance_cents FROM accounts ORDER BY name").fetchall()
+t = c.execute("SELECT amount_cents FROM transactions ORDER BY amount_cents").fetchall()
+n = c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetchone()[0]
+s = c.execute("SELECT next_due, frequency, amount_cents FROM schedules ORDER BY next_due").fetchall()
+assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-10000,), (-2500,)] and n == 138 and s == [("2026-10-15", "Bimestrielle", -10000), ("2026-10-31", "Mensuelle", -12000)], (a, t, n, s)`, destination], { encoding: "utf8" });
+    if (verification.status !== 0) throw new Error(`Base Money incorrecte : ${verification.stderr}`);
+    await click("#schedules-nav");
+    await click("#current-month");
+    const offset = await execute("const now = new Date(); return (2026 - now.getFullYear()) * 12 + 9 - now.getMonth();");
+    if (Math.abs(offset) > 240) throw new Error("Date système trop éloignée de l’échantillon Money.");
+    for (let i = 0; i < Math.abs(offset); i++) await click(offset < 0 ? "#previous-month" : "#next-month");
+    await waitFor(async () => await visible('[data-record-schedule="money-schedule-2"]'), "Virement récurrent importé");
+    await click('[data-record-schedule="money-schedule-2"]');
+    await waitFor(async () => !(await visible('[data-record-schedule="money-schedule-2"]')), "Enregistrement du virement récurrent");
+    const transferCheck = spawnSync("python3", ["-c", `import sqlite3, sys
+c=sqlite3.connect(sys.argv[1])
+assert c.execute("SELECT next_due FROM schedules WHERE id='money-schedule-2'").fetchone() == ('2026-12-15',)
+assert c.execute("SELECT count(*) FROM transfers").fetchone() == (1,)
+assert c.execute("SELECT amount_cents FROM transactions WHERE id LIKE 'schedule-%' ORDER BY amount_cents").fetchall() == [(-10000,), (10000,)]`, destination], { encoding: "utf8" });
+    if (transferCheck.status !== 0) throw new Error(`Virement récurrent incorrect : ${transferCheck.stderr}`);
+    console.log("Import Money : aperçu, échéances, virement enregistré et base SQLite vérifiés (chemins de test)");
+  } else console.log("Import Money ignoré : définir KRESUS_MONEY_SAMPLE pour tester le fichier fictif.");
   console.log("Parcours WebDriver réussi ; base utilisateur non utilisée.");
 } finally {
   if (session) { try { await request("DELETE", `/session/${session}`); } catch {} }

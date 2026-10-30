@@ -12,6 +12,25 @@ describe("transaction register", () => {
   });
   afterEach(() => { vi.useRealTimers(); vi.doUnmock("@tauri-apps/api/core"); });
 
+  it("searches the whole account history, combines filters and clears the search", async () => {
+    const entries = Array.from({ length: 120 }, (_, i) => ({ id: `item-${String(i).padStart(3, "0")}`, accountId: "one", date: "2027-01-01", label: i === 0 ? "Électricité" : `Opération ${i}`, category: "Divers", amount: -1, reconciled: false }));
+    const invoke = await openRegister({ transactions: entries });
+    click("#next-page");
+    await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>("#page-input")?.value).toBe("2"));
+    document.querySelector<HTMLInputElement>("#transaction-search")!.value = "ÉLECTRICITÉ";
+    submit(document.querySelector<HTMLFormElement>("#transaction-search-form")!);
+    await vi.waitFor(() => expect(document.querySelectorAll("tr[data-transaction]")).toHaveLength(1));
+    expect(document.querySelector("tbody")?.textContent).toContain("Électricité");
+    expect(document.querySelector<HTMLInputElement>("#page-input")?.value).toBe("1");
+    expect(invoke).toHaveBeenCalledWith("list_register", expect.objectContaining({ search: "ÉLECTRICITÉ", page: 1 }));
+    const filter = document.querySelector<HTMLSelectElement>("#transaction-filter")!;
+    filter.value = "credit"; filter.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(document.querySelector("tbody")?.textContent).toContain("Aucune opération"));
+    document.querySelector<HTMLInputElement>("#transaction-search")!.value = "";
+    submit(document.querySelector<HTMLFormElement>("#transaction-search-form")!);
+    await vi.waitFor(() => expect(invoke).toHaveBeenLastCalledWith("list_register", expect.objectContaining({ search: "", filter: "credit" })));
+  });
+
   it("shows the year for historical operations with the same day and month", async () => {
     await openRegister({ transactions: [
       { id: "old", accountId: "one", date: "2016-10-29", label: "Ancienne", category: "Divers", amount: -1, reconciled: false },

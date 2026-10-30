@@ -2,12 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Account, AccountKind, Schedule, Category } from "./types";
 import { accounts, schedules, selectedAccount, setAccounts, setSelectedAccount, setSchedules, setCategories } from "./state";
 import { euro, dateLabel, escapeHtml, parseCents } from "./format";
-import { transactionFilter, transactionFilters, registerSummary, bindTransactionActions, bindTransactionFilter, refreshTransactions, resetRegister } from "./transactions";
+import { transactionFilter, transactionFilters, transactionSearch, registerSummary, bindTransactionActions, bindTransactionFilter, refreshTransactions, resetRegister } from "./transactions";
 import { renderSchedules } from "./schedules";
 import { categoryOptions, renderCategories } from "./categories";
 import { transferDialog, bindTransferActions } from "./transfers";
 import { renderSpendingReport } from "./spending-report";
 import { renderHousehold } from "./household";
+import { openMoneyImport } from "./money-import";
 
 let activeDatabase: string | null = null;
 
@@ -35,7 +36,7 @@ export function render() {
       <div class="account-group"><div class="group-label">ÉPARGNE <span>${accounts.filter((account) => account.kind === "Épargne").length}</span></div>${accountList("Épargne")}</div>
       <div class="account-group"><div class="group-label">ASSURANCE VIE <span>${accounts.filter((account) => account.kind === "Assurance vie").length}</span></div>${accountList("Assurance vie")}</div>
       </div>
-      <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><button type="button" id="choose-database">Ouvrir une base…</button>${activeDatabase ? '<button type="button" id="default-database">Revenir à la base habituelle</button>' : ""}<p class="database-error" role="alert"></p></div>
+      <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><button type="button" id="choose-database">Ouvrir une base…</button><button type="button" id="import-money">Importer Money…</button>${activeDatabase ? '<button type="button" id="default-database">Revenir à la base habituelle</button>' : ""}<p class="database-error" role="alert"></p></div>
     </aside>
     <main class="main-area">
       <header class="topbar"><div class="breadcrumb"><button type="button" id="household-breadcrumb">Mon foyer</button> <span>/</span> <button type="button" id="accounts-breadcrumb">Comptes</button> <span>/</span> <strong>${escapeHtml(selectedAccount.name)}</strong></div></header>
@@ -48,7 +49,7 @@ export function render() {
           <article class="summary-card reconciliation-card"><div class="card-label">À pointer</div><strong><button type="button" id="filter-unreconciled" aria-label="Afficher les ${unreconciledCount} opérations à pointer">${unreconciledCount} <em>opérations</em></button></strong><small><span class="status-dot"></span> Rapprochez vos relevés</small></article>
         </section>
         <p class="register-error" role="alert"></p><section class="transactions-panel">
-          <div class="panel-heading"><div><h2>Historique des opérations</h2><p>${totalCount} opérations · Solde calculé à partir des mouvements</p></div><div class="panel-actions"><label class="filter-label"><span class="visually-hidden">Filtrer les opérations</span><select class="filter-button" id="transaction-filter">${Object.entries(transactionFilters).map(([value, label]) => `<option value="${value}" ${transactionFilter === value ? "selected" : ""}>${label}</option>`).join("")}</select></label></div></div>
+          <div class="panel-heading"><div><h2>Historique des opérations</h2><p>${totalCount} opérations · Solde calculé à partir des mouvements</p></div><div class="panel-actions"><form id="transaction-search-form" role="search"><label class="visually-hidden" for="transaction-search">Rechercher une opération</label><input class="filter-button" type="search" id="transaction-search" placeholder="Libellé, catégorie…" title="Rechercher dans le libellé, la catégorie, le numéro de chèque ou le commentaire" value="${escapeHtml(transactionSearch)}"><button type="submit" class="secondary-button">Rechercher</button></form><label class="filter-label"><span class="visually-hidden">Filtrer les opérations</span><select class="filter-button" id="transaction-filter">${Object.entries(transactionFilters).map(([value, label]) => `<option value="${value}" ${transactionFilter === value ? "selected" : ""}>${label}</option>`).join("")}</select></label></div></div>
           <div class="table-wrap"><table><thead><tr><th class="check-col"><input type="checkbox" aria-label="Tout sélectionner"></th><th>DATE</th><th>N° CHÈQUE</th><th>DESTINATAIRE / OPÉRATION</th><th>CATÉGORIE</th><th class="center">POINTÉ</th><th class="right">DÉBIT (€)</th><th class="right">CRÉDIT (€)</th><th class="right">SOLDE (€)</th><th></th></tr></thead><tbody>${rows.map((transaction) => `
             <tr data-transaction="${transaction.id}"><td class="check-col"><input type="checkbox" aria-label="Sélectionner ${escapeHtml(transaction.label)}"></td><td class="date-cell">${dateLabel(transaction.date)}</td><td class="cheque-cell">${transaction.cheque ?? "—"}</td><td><strong class="transaction-label">${escapeHtml(transaction.label)}</strong>${transaction.note ? `<small class="transaction-note">${escapeHtml(transaction.note)}</small>` : ""}</td><td><span class="category-pill">${escapeHtml(transaction.category)}</span></td><td class="center"><button class="reconcile ${transaction.reconciled ? "done" : "pending"}" data-reconcile="${transaction.id}" title="${transaction.reconciled ? "Marquer comme non pointée" : "Pointer l’opération"}">${transaction.reconciled ? "P" : "·"}</button></td><td class="amount debit">${transaction.amount < 0 ? euro(Math.abs(transaction.amount)) : "—"}</td><td class="amount credit">${transaction.amount > 0 ? euro(transaction.amount) : "—"}</td><td class="amount running-balance">${euro(transaction.runningBalance)}</td><td><button class="row-menu" data-delete="${transaction.id}" title="Supprimer">···</button></td></tr>`).join("") || `<tr><td colspan="10" class="empty-row">Aucune opération ne correspond à ce filtre.</td></tr>`}</tbody></table></div>
           <div class="table-footer"><span>${filteredCount ? `Opérations <strong>${start + 1}–${start + rows.length}</strong> sur ${filteredCount}` : "Aucune opération"}${filteredCount !== totalCount ? ` · ${totalCount} au total` : ""} · Solde initial : <strong>${euro(selectedAccount.openingBalance)}</strong></span><div class="pagination"><button id="previous-page" type="button" aria-label="Page précédente" ${page === 1 ? "disabled" : ""}>‹</button><form id="page-form"><label for="page-input">Page</label><input id="page-input" type="number" min="1" max="${pageCount}" value="${page}" required aria-label="Numéro de page"><span> / ${pageCount}</span><button type="submit" aria-label="Aller à la page">OK</button></form><button id="next-page" type="button" aria-label="Page suivante" ${page === pageCount ? "disabled" : ""}>›</button></div></div>
@@ -69,6 +70,7 @@ export function render() {
   document.querySelector("#household-breadcrumb")?.addEventListener("click", renderHousehold);
   document.querySelector("#household-nav")?.addEventListener("click", renderHousehold);
   document.querySelector("#accounts-breadcrumb")?.addEventListener("click", renderAccountsList);
+  document.querySelector("#import-money")?.addEventListener("click", () => void openMoneyImport());
   document.querySelector("#choose-database")?.addEventListener("click", () => void changeDatabase(false));
   document.querySelector("#default-database")?.addEventListener("click", () => void changeDatabase(true));
   bindTransactionFilter();
@@ -130,12 +132,7 @@ async function changeDatabase(useDefault: boolean) {
     const path = useDefault ? (await invoke("use_default_database"), null) : await invoke<string | null>("choose_database");
     if (!useDefault && path === null) return;
     switched = true;
-    activeDatabase = path;
-    resetRegister();
-    const [newAccounts, newSchedules, newCategories] = await Promise.all([invoke<Account[]>("list_accounts"), invoke<Schedule[]>("list_schedules"), invoke<Category[]>("list_categories")]);
-    if (!newAccounts.length) throw new Error("La base ne contient aucun compte.");
-    setAccounts(newAccounts); setSelectedAccount(newAccounts[0]); setSchedules(newSchedules); setCategories(newCategories);
-    await refreshTransactions(true);
+    await reloadDatabase(path);
   } catch (error) {
     // Never leave stale account controls attached to a different database.
     if (switched) {
@@ -148,4 +145,14 @@ async function changeDatabase(useDefault: boolean) {
     const target = document.querySelector<HTMLElement>(".database-error");
     if (target) target.textContent = `Ouverture impossible : ${String(error)}`;
   } finally { document.body.classList.remove("database-switching"); buttons.forEach((button) => button.disabled = false); }
+}
+
+// Refresh all domains after importing into a newly created database.
+export async function reloadDatabase(path: string | null) {
+  activeDatabase = path;
+  resetRegister();
+  const [newAccounts, newSchedules, newCategories] = await Promise.all([invoke<Account[]>("list_accounts"), invoke<Schedule[]>("list_schedules"), invoke<Category[]>("list_categories")]);
+  if (!newAccounts.length) throw new Error("La base ne contient aucun compte.");
+  setAccounts(newAccounts); setSelectedAccount(newAccounts[0]!); setSchedules(newSchedules); setCategories(newCategories);
+  await refreshTransactions(true);
 }

@@ -60,3 +60,11 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE UNIQUE INDEX IF NOT EXISTS categories_unique_name ON categories(COALESCE(parent_id, ''), name COLLATE NOCASE);
 CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
+
+-- Optional series limits; remaining_count includes the next pending occurrence.
+CREATE TABLE IF NOT EXISTS schedule_limits (
+    schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
+    remaining_count INTEGER CHECK (remaining_count > 0),
+    end_date TEXT,
+    CHECK (remaining_count IS NULL OR end_date IS NULL)
+);

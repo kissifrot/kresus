@@ -8,7 +8,7 @@ use tauri_plugin_dialog::DialogExt;
 mod tests;
 
 // Serialize access to the shared SQLite connection across Tauri commands.
-pub(crate) struct AppState { pub(crate) database: Mutex<Connection>, pub(crate) default_path: PathBuf }
+pub(crate) struct AppState { pub(crate) database: Mutex<Connection>, pub(crate) default_path: PathBuf, pub(crate) money_preview: Mutex<Option<crate::money_import::MoneyPreview>> }
 
 // Validate the file read-only before opening it for normal application use.
 fn open_existing_database(path: &Path) -> Result<Connection, String> {
@@ -31,7 +31,7 @@ fn open_existing_database(path: &Path) -> Result<Connection, String> {
     if count == 0 { return Err("Cette base ne contient aucun compte.".into()); }
     drop(db);
     let writable = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| format!("La base ne peut pas être ouverte en écriture : {e}"))?;
-    writable.execute_batch("PRAGMA foreign_keys = ON;").map_err(database_error)?;
+    writable.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS schedule_limits (schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE, remaining_count INTEGER CHECK (remaining_count > 0), end_date TEXT, CHECK (remaining_count IS NULL OR end_date IS NULL));").map_err(database_error)?;
     Ok(writable)
 }
 

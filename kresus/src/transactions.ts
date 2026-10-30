@@ -8,6 +8,7 @@ import { openTransferEditor } from "./transfers";
 import { loadPayeeSuggestions } from "./payees";
 
 type TransactionFilter = "all" | "unreconciled" | "reconciled" | "debit" | "credit" | "month-debit" | "month-credit";
+export let transactionSearch = "";
 export let transactionFilter: TransactionFilter = "all";
 export const transactionFilters: Record<TransactionFilter, string> = { all: "Toutes les opérations", unreconciled: "À pointer", reconciled: "Pointées", debit: "Débits", credit: "Crédits", "month-credit": "Entrées ce mois", "month-debit": "Sorties ce mois" };
 const pageSize = 100;
@@ -19,7 +20,7 @@ let registerPage: RegisterPage | undefined;
 let requestVersion = 0;
 
 // Discard pending responses and navigation state when changing databases.
-export function resetRegister() { requestVersion++; transactionPage = 1; pageAccountId = undefined; registerPage = undefined; transactionFilter = "all"; setTransactions([]); }
+export function resetRegister() { requestVersion++; transactionPage = 1; pageAccountId = undefined; registerPage = undefined; transactionFilter = "all"; transactionSearch = ""; setTransactions([]); }
 
 export function registerSummary() {
   const result = pageAccountId === selectedAccount.id ? registerPage : undefined;
@@ -31,6 +32,12 @@ export function bindTransactionFilter() {
   for (const [id, filter] of [["filter-unreconciled", "unreconciled"], ["filter-month-credit", "month-credit"], ["filter-month-debit", "month-debit"]] as const) {
     document.querySelector<HTMLButtonElement>(`#${id}`)?.addEventListener("click", () => { transactionFilter = filter; transactionPage = 1; void refreshTransactions(); });
   }
+  document.querySelector<HTMLFormElement>("#transaction-search-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    transactionSearch = document.querySelector<HTMLInputElement>("#transaction-search")!.value.trim();
+    transactionPage = 1;
+    void refreshTransactions();
+  });
   document.querySelector<HTMLSelectElement>("#transaction-filter")?.addEventListener("change", (event) => { transactionFilter = (event.currentTarget as HTMLSelectElement).value as TransactionFilter; transactionPage = 1; void refreshTransactions(); });
   document.querySelector<HTMLButtonElement>("#previous-page")?.addEventListener("click", () => { transactionPage--; void refreshTransactions(); });
   document.querySelector<HTMLButtonElement>("#next-page")?.addEventListener("click", () => { transactionPage++; void refreshTransactions(); });
@@ -109,12 +116,12 @@ function closeDialog() { document.querySelector<HTMLDialogElement>("#transaction
 // Reload after a mutation so the register reflects the database state.
 export async function refreshTransactions(strict = false) {
   const accountId = selectedAccount.id;
-  if (pageAccountId !== accountId) { pageAccountId = accountId; transactionPage = 1; registerPage = undefined; }
+  if (pageAccountId !== accountId) { pageAccountId = accountId; transactionPage = 1; registerPage = undefined; transactionSearch = ""; }
   const version = ++requestVersion;
   const now = new Date();
   const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   try {
-    const [updatedAccounts, result] = await Promise.all([invoke<Account[]>("list_accounts"), invoke<RegisterPage>("list_register", { accountId, filter: transactionFilter, page: transactionPage, month })]);
+    const [updatedAccounts, result] = await Promise.all([invoke<Account[]>("list_accounts"), invoke<RegisterPage>("list_register", { accountId, filter: transactionFilter, page: transactionPage, month, search: transactionSearch })]);
     // A slower earlier request must not replace a newer page or account.
     if (version !== requestVersion || selectedAccount.id !== accountId) return;
     setAccounts(updatedAccounts);

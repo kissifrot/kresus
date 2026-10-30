@@ -22,6 +22,10 @@ pub struct Schedule {
     pub(crate) kind: String,
     #[serde(default)]
     pub(crate) destination_account_id: Option<String>,
+    #[serde(default)]
+    pub(crate) remaining_count: Option<i64>,
+    #[serde(default)]
+    pub(crate) end_date: Option<String>,
     #[serde(default, skip_deserializing)]
     pub(crate) series: Option<ScheduleSeries>,
 }
@@ -40,9 +44,9 @@ pub fn list_schedules(state: tauri::State<'_, AppState>) -> Result<Vec<Schedule>
 }
 
 fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String> {
-    let mut statement = connection.prepare("SELECT s.id, COALESCE(o.account_id,s.account_id), COALESCE(o.label,s.label), COALESCE(o.category,s.category), COALESCE(o.due_date,s.next_due), s.frequency, COALESCE(o.amount_cents,s.amount_cents), CASE WHEN (CASE WHEN o.schedule_id IS NOT NULL THEN ot.destination_account_id ELSE st.destination_account_id END) IS NOT NULL THEN 'transfer' ELSE COALESCE(o.kind,s.kind) END, s.account_id, s.label, s.category, s.next_due, s.amount_cents, CASE WHEN st.destination_account_id IS NOT NULL THEN 'transfer' ELSE s.kind END, a.anchor_day, CASE WHEN o.schedule_id IS NOT NULL THEN ot.destination_account_id ELSE st.destination_account_id END, st.destination_account_id FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id = s.id LEFT JOIN schedule_transfers st ON st.schedule_id=s.id LEFT JOIN schedule_transfer_overrides ot ON ot.schedule_id=s.id JOIN schedule_anchors a ON a.schedule_id = s.id ORDER BY COALESCE(o.due_date,s.next_due), s.id").map_err(database_error)?;
+    let mut statement = connection.prepare("SELECT s.id, COALESCE(o.account_id,s.account_id), COALESCE(o.label,s.label), COALESCE(o.category,s.category), COALESCE(o.due_date,s.next_due), s.frequency, COALESCE(o.amount_cents,s.amount_cents), CASE WHEN (CASE WHEN o.schedule_id IS NOT NULL THEN ot.destination_account_id ELSE st.destination_account_id END) IS NOT NULL THEN 'transfer' ELSE COALESCE(o.kind,s.kind) END, s.account_id, s.label, s.category, s.next_due, s.amount_cents, CASE WHEN st.destination_account_id IS NOT NULL THEN 'transfer' ELSE s.kind END, a.anchor_day, CASE WHEN o.schedule_id IS NOT NULL THEN ot.destination_account_id ELSE st.destination_account_id END, st.destination_account_id, lim.remaining_count, lim.end_date FROM schedules s LEFT JOIN schedule_limits lim ON lim.schedule_id=s.id LEFT JOIN schedule_overrides o ON o.schedule_id = s.id LEFT JOIN schedule_transfers st ON st.schedule_id=s.id LEFT JOIN schedule_transfer_overrides ot ON ot.schedule_id=s.id JOIN schedule_anchors a ON a.schedule_id = s.id ORDER BY COALESCE(o.due_date,s.next_due), s.id").map_err(database_error)?;
     let rows = statement.query_map([], |row| Ok(Schedule {
-        id: row.get(0)?, account_id: row.get(1)?, label: row.get(2)?, category: row.get(3)?, next_due: row.get(4)?, frequency: row.get(5)?, amount: row.get(6)?, kind: row.get(7)?, destination_account_id: row.get(15)?, series: Some(ScheduleSeries { account_id: row.get(8)?, label: row.get(9)?, category: row.get(10)?, next_due: row.get(11)?, amount: row.get(12)?, kind: row.get(13)?, anchor_day: row.get(14)?, destination_account_id: row.get(16)? }),
+        id: row.get(0)?, account_id: row.get(1)?, label: row.get(2)?, category: row.get(3)?, next_due: row.get(4)?, frequency: row.get(5)?, amount: row.get(6)?, kind: row.get(7)?, destination_account_id: row.get(15)?, remaining_count: row.get(17)?, end_date: row.get(18)?, series: Some(ScheduleSeries { account_id: row.get(8)?, label: row.get(9)?, category: row.get(10)?, next_due: row.get(11)?, amount: row.get(12)?, kind: row.get(13)?, anchor_day: row.get(14)?, destination_account_id: row.get(16)? }),
     })).map_err(database_error)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
 }
@@ -88,7 +92,7 @@ pub(crate) fn save_schedule_in_db(connection: &mut Connection, schedule: Schedul
     if schedule.id.trim().is_empty() || schedule.label.trim().is_empty() || schedule.category.trim().is_empty() {
         return Err("Le libellé et la catégorie sont obligatoires.".into());
     }
-    if !matches!(schedule.frequency.as_str(), "Mensuelle" | "Trimestrielle" | "Semestrielle" | "Annuelle") {
+    if !matches!(schedule.frequency.as_str(), "Mensuelle" | "Bimestrielle" | "Trimestrielle" | "Semestrielle" | "Annuelle") {
         return Err("Périodicité invalide.".into());
     }
     if schedule.amount == 0 || schedule.amount.unsigned_abs() > 100_000_000_000
@@ -98,6 +102,13 @@ pub(crate) fn save_schedule_in_db(connection: &mut Connection, schedule: Schedul
     if schedule.kind == "transfer" && (schedule.destination_account_id.as_deref().is_none_or(|id| id.is_empty() || id == schedule.account_id)) { return Err("Choisissez deux comptes différents pour le virement.".into()); }
     let valid_date: bool = connection.query_row("SELECT COALESCE(length(?1) = 10 AND date(?1, '+0 days') = ?1, 0)", [&schedule.next_due], |row| row.get(0)).map_err(database_error)?;
     if !valid_date { return Err("Date d’échéance invalide.".into()); }
+    if scope != Some("occurrence") {
+        if schedule.remaining_count.is_some_and(|count| count <= 0 || count > 100_000) || (schedule.remaining_count.is_some() && schedule.end_date.is_some()) { return Err("Limite d’échéance invalide.".into()); }
+        if let Some(end) = &schedule.end_date {
+            let valid: bool = connection.query_row("SELECT COALESCE(length(?1)=10 AND date(?1, '+0 days')=?1, 0)", [end], |row| row.get(0)).map_err(database_error)?;
+            if !valid || end < &schedule.next_due { return Err("La date de fin doit être valide et postérieure ou égale à la prochaine échéance.".into()); }
+        }
+    }
     let tx = connection.transaction().map_err(database_error)?;
     // A single-occurrence override leaves the series date and frequency intact.
     if scope == Some("occurrence") {
@@ -114,6 +125,7 @@ pub(crate) fn save_schedule_in_db(connection: &mut Connection, schedule: Schedul
     let stored_kind = if schedule.kind == "transfer" { "debit" } else { &schedule.kind };
     let changed = tx.execute(sql, params![schedule.id, schedule.account_id, schedule.label.trim(), schedule.category.trim(), schedule.next_due, schedule.frequency, schedule.amount, stored_kind]).map_err(database_error)?;
     if changed == 0 { return Err("Échéance introuvable.".into()); }
+    tx.execute("INSERT INTO schedule_limits (schedule_id, remaining_count, end_date) VALUES (?1, ?2, ?3) ON CONFLICT(schedule_id) DO UPDATE SET remaining_count=excluded.remaining_count, end_date=excluded.end_date", params![schedule.id, schedule.remaining_count, schedule.end_date]).map_err(database_error)?;
     tx.execute("DELETE FROM schedule_transfers WHERE schedule_id=?1", [&schedule.id]).map_err(database_error)?;
     if schedule.kind == "transfer" { tx.execute("INSERT INTO schedule_transfers VALUES (?1,?2)", params![schedule.id,schedule.destination_account_id]).map_err(database_error)?; }
     if previous_date.as_deref() != Some(schedule.next_due.as_str()) {
@@ -151,10 +163,13 @@ pub(crate) fn record_schedule_in_db(connection: &mut Connection, id: &str, trans
     tx.execute(
         "UPDATE schedules SET next_due = (
           SELECT date(target_month, printf('+%d days', MIN(anchor_day, CAST(strftime('%d', date(target_month, '+1 month', '-1 day')) AS INTEGER)) - 1))
-          FROM (SELECT date(schedules.next_due, 'start of month', CASE schedules.frequency WHEN 'Mensuelle' THEN '+1 month' WHEN 'Trimestrielle' THEN '+3 months' WHEN 'Semestrielle' THEN '+6 months' WHEN 'Annuelle' THEN '+12 months' END) AS target_month), schedule_anchors WHERE schedule_id = schedules.id
+          FROM (SELECT date(schedules.next_due, 'start of month', CASE schedules.frequency WHEN 'Mensuelle' THEN '+1 month' WHEN 'Bimestrielle' THEN '+2 months' WHEN 'Trimestrielle' THEN '+3 months' WHEN 'Semestrielle' THEN '+6 months' WHEN 'Annuelle' THEN '+12 months' END) AS target_month), schedule_anchors WHERE schedule_id = schedules.id
         ) WHERE id = ?1",
         [id],
     ).map_err(database_error)?;
+    // Advance and consume one occurrence atomically; expired series leave recorded operations intact.
+    tx.execute("DELETE FROM schedules WHERE id=?1 AND EXISTS (SELECT 1 FROM schedule_limits WHERE schedule_id=?1 AND (remaining_count=1 OR (end_date IS NOT NULL AND schedules.next_due > end_date)))", [id]).map_err(database_error)?;
+    tx.execute("UPDATE schedule_limits SET remaining_count=remaining_count-1 WHERE schedule_id=?1 AND remaining_count IS NOT NULL", [id]).map_err(database_error)?;
     tx.execute("DELETE FROM schedule_overrides WHERE schedule_id = ?1", [id]).map_err(database_error)?;
     tx.commit().map_err(database_error)
 }

@@ -72,7 +72,7 @@ fn performance_reference_10000_operations() {
     let json = serde_json::to_vec(&entries).unwrap();
     println!("Sérialisation JSON : {:.1} ms ({} octets)", start.elapsed().as_secs_f64() * 1000.0, json.len());
     let start = Instant::now();
-    let page = list_register_in_db(&db, "benchmark", "all", 1, "2026-01").unwrap();
+    let page = list_register_in_db(&db, "benchmark", "all", 1, "2026-01", "").unwrap();
     println!("Lecture paginée avec totaux : {:.1} ms", start.elapsed().as_secs_f64() * 1000.0);
     let start = Instant::now();
     let page_json = serde_json::to_vec(&page).unwrap();
@@ -101,7 +101,7 @@ fn switching_databases_preserves_each_file_and_rejects_invalid_candidates() {
     bad.execute("CREATE TABLE unrelated (value TEXT)", []).unwrap();
     drop(bad);
     let before = std::fs::read(&invalid.0).unwrap();
-    let state = AppState { database: Mutex::new(primary), default_path: first.0.clone() };
+    let state = AppState { database: Mutex::new(primary), default_path: first.0.clone(), money_preview: Mutex::new(None) };
     switch_database(&state, &second.0).unwrap();
     let name: String = state.database.lock().unwrap().query_row("SELECT name FROM accounts WHERE id='ccp'", [], |row| row.get(0)).unwrap();
     assert_eq!(name, "Base de test");

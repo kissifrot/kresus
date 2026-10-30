@@ -3,7 +3,7 @@ use crate::database::initialize_database;
 use crate::test_support::{database, temporary_database_path};
 
 fn schedule(date: &str, frequency: &str) -> Schedule {
-    Schedule { id: "test-schedule".into(), account_id: "ccp".into(), label: "Example".into(), category: "Bills".into(), next_due: date.into(), frequency: frequency.into(), amount: -4275, kind: "debit".into(), destination_account_id: None, series: None }
+    Schedule { id: "test-schedule".into(), account_id: "ccp".into(), label: "Example".into(), category: "Bills".into(), next_due: date.into(), frequency: frequency.into(), amount: -4275, kind: "debit".into(), destination_account_id: None, remaining_count: None, end_date: None, series: None }
 }
 
 fn next_date(db: &Connection) -> String {
@@ -161,12 +161,12 @@ fn monthly_end_of_month_preserves_day_and_crosses_year() {
 }
 
 #[test]
-fn quarterly_and_semiannual_schedules_advance_by_their_period() {
-    for (frequency, expected) in [("Trimestrielle", "2027-04-30"), ("Semestrielle", "2027-07-31")] {
+fn schedules_advance_by_their_period() {
+    for (frequency, expected) in [("Mensuelle", "2027-02-28"), ("Bimestrielle", "2027-03-31"), ("Trimestrielle", "2027-04-30"), ("Semestrielle", "2027-07-31"), ("Annuelle", "2028-01-31")] {
         let mut db = database();
         save_schedule_in_db(&mut db, schedule("2027-01-31", frequency), None).unwrap();
         record_schedule_in_db(&mut db, "test-schedule", "operation").unwrap();
-        assert_eq!(next_date(&db), expected);
+        assert_eq!(next_date(&db), expected, "frequency: {frequency}");
     }
 }
 
@@ -287,4 +287,34 @@ fn invalid_date_or_missing_account_does_not_create_schedule() {
     assert!(save_schedule_in_db(&mut db, invalid_account, None).is_err());
     let count: i64 = db.query_row("SELECT COUNT(*) FROM schedules WHERE id = 'test-schedule'", [], |row| row.get(0)).unwrap();
     assert_eq!(count, 0);
+}
+
+#[test]
+fn counted_series_consumes_overrides_and_keeps_recorded_operations() {
+    let mut db = database();
+    let mut item = schedule("2028-01-31", "Mensuelle");
+    item.remaining_count = Some(2);
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    save_schedule_in_db(&mut db, schedule("2028-02-02", "Mensuelle"), Some("occurrence")).unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "limited-1").unwrap();
+    let loaded = list_schedules_in_db(&db).unwrap().into_iter().find(|s| s.id == "test-schedule").unwrap();
+    assert_eq!((loaded.next_due.as_str(), loaded.remaining_count), ("2028-02-29", Some(1)));
+    record_schedule_in_db(&mut db, "test-schedule", "limited-2").unwrap();
+    assert!(list_schedules_in_db(&db).unwrap().iter().all(|s| s.id != "test-schedule"));
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM transactions WHERE id IN ('limited-1','limited-2')", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+}
+
+#[test]
+fn end_date_is_inclusive_and_invalid_update_is_rejected() {
+    let mut db = database();
+    let mut item = schedule("2028-01-31", "Mensuelle");
+    item.end_date = Some("2028-02-29".into());
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "date-1").unwrap();
+    assert_eq!(next_date(&db), "2028-02-29");
+    let mut invalid = schedule("2028-02-29", "Mensuelle");
+    invalid.end_date = Some("2028-02-28".into());
+    assert!(save_schedule_in_db(&mut db, invalid, Some("series")).is_err());
+    record_schedule_in_db(&mut db, "test-schedule", "date-2").unwrap();
+    assert!(list_schedules_in_db(&db).unwrap().iter().all(|s| s.id != "test-schedule"));
 }

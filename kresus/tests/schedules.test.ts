@@ -2,7 +2,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 type Series = { accountId: string; label: string; category: string; nextDue: string; amount: number; kind: string; anchorDay: number; destinationAccountId?: string | null };
-type Schedule = Omit<Series, "anchorDay"> & { id: string; frequency: string; series: Series };
+type Schedule = Omit<Series, "anchorDay"> & { id: string; frequency: string; remainingCount?: number | null; endDate?: string | null; series: Series };
 
 const baseSeries = (date: string, day: number): Series => ({ accountId: "account", label: "Yolo", category: "Divers", nextDue: date, amount: -100, kind: "debit", anchorDay: day });
 const recurring = (date: string, day: number, frequency = "Annuelle"): Schedule => {
@@ -67,6 +67,62 @@ describe("schedule calendar", () => {
     HTMLDialogElement.prototype.close = function () { this.open = false; };
   });
   afterEach(() => { vi.useRealTimers(); vi.doUnmock("@tauri-apps/api/core"); });
+
+  it.each([
+    { year: 2027, februaryDay: 28 },
+    { year: 2028, februaryDay: 29 },
+  ])("projects every two months through February $year", async ({ year, februaryDay }) => {
+    vi.setSystemTime(new Date(year, 1, 1, 12));
+    await openCalendar([recurring(`${year - 1}-12-31`, 31, "Bimestrielle")]);
+    expect(calendarEvents()).toHaveLength(1);
+    expect(calendarEvents()[0]?.textContent).toContain(String(februaryDay));
+    (document.querySelector("#next-month") as HTMLButtonElement).click();
+    expect(calendarEvents()).toHaveLength(0);
+    (document.querySelector("#next-month") as HTMLButtonElement).click();
+    expect(calendarEvents()[0]?.textContent).toContain("30");
+  });
+
+  it.each([
+    { frequency: "Mensuelle", months: 1, expectedDay: 28 },
+    { frequency: "Bimestrielle", months: 2, expectedDay: 31 },
+    { frequency: "Trimestrielle", months: 3, expectedDay: 30 },
+    { frequency: "Semestrielle", months: 6, expectedDay: 31 },
+    { frequency: "Annuelle", months: 12, expectedDay: 31 },
+  ])("projects $frequency after $months month(s)", async ({ frequency, months, expectedDay }) => {
+    vi.setSystemTime(new Date(2027, 0, 1, 12));
+    await openCalendar([recurring("2027-01-31", 31, frequency)]);
+    for (let i = 0; i < months; i++) {
+      (document.querySelector("#next-month") as HTMLButtonElement).click();
+      if (i < months - 1) expect(calendarEvents()).toHaveLength(0);
+    }
+    expect(calendarEvents().map((cell) => cell.textContent)).toEqual([`${expectedDay}Yolo`]);
+  });
+
+  it("stops projections at the count and inclusive leap-day end date", async () => {
+    vi.setSystemTime(new Date(2028, 0, 1, 12));
+    const counted = recurring("2028-01-31", 31, "Mensuelle");
+    counted.remainingCount = 2;
+    const dated = recurring("2028-01-31", 31, "Mensuelle");
+    dated.id = "dated"; dated.endDate = "2028-02-29";
+    await openCalendar([counted, dated]);
+    (document.querySelector("#next-month") as HTMLButtonElement).click();
+    expect(document.querySelectorAll(".calendar-event")).toHaveLength(2);
+    (document.querySelector("#next-month") as HTMLButtonElement).click();
+    expect(document.querySelectorAll(".calendar-event")).toHaveLength(0);
+  });
+
+  it("submits a count limit for a new series", async () => {
+    vi.setSystemTime(new Date(2028, 0, 1, 12));
+    const invoke = await openCalendar([]);
+    (document.querySelector("#new-schedule") as HTMLButtonElement).click();
+    const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
+    const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
+    field("label").value = "Mensualité"; field("amount").value = "10";
+    field("limitType").value = "count"; field("limitType").dispatchEvent(new Event("change"));
+    field("remainingCount").value = "3";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("create_schedule", expect.objectContaining({ schedule: expect.objectContaining({ remainingCount: 3, endDate: null }) })));
+  });
 
   it("exposes the full calendar label in a native tooltip", async () => {
     vi.setSystemTime(new Date(2027, 0, 1, 12));
