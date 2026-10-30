@@ -710,6 +710,10 @@ tbody tr {
   height: 55px;
   border-bottom: 1px solid #f0f2f0;
 }
+tr[data-transaction]:focus-visible {
+  outline: 2px solid #287754;
+  outline-offset: -2px;
+}
 tbody tr:last-child {
   border-bottom: 0;
 }

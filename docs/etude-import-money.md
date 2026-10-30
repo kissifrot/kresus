@@ -48,7 +48,7 @@ Un prototype séparé utilise TypeScript et `mdb-reader` pour lire le fichier sa
 
 L’import des fichiers protégés par mot de passe est hors périmètre du projet.
 
-Un import expérimental avec aperçu est désormais disponible : voir les prérequis et limites dans le README de `kresus`. Il crée une nouvelle base, conserve les références dans les commentaires et refuse les fichiers contenant des virements enregistrés ou des ventilations. Les échéances mensuelles et bimestrielles sans limite reconnues sont importées. La signature observée pour l’échéance « par chèque » est reconnue ; les autres méthodes sont signalées comme non identifiées. Un virement interne ne suffit pas à déduire la méthode Money : l’exemple fourni apparaît comme « Autre ». Les numéros de chèque ne sont pas déduits de `szId`. La prise en charge des placements reste à concevoir.
+Un import expérimental avec aperçu est désormais disponible : voir les prérequis et limites dans le README de `kresus`. Il crée une nouvelle base, conserve les références dans les commentaires et refuse les fichiers contenant des virements enregistrés ou des ventilations. Les échéances mensuelles et bimestrielles sans limite reconnues sont importées. La signature observée pour l’échéance « par chèque » est reconnue ; les autres méthodes sont signalées comme non identifiées. Un virement interne ne suffit pas à déduire la méthode Money : l’exemple fourni apparaît comme « Autre ». Les numéros de chèque ne sont pas déduits de `szId`. La prise en charge des placements reste à concevoir. Celle des opérations ventilées reste à décider.
 
 ## Démarche initiale et suites
 
@@ -65,9 +65,14 @@ Le fichier Money n'a pas été modifié. La concordance des soldes bancaires est
 
 Créer des échéances fictives facilement identifiables, puis noter leurs paramètres et conserver le fichier et si possible des captures :
 
+- Deux virements déjà enregistrés entre comptes bancaires, dans des sens opposés, avec dates, montants, comptes et soldes affichés dans Money. Si possible, pointer un seul côté de l’un des virements.
 - Une série à durée limitée par un nombre d’occurrences connu, avec première date et nombre précisés.
 - Une série à durée limitée par une date de fin connue, avec première date et date de fin précisées.
 - Des échéances identiques sauf leur méthode de paiement, avec un libellé distinct pour chacune : chèque, virement automatique, prélèvement et autre, ainsi que les autres choix proposés par Money. Préciser la méthode correspondant à chaque libellé.
 - Si Money le permet, une échéance par chèque avec un numéro connu, pour vérifier où il est stocké.
 
 Ces exemples permettront de confronter les champs aux valeurs affichées par Money avant d’étendre l’import ; les fichiers protégés par mot de passe restent hors périmètre.
+
+L’étude du [modèle Money documenté par Monize](https://github.com/kenlasko/monize/blob/main/docs/ms-money-data-model.md#trn_xfer-transfer-pairs) décrit `TRN_XFER.htrnFrom` et `htrnLink` comme des références vers les deux écritures `TRN`, sans appariement approximatif par montant. Cette source issue de rétro-ingénierie constitue une hypothèse à confronter au prochain fichier.
+
+Le stockage préparatoire des paires de virements est testé sur des données synthétiques : les deux opérations et leurs états sont conservés, la sélection des deux comptes est obligatoire, et les paires incohérentes sont refusées. La lecture effective des virements Money reste désactivée jusqu’à vérification sur le fichier fictif enrichi.

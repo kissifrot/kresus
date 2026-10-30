@@ -19,6 +19,38 @@ describe("transaction register", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("opens an operation with Enter and restores row focus after cancel and save", async () => {
+    const invoke = await openRegister();
+    let row = document.querySelector<HTMLTableRowElement>('tr[data-transaction="debit"]')!;
+    expect(row.tabIndex).toBe(0);
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    let form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    expect(document.activeElement).toBe(field(form, "label"));
+    click(".cancel-editor");
+    expect(document.activeElement).toBe(row);
+    expect(document.querySelector(".transaction-editor")).toBeNull();
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    field(form, "label").value = "Courses modifiées";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "update_transaction",
+        expect.objectContaining({
+          transaction: expect.objectContaining({ id: "debit", label: "Courses modifiées" }),
+        }),
+      ),
+    );
+    await vi.waitFor(() => expect(document.querySelector(".transaction-editor")).toBeNull());
+    row = document.querySelector<HTMLTableRowElement>('tr[data-transaction="debit"]')!;
+    expect(document.activeElement).toBe(row);
+    row
+      .querySelector<HTMLInputElement>('input[type="checkbox"]')!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(document.querySelector(".transaction-editor")).toBeNull();
+  });
+
   it("searches the whole account history, combines filters and clears the search", async () => {
     const entries = Array.from({ length: 120 }, (_, i) => ({
       id: `item-${String(i).padStart(3, "0")}`,
@@ -545,7 +577,9 @@ describe("transaction register", () => {
     await vi.waitFor(() =>
       expect(document.querySelector("tbody")?.textContent).toContain("Virement depuis Principal"),
     );
-    click("tr[data-transaction] td.date-cell");
+    const transferRow = document.querySelector<HTMLTableRowElement>("tr[data-transaction]")!;
+    transferRow.focus();
+    transferRow.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await vi.waitFor(() =>
       expect(document.querySelector<HTMLDialogElement>("#transfer-dialog")?.open).toBe(true),
     );

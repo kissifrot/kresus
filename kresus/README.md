@@ -50,7 +50,7 @@ Depuis le répertoire `kresus`, `yarn format` applique Prettier aux fichiers Typ
 
 ### Parcours Tauri avec WebDriver sous Linux
 
-Le parcours `e2e/tauri-smoke.mjs` lance la vraie application dans sa WebView, avec une base fictive temporaire de 12 000 opérations. Il vérifie la navigation, la pagination et le filtre « À pointer », puis la création d’un compte, la gestion d’une opération avec commentaire et son pointage, la création, la modification et la suppression d’un virement, la gestion des catégories, ainsi que la création, la modification ponctuelle et de série, l’enregistrement et la suppression d’une échéance. Lorsque le fichier fictif `references/Money.mny` est disponible, il vérifie également l’aperçu Money, la création d’une nouvelle base et son contenu SQLite (compte, catégories, opérations, échéances, solde et enregistrement d’un virement récurrent). On peut spécifier son emplacement avec `KRESUS_MONEY_SAMPLE` ; ce test attend les valeurs du fichier de référence (comptes de 1 000 € et 2 000 €, opérations de −100 € et −25 €, 138 catégories). Sans ce fichier, il est signalé comme ignoré. Les confirmations sont acceptées automatiquement dans cette base temporaire. Les durées affichées incluent les échanges WebDriver ; ce parcours ne couvre pas encore tous les scénarios du document initial et ne remplace pas une inspection visuelle manuelle.
+Le parcours `e2e/tauri-smoke.mjs` lance la vraie application dans sa WebView, avec une base fictive temporaire de 12 000 opérations. Il vérifie la navigation, la pagination et le filtre « À pointer », puis la création d’un compte, la gestion d’une opération avec commentaire et son pointage, la création, la modification et la suppression d’un virement, la gestion des catégories, ainsi que la création, la modification ponctuelle et de série, la modification d’une occurrence future, l’enregistrement et la suppression d’une échéance. Il contrôle aussi la recherche, les limites par nombre et par date, les retards depuis le foyer, un virement récurrent et les totaux du rapport de dépenses avec exclusion des virements. Lorsque le fichier fictif `references/Money.mny` est disponible, il vérifie également l’aperçu Money, la création d’une nouvelle base et son contenu SQLite (compte, catégories, opérations, échéances, solde et enregistrement d’un virement récurrent). On peut spécifier son emplacement avec `KRESUS_MONEY_SAMPLE` ; ce test attend les valeurs du fichier de référence (comptes de 1 000 € et 2 000 €, opérations de −100 € et −25 €, 138 catégories). Sans ce fichier, il est signalé comme ignoré. Les confirmations sont acceptées automatiquement dans cette base temporaire. Les durées affichées incluent les échanges WebDriver ; ce parcours ne couvre pas encore tous les scénarios du document initial et ne remplace pas une inspection visuelle manuelle.
 
 Il nécessite `tauri-driver`, le pilote WebKitGTK et, pour un affichage virtuel, `xvfb-run`. Sur Ubuntu 26.04, les paquets système correspondants sont `webkitgtk-webdriver` et `xvfb` ; le pilote Tauri s’installe avec `cargo install tauri-driver --locked`. Les noms des paquets peuvent varier selon la distribution. Après installation :
 
@@ -60,7 +60,25 @@ yarn tauri build --debug --no-bundle --features e2e
 xvfb-run -a yarn test:e2e
 ```
 
-Le test crée son propre répertoire de données temporaire et ne charge pas la base habituelle. La fonctionnalité de compilation `e2e`, active uniquement en mode debug, remplace les boîtes de dialogue natives de l’import et de la sauvegarde/restauration par les chemins du fichier de référence et de la nouvelle base temporaire : la WebView, les commandes Tauri, le lecteur et SQLite sont réels, mais le choix de fichier lui-même reste à vérifier manuellement. Sans cette fonctionnalité, le test Money attendrait les boîtes de dialogue natives. Les ports sont choisis localement pour la durée du test. Un exécutable `tauri-driver` situé ailleurs peut être fourni avec la variable `TAURI_DRIVER`.
+Le test d’un collage réel est facultatif : il nécessite `xclip` et un affichage X11 isolé pour éviter de modifier le presse-papiers de la session utilisateur. Par exemple :
+
+```sh
+GDK_BACKEND=x11 KRESUS_E2E_CLIPBOARD=1 xvfb-run -a yarn test:e2e
+```
+
+Sans cette option, le parcours signale que le test du presse-papiers est ignoré ; les formats de montants sont aussi couverts par les tests TypeScript.
+
+Le test crée son propre répertoire de données temporaire et ne charge pas la base habituelle. La fonctionnalité de compilation `e2e`, active uniquement en mode debug, remplace les boîtes de dialogue natives de l’import et de la sauvegarde/restauration par les chemins du fichier de référence et de la nouvelle base temporaire : la WebView, les commandes Tauri, le lecteur et SQLite sont réels, mais les sélecteurs réels sont vérifiés séparément par le parcours natif décrit ci-dessous. Sans cette fonctionnalité, le test Money attendrait les boîtes de dialogue natives. Les ports sont choisis localement pour la durée du test. Un exécutable `tauri-driver` situé ailleurs peut être fourni avec la variable `TAURI_DRIVER`.
+
+### Dialogues natifs et inspection visuelle sous Linux
+
+Le parcours complémentaire utilise les vrais sélecteurs GTK : il vérifie leur ouverture et leur annulation au clavier, puis crée une sauvegarde, l’ouvre et revient à la base habituelle. Il utilise une base temporaire et retire les chemins substitués par la compilation `e2e`. Sous Linux avec WebKitGTK, `xdotool`, Xvfb, D-Bus et le sélecteur GTK disponibles :
+
+```sh
+GDK_BACKEND=x11 XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP=GNOME xvfb-run -a dbus-run-session -- yarn test:e2e:native
+```
+
+La session X11 et le bus D-Bus doivent être isolés : le script pilote les fenêtres au clavier. Le test cible les titres des sélecteurs GTK observés dans cet environnement ; d’autres portails ou bureaux peuvent présenter des variantes. Il vérifie également la sélection native du fichier Money fictif, son aperçu et l’annulation de l’import lorsque ce fichier est disponible. Il ne valide pas la confirmation de restauration ni la sélection native de la destination d’un import Money. La suite WebDriver standard vérifie aussi les parcours clavier de plusieurs formulaires, le registre et l’éditeur, ainsi que leur affichage et celui du formulaire d’échéance à 900 × 620, 1 100 × 700 et 1 280 × 820 pixels. Pour conserver des captures à inspecter, définir `KRESUS_E2E_SCREENSHOTS` avec un répertoire de destination avant le lancement.
 
 ### Mesure de performance
 

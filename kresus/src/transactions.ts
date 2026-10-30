@@ -121,9 +121,9 @@ export function bindTransactionFilter() {
 
 export function bindTransactionActions() {
   // Opening the editor hides the summary until the edit is saved or cancelled.
-  document.querySelectorAll<HTMLTableRowElement>("tr[data-transaction]").forEach((row) =>
-    row.addEventListener("click", (event) => {
-      if ((event.target as HTMLElement).closest("button, input")) return;
+  document.querySelectorAll<HTMLTableRowElement>("tr[data-transaction]").forEach((row) => {
+    // Share the editor between pointer and keyboard activation.
+    const openEditor = (keyboard: boolean) => {
       const item = transactions.find((transaction) => transaction.id === row.dataset.transaction);
       if (!item) return;
       if (item.transferId) {
@@ -159,6 +159,7 @@ export function bindTransactionActions() {
           <p class="editor-error" role="alert"></p>
         </form>`;
       document.querySelector(".transactions-panel")!.after(editor);
+      if (keyboard) editor.querySelector<HTMLInputElement>('input[name="label"]')?.focus();
       void loadPayeeSuggestions(
         editor.querySelector<HTMLDataListElement>("#edit-payee-suggestions")!,
       );
@@ -166,6 +167,7 @@ export function bindTransactionActions() {
         editor.remove();
         row.classList.remove("editing");
         summary.hidden = false;
+        if (keyboard) row.focus();
       });
       editor.querySelector("form")?.addEventListener("submit", async (submitEvent) => {
         submitEvent.preventDefault();
@@ -186,13 +188,30 @@ export function bindTransactionActions() {
             },
           });
           await refreshTransactions();
+          if (keyboard) {
+            document
+              .querySelectorAll<HTMLTableRowElement>("tr[data-transaction]")
+              .forEach((candidate) => {
+                if (candidate.dataset.transaction === item.id) candidate.focus();
+              });
+          }
         } catch (error) {
           editor.querySelector<HTMLElement>(".editor-error")!.textContent =
             `Enregistrement impossible : ${String(error)}`;
         }
       });
-    }),
-  );
+    };
+    row.addEventListener("click", (event) => {
+      if (!(event.target as HTMLElement).closest("button, input")) openEditor(false);
+    });
+    row.addEventListener("keydown", (event) => {
+      // Nested controls retain their own keyboard behavior.
+      if (event.target === row && event.key === "Enter") {
+        event.preventDefault();
+        openEditor(true);
+      }
+    });
+  });
   document.querySelector("#new-transaction")?.addEventListener("click", () => {
     const dialog = document.querySelector<HTMLDialogElement>("#transaction-dialog")!;
     const suggestions = dialog.querySelector<HTMLDataListElement>("#payee-suggestions")!;

@@ -1,7 +1,10 @@
 use crate::database::{AppState, database_error};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+};
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -51,12 +54,21 @@ struct MoneyOperation {
     reconciled: bool,
     note: String,
 }
+// A reviewed Money pair keeps the original debit and credit records independently.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MoneyTransfer {
+    debit_id: i64,
+    credit_id: i64,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoneyPreview {
     accounts: Vec<MoneyAccount>,
     categories: Vec<MoneyCategory>,
     operations: Vec<MoneyOperation>,
+    #[serde(default)]
+    transfers: Vec<MoneyTransfer>,
     #[serde(default)]
     schedules: Vec<MoneySchedule>,
     warnings: Vec<String>,
@@ -220,6 +232,33 @@ fn import_into_database(
     {
         return Err("Sélection de comptes invalide.".into());
     }
+    // Never import half a transfer or associate one operation with several pairs.
+    let mut paired = HashSet::new();
+    for transfer in &preview.transfers {
+        let debit = preview
+            .operations
+            .iter()
+            .find(|op| op.id == transfer.debit_id)
+            .ok_or("Virement Money incomplet.")?;
+        let credit = preview
+            .operations
+            .iter()
+            .find(|op| op.id == transfer.credit_id)
+            .ok_or("Virement Money incomplet.")?;
+        if !paired.insert(debit.id)
+            || !paired.insert(credit.id)
+            || debit.account_id == credit.account_id
+            || debit.amount >= 0
+            || debit.amount.checked_neg() != Some(credit.amount)
+        {
+            return Err("Virement Money incohérent.".into());
+        }
+        if selected.contains_key(&debit.account_id) != selected.contains_key(&credit.account_id) {
+            return Err(
+                "Sélectionnez les deux comptes de chaque virement Money, ou aucun des deux.".into(),
+            );
+        }
+    }
     // Insert parents before children and preserve source IDs only within this new database.
     for c in preview
         .categories
@@ -265,6 +304,27 @@ fn import_into_database(
     for op in &preview.operations {
         if selected.contains_key(&op.account_id) {
             tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![format!("money-transaction-{}",op.id),format!("money-account-{}",op.account_id),op.date,op.label.trim(),op.category.trim(),op.amount,op.reconciled,op.note.trim()]).map_err(database_error)?;
+        }
+    }
+    for transfer in &preview.transfers {
+        let debit = preview
+            .operations
+            .iter()
+            .find(|op| op.id == transfer.debit_id)
+            .expect("validated transfer");
+        if selected.contains_key(&debit.account_id) {
+            tx.execute(
+                "INSERT INTO transfers (id,debit_id,credit_id) VALUES (?1,?2,?3)",
+                params![
+                    format!(
+                        "money-transfer-{}-{}",
+                        transfer.debit_id, transfer.credit_id
+                    ),
+                    format!("money-transaction-{}", transfer.debit_id),
+                    format!("money-transaction-{}", transfer.credit_id)
+                ],
+            )
+            .map_err(database_error)?;
         }
     }
     for schedule in &preview.schedules {
@@ -506,6 +566,179 @@ mod tests {
             .unwrap(),
             "Maison"
         );
+    }
+
+    fn posted_transfer_fixture() -> MoneyPreview {
+        let mut preview = fixture();
+        preview.accounts.push(MoneyAccount {
+            id: 2,
+            name: "Épargne".into(),
+            opening_balance: 200000,
+            balance: 202500,
+            count: 2,
+        });
+        preview.operations.extend([
+            MoneyOperation {
+                id: 10,
+                account_id: 1,
+                date: "2026-02-01".into(),
+                label: "Vers épargne".into(),
+                category: "Divers".into(),
+                amount: -10000,
+                reconciled: true,
+                note: "Débit".into(),
+            },
+            MoneyOperation {
+                id: 11,
+                account_id: 2,
+                date: "2026-02-01".into(),
+                label: "Depuis compte".into(),
+                category: "Divers".into(),
+                amount: 10000,
+                reconciled: false,
+                note: "Crédit".into(),
+            },
+            MoneyOperation {
+                id: 12,
+                account_id: 2,
+                date: "2026-03-01".into(),
+                label: "Retour".into(),
+                category: "Divers".into(),
+                amount: -7500,
+                reconciled: false,
+                note: "".into(),
+            },
+            MoneyOperation {
+                id: 13,
+                account_id: 1,
+                date: "2026-03-01".into(),
+                label: "Retour".into(),
+                category: "Divers".into(),
+                amount: 7500,
+                reconciled: true,
+                note: "".into(),
+            },
+        ]);
+        preview.transfers = vec![
+            MoneyTransfer {
+                debit_id: 10,
+                credit_id: 11,
+            },
+            MoneyTransfer {
+                debit_id: 12,
+                credit_id: 13,
+            },
+        ];
+        preview
+    }
+
+    fn both_accounts() -> Vec<MoneySelection> {
+        vec![
+            MoneySelection {
+                id: 1,
+                kind: "Compte courant".into(),
+            },
+            MoneySelection {
+                id: 2,
+                kind: "Épargne".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn synthetic_posted_transfers_preserve_both_operations_and_balances() {
+        let mut db = Connection::open_in_memory().unwrap();
+        import_into_database(&mut db, &posted_transfer_fixture(), &both_accounts()).unwrap();
+        let rows: (i64, i64, i64, i64, String, String) = db.query_row("SELECT d.amount_cents,c.amount_cents,d.reconciled,c.reconciled,d.note,c.note FROM transfers t JOIN transactions d ON d.id=t.debit_id JOIN transactions c ON c.id=t.credit_id WHERE t.id='money-transfer-10-11'", [], |r| Ok((r.get(0)?, r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).unwrap();
+        assert_eq!(rows, (-10000, 10000, 1, 0, "Débit".into(), "Crédit".into()));
+        let accounts = crate::accounts::list_accounts_in_db(&db).unwrap();
+        assert_eq!(
+            accounts
+                .iter()
+                .find(|a| a.id == "money-account-1")
+                .unwrap()
+                .current_balance,
+            85000
+        );
+        assert_eq!(
+            accounts
+                .iter()
+                .find(|a| a.id == "money-account-2")
+                .unwrap()
+                .current_balance,
+            202500
+        );
+        crate::transactions::update_transfer_in_db(
+            &mut db,
+            crate::transactions::NewTransfer {
+                id: "money-transfer-10-11".into(),
+                source_id: "money-account-1".into(),
+                destination_id: "money-account-2".into(),
+                date: "2026-02-02".into(),
+                amount: 20000,
+                category: "Divers".into(),
+                note: "Modifié".into(),
+            },
+        )
+        .unwrap();
+        let updated: (i64, i64, i64, i64) = db.query_row("SELECT d.amount_cents,c.amount_cents,d.reconciled,c.reconciled FROM transfers t JOIN transactions d ON d.id=t.debit_id JOIN transactions c ON c.id=t.credit_id WHERE t.id='money-transfer-10-11'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+        assert_eq!(updated, (-20000, 20000, 1, 0));
+        crate::transactions::delete_transaction_in_db(&db, "money-transaction-11").unwrap();
+        let count: i64 = db.query_row("SELECT count(*) FROM transactions WHERE id IN ('money-transaction-10','money-transaction-11')", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn synthetic_posted_transfers_reject_partial_and_inconsistent_pairs_atomically() {
+        let preview = posted_transfer_fixture();
+        let mut db = Connection::open_in_memory().unwrap();
+        assert!(import_into_database(&mut db, &preview, &both_accounts()[..1]).is_err());
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name='accounts'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        for mode in 0..4 {
+            let mut invalid = posted_transfer_fixture();
+            match mode {
+                0 => {
+                    invalid
+                        .operations
+                        .iter_mut()
+                        .find(|op| op.id == 11)
+                        .unwrap()
+                        .amount = 9999
+                }
+                1 => invalid.transfers[0].credit_id = 999,
+                2 => invalid.transfers[1].credit_id = 11,
+                _ => {
+                    invalid
+                        .operations
+                        .iter_mut()
+                        .find(|op| op.id == 11)
+                        .unwrap()
+                        .account_id = 1
+                }
+            }
+            let mut db = Connection::open_in_memory().unwrap();
+            assert!(
+                import_into_database(&mut db, &invalid, &both_accounts()).is_err(),
+                "case {mode}"
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name='accounts'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+        }
     }
 
     #[test]
