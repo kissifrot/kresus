@@ -15,7 +15,10 @@ fn schedule(date: &str, frequency: &str) -> Schedule {
         destination_account_id: None,
         remaining_count: None,
         end_date: None,
+        payment_method: None,
+        cheque: None,
         series: None,
+        future_overrides: vec![],
     }
 }
 
@@ -578,4 +581,151 @@ fn end_date_is_inclusive_and_invalid_update_is_rejected() {
             .iter()
             .all(|s| s.id != "test-schedule")
     );
+}
+
+#[test]
+fn future_exception_survives_until_recorded_and_preserves_series() {
+    let mut db = database();
+    save_schedule_in_db(&mut db, schedule("2028-01-31", "Mensuelle"), None).unwrap();
+    let mut changed = schedule("2028-03-02", "Mensuelle");
+    changed.label = "Exception".into();
+    changed.amount = -1234;
+    assert!(
+        update_future_in_db(&mut db, schedule("2028-03-02", "Mensuelle"), "2028-02-28").is_err()
+    );
+    update_future_in_db(&mut db, changed, "2028-02-29").unwrap();
+    let item = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(item.future_overrides[0].original_due, "2028-02-29");
+    record_schedule_in_db(&mut db, "test-schedule", "january").unwrap();
+    let item = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(
+        (item.next_due.as_str(), item.label.as_str()),
+        ("2028-03-02", "Exception")
+    );
+    assert!(item.future_overrides.is_empty());
+    record_schedule_in_db(&mut db, "test-schedule", "february").unwrap();
+    let actual: (String, String, i64) = db
+        .query_row(
+            "SELECT operation_date,label,amount_cents FROM transactions WHERE id='february'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(actual, ("2028-03-02".into(), "Exception".into(), -1234));
+    assert_eq!(next_date(&db), "2028-03-31");
+}
+
+#[test]
+fn future_transfer_override_obeys_limits_and_records_both_sides() {
+    let mut db = database();
+    let mut series = recurring_transfer();
+    series.remaining_count = Some(2);
+    save_schedule_in_db(&mut db, series, None).unwrap();
+    let mut changed = recurring_transfer();
+    changed.destination_account_id = Some("livret-michel".into());
+    changed.next_due = "2028-03-01".into();
+    assert!(update_future_in_db(&mut db, recurring_transfer(), "2028-03-31").is_err());
+    update_future_in_db(&mut db, changed, "2028-02-29").unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "first").unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "second").unwrap();
+    let credit: (String, String, i64) = db.query_row("SELECT account_id,operation_date,amount_cents FROM transactions WHERE id='second-credit'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+    assert_eq!(credit, ("livret-michel".into(), "2028-03-01".into(), 4275));
+    assert!(
+        list_schedules_in_db(&db)
+            .unwrap()
+            .iter()
+            .all(|s| s.id != "test-schedule")
+    );
+}
+
+#[test]
+fn cheque_number_is_recorded_once_while_the_payment_method_stays_on_the_series() {
+    let mut db = database();
+    let mut item = schedule("2028-01-31", "Mensuelle");
+    item.payment_method = Some("cheque".into());
+    item.cheque = Some(" 00123 ".into());
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "one").unwrap();
+    let item = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(item.payment_method.as_deref(), Some("cheque"));
+    assert_eq!(item.cheque, None);
+    record_schedule_in_db(&mut db, "test-schedule", "two").unwrap();
+    let first: Option<String> = db
+        .query_row("SELECT cheque FROM transactions WHERE id='one'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let second: Option<String> = db
+        .query_row("SELECT cheque FROM transactions WHERE id='two'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(first.as_deref(), Some("00123"));
+    assert_eq!(second, None);
+}
+
+#[test]
+fn future_cheque_override_is_promoted_without_changing_series_payment() {
+    let mut db = database();
+    let mut series = schedule("2028-01-31", "Mensuelle");
+    series.payment_method = Some("direct_debit".into());
+    save_schedule_in_db(&mut db, series, None).unwrap();
+    let mut future = schedule("2028-02-29", "Mensuelle");
+    future.payment_method = Some("cheque".into());
+    future.cheque = Some("0042".into());
+    update_future_in_db(&mut db, future, "2028-02-29").unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "first").unwrap();
+    let item = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(
+        (item.payment_method.as_deref(), item.cheque.as_deref()),
+        (Some("cheque"), Some("0042"))
+    );
+    assert_eq!(
+        item.series.unwrap().payment_method.as_deref(),
+        Some("direct_debit")
+    );
+    record_schedule_in_db(&mut db, "test-schedule", "second").unwrap();
+    let cheque: Option<String> = db
+        .query_row(
+            "SELECT cheque FROM transactions WHERE id='second'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(cheque.as_deref(), Some("0042"));
+    let item = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(item.payment_method.as_deref(), Some("direct_debit"));
+    assert!(item.cheque.is_none());
+}
+
+#[test]
+fn invalid_payment_fields_are_rejected() {
+    let mut db = database();
+    let mut item = schedule("2028-01-31", "Mensuelle");
+    item.payment_method = Some("direct_debit".into());
+    item.cheque = Some("123".into());
+    assert!(save_schedule_in_db(&mut db, item, None).is_err());
+    let mut item = recurring_transfer();
+    item.payment_method = Some("cheque".into());
+    assert!(save_schedule_in_db(&mut db, item, None).is_err());
 }

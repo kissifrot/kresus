@@ -41,14 +41,23 @@ function occurrencesForMonth(schedule: Schedule, monthKey: string): CalendarOccu
       (schedule.endDate && date > schedule.endDate)
     )
       break;
-    if (date.startsWith(monthKey))
+    if (
+      date.startsWith(monthKey) &&
+      !schedule.futureOverrides?.some((item) => item.originalDue === date)
+    )
       result.push({
         ...schedule.series,
         id: schedule.id,
         frequency: schedule.frequency,
         nextDue: date,
         projected: true,
+        originalDue: date,
       });
+  }
+  // An exception can move across months, so display it by its edited date.
+  for (const override of schedule.futureOverrides ?? []) {
+    if (override.nextDue.startsWith(monthKey))
+      result.push({ ...override, id: schedule.id, frequency: schedule.frequency, projected: true });
   }
   return result;
 }
@@ -106,18 +115,28 @@ function renderScheduleView(showOverdue: boolean) {
       const currentDay = day > 0 && day <= daysInMonth;
       const date = currentDay ? `${monthKey}-${String(day).padStart(2, "0")}` : "";
       const entries = monthSchedules.filter((schedule) => schedule.nextDue === date);
-      return `<div class="calendar-cell ${currentDay ? "" : "outside"}"><span>${currentDay ? day : ""}</span>${entries.map((entry) => `<small class="calendar-event ${entry.kind}" title="${escapeHtml(entry.label)}">${escapeHtml(entry.label)}</small>`).join("")}</div>`;
+      return `<div class="calendar-cell ${currentDay ? "" : "outside"}"><span>${currentDay ? day : ""}</span>${entries.map((entry) => `<button type="button" class="calendar-event ${entry.kind}" ${entry.projected ? `data-edit-future="${escapeHtml(entry.id)}" data-original-due="${escapeHtml(entry.originalDue!)}"` : `data-edit-schedule="${escapeHtml(entry.id)}"`} title="${escapeHtml(entry.label)}">${escapeHtml(entry.label)}</button>`).join("")}</div>`;
     },
   ).join("");
   // Use the same projection rules for the annual overview and monthly calendar.
-  const annualRows = annualView ? Array.from({ length: 12 }, (_, index) => {
-    const key = `${year}-${String(index + 1).padStart(2, "0")}`;
-    const items = schedules.flatMap((schedule) => occurrencesForMonth(schedule, key)).sort((a, b) => a.nextDue.localeCompare(b.nextDue));
-    const label = new Intl.DateTimeFormat("fr-FR", { month: "long" }).format(new Date(year, index, 1));
-    const debit = items.filter((item) => item.kind === "debit").reduce((sum, item) => sum + Math.abs(item.amount), 0);
-    const credit = items.filter((item) => item.kind === "credit").reduce((sum, item) => sum + item.amount, 0);
-    return `<tr><th scope="row"><button type="button" class="annual-month" data-annual-month="${index}">${label}</button></th><td>${items.length}</td><td>${euro(debit)}</td><td>${euro(credit)}</td><td>${items.map((item) => `<span title="${escapeHtml(item.label)}">${escapeHtml(item.nextDue.slice(-2))} · ${escapeHtml(item.label)}${item.projected ? " (prévision)" : ""}</span>`).join("<br>") || "—"}</td></tr>`;
-  }).join("") : "";
+  const annualRows = annualView
+    ? Array.from({ length: 12 }, (_, index) => {
+        const key = `${year}-${String(index + 1).padStart(2, "0")}`;
+        const items = schedules
+          .flatMap((schedule) => occurrencesForMonth(schedule, key))
+          .sort((a, b) => a.nextDue.localeCompare(b.nextDue));
+        const label = new Intl.DateTimeFormat("fr-FR", { month: "long" }).format(
+          new Date(year, index, 1),
+        );
+        const debit = items
+          .filter((item) => item.kind === "debit")
+          .reduce((sum, item) => sum + Math.abs(item.amount), 0);
+        const credit = items
+          .filter((item) => item.kind === "credit")
+          .reduce((sum, item) => sum + item.amount, 0);
+        return `<tr><th scope="row"><button type="button" class="annual-month" data-annual-month="${index}">${label}</button></th><td>${items.length}</td><td>${euro(debit)}</td><td>${euro(credit)}</td><td>${items.map((item) => `<button type="button" class="annual-occurrence" ${item.projected ? `data-edit-future="${escapeHtml(item.id)}" data-original-due="${escapeHtml(item.originalDue!)}"` : `data-edit-schedule="${escapeHtml(item.id)}"`} title="${escapeHtml(item.label)}">${escapeHtml(item.nextDue.slice(-2))} · ${escapeHtml(item.label)}${item.projected ? " (prévision)" : ""}</button>`).join("<br>") || "—"}</td></tr>`;
+      }).join("")
+    : "";
   const totalDue = monthSchedules
     .filter((schedule) => schedule.kind === "debit")
     .reduce((sum, schedule) => sum + Math.abs(schedule.amount), 0);
@@ -125,25 +144,39 @@ function renderScheduleView(showOverdue: boolean) {
     <div class="page-heading schedule-heading"><div><div class="eyebrow">PLANIFICATION</div><h1>Échéances</h1><p>Préparez les opérations récurrentes avant leur intégration au compte.</p></div><button class="primary-button" id="new-schedule"><span>+</span> Nouvelle échéance</button></div>
     <section class="schedule-summary"><div><span>À prévoir en ${monthLabel}</span><strong>${euro(totalDue)}</strong><small>${monthSchedules.length} échéances ce mois</small></div><div class="summary-divider"></div><div><span>Prochaine échéance</span><strong>${nextUpcoming ? new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${nextUpcoming.nextDue}T12:00:00`)) : "—"}</strong><small>${nextUpcoming ? `${nextUpcoming.projected ? "Prévision · " : ""}${escapeHtml(nextUpcoming.label)}` : "Aucune échéance à venir"}</small>${overdueCount ? `<button type="button" id="show-overdue" class="schedule-overdue">${overdueCount} échéance${overdueCount === 1 ? "" : "s"} en retard</button>` : ""}</div><div class="schedule-tip">Une échéance arrivée à son terme peut être enregistrée comme opération et pointée dans le compte.</div></section><p class="schedule-message" role="alert"></p>
     <div class="schedule-view-switch"><button type="button" class="secondary-button" id="schedule-month-view" aria-pressed="${!annualView}">Mois</button><button type="button" class="secondary-button" id="schedule-year-view" aria-pressed="${annualView}">Année</button></div>
-    ${annualView ? `<section class="annual-schedules"><div class="annual-toolbar"><button id="previous-year" class="secondary-button" aria-label="Année précédente">‹</button><h2>${year}</h2><button id="next-year" class="secondary-button" aria-label="Année suivante">›</button></div><div class="table-wrap"><table><thead><tr><th>Mois</th><th>Échéances</th><th>Débits</th><th>Crédits</th><th>Détail</th></tr></thead><tbody>${annualRows}</tbody></table></div><p>Les virements sont comptés dans les échéances et exclus des totaux de débits et crédits. Cliquez sur un mois pour le consulter.</p></section>` : `<section class="schedules-workspace"><div class="calendar-panel"><div class="calendar-toolbar"><button id="previous-month" aria-label="Mois précédent">‹</button><h2>${monthLabel}</h2><button id="current-month">Aujourd’hui</button><button id="next-month" aria-label="Mois suivant">›</button></div><div class="calendar-weekdays">${days.map((day) => `<span>${day}</span>`).join("")}</div><div class="calendar-grid">${cells}</div></div><div class="schedule-list-panel"><div class="schedule-list-heading"><div><h2>${showOverdue ? "Échéances en retard" : "Échéances du mois"}</h2><p>${displayedSchedules.length} échéance${displayedSchedules.length === 1 ? "" : "s"} ${showOverdue ? "en retard" : "planifiées"}</p></div>${showOverdue ? '<button id="back-to-month" class="secondary-button">Retour au mois</button>' : ""}</div><div class="schedule-list">${
-      displayedSchedules
-        .map((schedule) => {
-          const account = accounts.find((item) => item.id === schedule.accountId);
-          const destination = accounts.find((item) => item.id === schedule.destinationAccountId);
-          return `<div class="schedule-row"><time><strong>${new Date(`${schedule.nextDue}T12:00:00`).getDate()}</strong><small>${new Intl.DateTimeFormat("fr-FR", { month: "short", ...(showOverdue ? { year: "numeric" } : {}) }).format(new Date(`${schedule.nextDue}T12:00:00`))}</small></time><span class="schedule-row-copy"><strong>${escapeHtml(schedule.label)}</strong><small>${escapeHtml(schedule.category)} · ${escapeHtml(account?.name ?? "Compte")}${schedule.kind === "transfer" ? ` → ${escapeHtml(destination?.name ?? "Compte")}` : ""}</small></span><span class="schedule-amount ${schedule.kind}">${schedule.kind === "credit" ? "+ " : schedule.kind === "transfer" ? "↔ " : "− "}${euro(Math.abs(schedule.amount))}<small>${escapeHtml(schedule.frequency)}</small></span><div class="schedule-row-actions">${schedule.projected ? '<span class="schedule-projected">Prévision</span>' : `<button class="schedule-record" data-edit-schedule="${escapeHtml(schedule.id)}">Modifier</button><button class="schedule-record" data-record-schedule="${escapeHtml(schedule.id)}">Enregistrer</button>`}<button class="secondary-button schedule-delete" data-delete-schedule="${escapeHtml(schedule.id)}">Supprimer</button></div></div>`;
-        })
-        .join("") ||
-      `<p class="empty-row">${showOverdue ? "Aucune échéance en retard." : "Aucune échéance pour ce mois."}</p>`
-    }</div></div></section>`}
+    ${
+      annualView
+        ? `<section class="annual-schedules"><div class="annual-toolbar"><button id="previous-year" class="secondary-button" aria-label="Année précédente">‹</button><h2>${year}</h2><button id="next-year" class="secondary-button" aria-label="Année suivante">›</button></div><div class="table-wrap"><table><thead><tr><th>Mois</th><th>Échéances</th><th>Débits</th><th>Crédits</th><th>Détail</th></tr></thead><tbody>${annualRows}</tbody></table></div><p>Les virements sont comptés dans les échéances et exclus des totaux de débits et crédits. Cliquez sur un mois pour le consulter.</p></section>`
+        : `<section class="schedules-workspace"><div class="calendar-panel"><div class="calendar-toolbar"><button id="previous-month" aria-label="Mois précédent">‹</button><h2>${monthLabel}</h2><button id="current-month">Aujourd’hui</button><button id="next-month" aria-label="Mois suivant">›</button></div><div class="calendar-weekdays">${days.map((day) => `<span>${day}</span>`).join("")}</div><div class="calendar-grid">${cells}</div></div><div class="schedule-list-panel"><div class="schedule-list-heading"><div><h2>${showOverdue ? "Échéances en retard" : "Échéances du mois"}</h2><p>${displayedSchedules.length} échéance${displayedSchedules.length === 1 ? "" : "s"} ${showOverdue ? "en retard" : "planifiées"}</p></div>${showOverdue ? '<button id="back-to-month" class="secondary-button">Retour au mois</button>' : ""}</div><div class="schedule-list">${
+            displayedSchedules
+              .map((schedule) => {
+                const account = accounts.find((item) => item.id === schedule.accountId);
+                const destination = accounts.find(
+                  (item) => item.id === schedule.destinationAccountId,
+                );
+                const payment = schedule.paymentMethod
+                  ? {
+                      cheque: "Chèque",
+                      bank_transfer: "Virement automatique",
+                      direct_debit: "Prélèvement",
+                    }[schedule.paymentMethod]
+                  : "";
+                return `<div class="schedule-row"><time><strong>${new Date(`${schedule.nextDue}T12:00:00`).getDate()}</strong><small>${new Intl.DateTimeFormat("fr-FR", { month: "short", ...(showOverdue ? { year: "numeric" } : {}) }).format(new Date(`${schedule.nextDue}T12:00:00`))}</small></time><span class="schedule-row-copy"><strong>${escapeHtml(schedule.label)}</strong><small>${escapeHtml(schedule.category)} · ${escapeHtml(account?.name ?? "Compte")}${schedule.kind === "transfer" ? ` → ${escapeHtml(destination?.name ?? "Compte")}` : ""}${payment ? ` · ${payment}${schedule.cheque ? ` n° ${escapeHtml(schedule.cheque)}` : ""}` : ""}</small></span><span class="schedule-amount ${schedule.kind}">${schedule.kind === "credit" ? "+ " : schedule.kind === "transfer" ? "↔ " : "− "}${euro(Math.abs(schedule.amount))}<small>${escapeHtml(schedule.frequency)}</small></span><div class="schedule-row-actions">${schedule.projected ? `<span class="schedule-projected">Prévision</span><button class="schedule-record" data-edit-future="${escapeHtml(schedule.id)}" data-original-due="${escapeHtml(schedule.originalDue!)}">Modifier</button>` : `<button class="schedule-record" data-edit-schedule="${escapeHtml(schedule.id)}">Modifier</button><button class="schedule-record" data-record-schedule="${escapeHtml(schedule.id)}">Enregistrer</button>`}<button class="secondary-button schedule-delete" data-delete-schedule="${escapeHtml(schedule.id)}">Supprimer</button></div></div>`;
+              })
+              .join("") ||
+            `<p class="empty-row">${showOverdue ? "Aucune échéance en retard." : "Aucune échéance pour ce mois."}</p>`
+          }</div></div></section>`
+    }
     <dialog id="schedule-dialog"><form id="schedule-form">
         <div class="dialog-heading"><h2>Nouvelle échéance</h2><button type="button" class="dialog-close schedule-close" aria-label="Fermer">×</button></div>
-        <label class="schedule-scope" hidden>Appliquer la modification<select name="scope"><option value="occurrence">Cette occurrence uniquement</option><option value="series">Cette occurrence et les suivantes</option></select></label>
+        <label class="schedule-scope" hidden>Appliquer la modification<select name="scope"><option value="occurrence">Cette occurrence uniquement</option><option value="series">Cette occurrence et les suivantes</option></select></label><p class="schedule-exceptions-warning" hidden>Modifier la série supprimera les modifications individuelles des occurrences futures.</p>
         <label><span class="schedule-account-label">Compte</span><select name="accountId" required>${accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === selectedAccount.id ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}</select></label>
         <label class="schedule-destination" hidden>Compte crédité<select name="destinationAccountId">${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label>
         <label>Destinataire / libellé<input name="label" list="schedule-payee-suggestions" required maxlength="80"><datalist id="schedule-payee-suggestions"></datalist></label>
         <label>Catégorie<select name="category" required>${categoryOptions()}</select></label>
         <div class="form-row"><label>Type<select name="kind"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer">Virement</option></select></label>
         <label>Montant (€)<input name="amount" type="number" min="0.01" max="1000000000" step="0.01" required></label></div>
+        <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" maxlength="40"></label></div>
         <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" required></label>
         <label>Périodicité<select name="frequency"><option>Mensuelle</option><option>Bimestrielle</option><option>Trimestrielle</option><option>Semestrielle</option><option>Annuelle</option></select></label></div>
         <div class="schedule-limit"><label>Fin de la série<select name="limitType"><option value="none">Sans limite</option><option value="count">Nombre d’occurrences</option><option value="date">Date de fin</option></select></label>
@@ -157,6 +190,22 @@ function renderScheduleView(showOverdue: boolean) {
   const scheduleDialog = document.querySelector<HTMLDialogElement>("#schedule-dialog")!;
   const scheduleForm = scheduleDialog.querySelector<HTMLFormElement>("#schedule-form")!;
   let editingSchedule: Schedule | undefined;
+  let editingOriginal: string | undefined;
+  // A cheque number is specific to the occurrence, never the recurring series.
+  function updatePaymentFields() {
+    const transfer =
+      (scheduleForm.elements.namedItem("kind") as HTMLSelectElement).value === "transfer";
+    const method = scheduleForm.elements.namedItem("paymentMethod") as HTMLSelectElement;
+    // Imported transfers can have an unknown Money payment method.
+    for (const option of method.options)
+      option.disabled = transfer && ["cheque", "direct_debit"].includes(option.value);
+    if (transfer && ["cheque", "direct_debit"].includes(method.value))
+      method.value = "bank_transfer";
+    const cheque = scheduleForm.elements.namedItem("cheque") as HTMLInputElement;
+    const showCheque = !transfer && method.value === "cheque";
+    scheduleForm.querySelector<HTMLElement>(".schedule-cheque")!.hidden = !showCheque;
+    cheque.disabled = !showCheque;
+  }
   function updateTransferFields() {
     const transfer =
       (scheduleForm.elements.namedItem("kind") as HTMLSelectElement).value === "transfer";
@@ -169,6 +218,7 @@ function renderScheduleView(showOverdue: boolean) {
       : "Compte";
     destination.disabled = !transfer;
     destination.required = transfer;
+    updatePaymentFields();
     const source = (scheduleForm.elements.namedItem("accountId") as HTMLSelectElement).value;
     if (transfer && (!destination.value || destination.value === source))
       destination.value = accounts.find((account) => account.id !== source)?.id ?? "";
@@ -176,7 +226,10 @@ function renderScheduleView(showOverdue: boolean) {
   function updateLimitFields() {
     const occurrenceOnly =
       !!editingSchedule &&
-      (scheduleForm.elements.namedItem("scope") as HTMLSelectElement).value === "occurrence";
+      (!!editingOriginal ||
+        (scheduleForm.elements.namedItem("scope") as HTMLSelectElement).value === "occurrence");
+    scheduleForm.querySelector<HTMLElement>(".schedule-exceptions-warning")!.hidden =
+      occurrenceOnly || !editingSchedule?.futureOverrides?.length;
     const type = (scheduleForm.elements.namedItem("limitType") as HTMLSelectElement).value;
     scheduleForm.querySelector<HTMLElement>(".schedule-limit")!.hidden = occurrenceOnly;
     for (const [name, selector, active] of [
@@ -194,17 +247,20 @@ function renderScheduleView(showOverdue: boolean) {
     updateLimitFields,
   );
   // Reuse the same form for a new series and for an existing occurrence.
-  function openScheduleForm(schedule?: Schedule) {
+  function openScheduleForm(schedule?: Schedule, originalDue?: string) {
     editingSchedule = schedule;
+    editingOriginal = originalDue;
     scheduleForm.reset();
     scheduleForm.querySelector<HTMLElement>(".editor-error")!.textContent = "";
     scheduleForm.querySelector("h2")!.textContent = schedule
       ? "Modifier l’échéance"
       : "Nouvelle échéance";
     scheduleForm.querySelector(".schedule-date-label")!.textContent = schedule
-      ? "Prochaine échéance"
+      ? originalDue
+        ? "Date de cette occurrence"
+        : "Prochaine échéance"
       : "Première échéance";
-    scheduleForm.querySelector<HTMLElement>(".schedule-scope")!.hidden = !schedule;
+    scheduleForm.querySelector<HTMLElement>(".schedule-scope")!.hidden = !schedule || !!originalDue;
     const frequencyInput = scheduleForm.elements.namedItem("frequency") as HTMLSelectElement;
     frequencyInput.disabled = !!schedule;
     scheduleForm.querySelector<HTMLButtonElement>('button[type="submit"]')!.textContent = schedule
@@ -224,6 +280,8 @@ function renderScheduleView(showOverdue: boolean) {
       setValue("label", schedule.label);
       setValue("category", schedule.category);
       setValue("kind", schedule.kind);
+      setValue("paymentMethod", schedule.paymentMethod ?? "");
+      setValue("cheque", schedule.cheque ?? "");
       setValue("amount", centsInput(Math.abs(schedule.amount)));
       setValue("frequency", schedule.frequency);
       setValue(
@@ -243,6 +301,10 @@ function renderScheduleView(showOverdue: boolean) {
       scheduleForm.querySelector<HTMLDataListElement>("#schedule-payee-suggestions")!,
     );
   }
+  (scheduleForm.elements.namedItem("paymentMethod") as HTMLSelectElement).addEventListener(
+    "change",
+    updatePaymentFields,
+  );
   (scheduleForm.elements.namedItem("kind") as HTMLSelectElement).addEventListener(
     "change",
     updateTransferFields,
@@ -266,6 +328,25 @@ function renderScheduleView(showOverdue: boolean) {
       if (schedule) openScheduleForm(schedule);
     }),
   );
+  document.querySelectorAll<HTMLElement>("[data-edit-future]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const series = schedules.find((item) => item.id === button.dataset.editFuture);
+      const originalDue = button.dataset.originalDue;
+      if (!series || !originalDue) return;
+      const override = series.futureOverrides?.find((item) => item.originalDue === originalDue);
+      // Projected values come from the series, never from the pending exception.
+      openScheduleForm(
+        {
+          ...series,
+          ...series.series,
+          ...override,
+          nextDue: override?.nextDue ?? originalDue,
+          cheque: override?.cheque ?? null,
+        },
+        originalDue,
+      );
+    }),
+  );
   scheduleDialog
     .querySelectorAll(".schedule-close")
     .forEach((button) => button.addEventListener("click", () => scheduleDialog.close()));
@@ -287,24 +368,34 @@ function renderScheduleView(showOverdue: boolean) {
     button.disabled = true;
     try {
       const amount = parseCents(String(values.get("amount")));
-      await invoke(editingSchedule ? "update_schedule" : "create_schedule", {
-        scope: editingSchedule ? String(values.get("scope")) : undefined,
-        schedule: {
-          id: editingSchedule?.id ?? crypto.randomUUID(),
-          accountId,
-          destinationAccountId,
-          label: String(values.get("label")).trim(),
-          category: String(values.get("category")).trim(),
-          nextDue,
-          frequency: String(values.get("frequency") ?? editingSchedule?.frequency),
-          amount: kind === "credit" ? amount : -amount,
-          kind,
-          remainingCount: values.get("remainingCount")
-            ? Number(values.get("remainingCount"))
-            : null,
-          endDate: values.get("endDate") ? String(values.get("endDate")) : null,
+      await invoke(
+        editingOriginal
+          ? "update_future_occurrence"
+          : editingSchedule
+            ? "update_schedule"
+            : "create_schedule",
+        {
+          ...(editingOriginal ? { originalDue: editingOriginal } : {}),
+          scope: editingSchedule ? String(values.get("scope")) : undefined,
+          schedule: {
+            id: editingSchedule?.id ?? crypto.randomUUID(),
+            accountId,
+            destinationAccountId,
+            label: String(values.get("label")).trim(),
+            category: String(values.get("category")).trim(),
+            nextDue,
+            frequency: String(values.get("frequency") ?? editingSchedule?.frequency),
+            amount: kind === "credit" ? amount : -amount,
+            kind,
+            paymentMethod: String(values.get("paymentMethod") ?? "") || null,
+            cheque: String(values.get("cheque") ?? "").trim() || null,
+            remainingCount: values.get("remainingCount")
+              ? Number(values.get("remainingCount"))
+              : null,
+            endDate: values.get("endDate") ? String(values.get("endDate")) : null,
+          },
         },
-      });
+      );
       setSchedules(await invoke<Schedule[]>("list_schedules"));
       const [dueYear, dueMonth] = nextDue.split("-").map(Number);
       calendarMonth = new Date(dueYear!, dueMonth! - 1, 1);
@@ -316,15 +407,29 @@ function renderScheduleView(showOverdue: boolean) {
       button.disabled = false;
     }
   });
-  document.querySelector("#schedule-month-view")?.addEventListener("click", () => { annualView = false; renderSchedules(); });
-  document.querySelector("#schedule-year-view")?.addEventListener("click", () => { annualView = true; renderSchedules(); });
-  document.querySelector("#previous-year")?.addEventListener("click", () => { calendarMonth = new Date(year - 1, month, 1); renderSchedules(); });
-  document.querySelector("#next-year")?.addEventListener("click", () => { calendarMonth = new Date(year + 1, month, 1); renderSchedules(); });
-  document.querySelectorAll<HTMLButtonElement>("[data-annual-month]").forEach((button) => button.addEventListener("click", () => {
-    calendarMonth = new Date(year, Number(button.dataset.annualMonth), 1);
+  document.querySelector("#schedule-month-view")?.addEventListener("click", () => {
     annualView = false;
     renderSchedules();
-  }));
+  });
+  document.querySelector("#schedule-year-view")?.addEventListener("click", () => {
+    annualView = true;
+    renderSchedules();
+  });
+  document.querySelector("#previous-year")?.addEventListener("click", () => {
+    calendarMonth = new Date(year - 1, month, 1);
+    renderSchedules();
+  });
+  document.querySelector("#next-year")?.addEventListener("click", () => {
+    calendarMonth = new Date(year + 1, month, 1);
+    renderSchedules();
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-annual-month]").forEach((button) =>
+    button.addEventListener("click", () => {
+      calendarMonth = new Date(year, Number(button.dataset.annualMonth), 1);
+      annualView = false;
+      renderSchedules();
+    }),
+  );
   document.querySelector("#previous-month")?.addEventListener("click", () => {
     calendarMonth = new Date(year, month - 1, 1);
     renderSchedules();
@@ -340,7 +445,7 @@ function renderScheduleView(showOverdue: boolean) {
   });
   document
     .querySelector("#show-overdue")
-    ?.addEventListener("click", () => renderScheduleView(true));
+    ?.addEventListener("click", () => renderOverdueSchedules());
   document
     .querySelector("#back-to-month")
     ?.addEventListener("click", () => renderScheduleView(false));

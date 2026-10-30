@@ -71,6 +71,47 @@ describe("Money reader", () => {
       expect(result.warnings[0]).toContain("non importée");
     }
   });
+  it("imports only the observed cheque signature and warns about unknown payment flags", () => {
+    const bill = {
+      hbill: 1,
+      hbillHead: 1,
+      st: 3,
+      frq: 3,
+      cFrqInst: 1,
+      dt: new Date("2026-10-31T00:00:00Z"),
+      dtMax: new Date("2200-12-31T00:00:00Z"),
+      cInstMax: -1,
+      iinst: 0,
+      iinstNextUnpaid: 0,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 1,
+    };
+    const source = {
+      htrn: 1,
+      hacct: 2,
+      amt: "-12.00",
+      frq: 3,
+      hsec: null,
+      act: -1,
+      hacctLink: null,
+      grftt: 2097152,
+      grfstem: 2050,
+      grfEntryMethods: 1,
+      fPrint: false,
+    };
+    for (const [template, expected] of [
+      [source, "cheque"],
+      [{ ...source, grfstem: 2051 }, null],
+      [{ ...source, fPrint: true }, null],
+    ] as const) {
+      const result = readMoneySchedules([bill], [template], [], [{ hacct: 2 }], [], () => "Divers");
+      expect(result.schedules[0]?.paymentMethod).toBe(expected);
+      expect(
+        result.warnings.some((warning) => warning.includes("méthode de paiement non reconnue")),
+      ).toBe(expected === null);
+    }
+  });
   const sample = resolve("../references/Money.mny");
   it.skipIf(!existsSync(sample))(
     "reads the local Money sample and its exact account balance",
@@ -97,6 +138,7 @@ describe("Money reader", () => {
             frequency: "Mensuelle",
             nextDue: "2026-10-31",
             kind: "debit",
+            paymentMethod: "cheque",
           }),
           expect.objectContaining({
             label: "Orange",
@@ -104,6 +146,7 @@ describe("Money reader", () => {
             frequency: "Bimestrielle",
             nextDue: "2026-10-15",
             kind: "transfer",
+            paymentMethod: null,
             destinationAccountId: saving.id,
           }),
         ]),

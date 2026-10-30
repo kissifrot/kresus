@@ -66,7 +66,12 @@ fn path(db: &Connection, id: &str) -> Result<(String, Option<String>), String> {
 
 // Replace whole labels, including references held by recurring and exceptional occurrences.
 fn replace_label(db: &Connection, old: &str, new: &str) -> Result<(), String> {
-    for table in ["transactions", "schedules", "schedule_overrides"] {
+    for table in [
+        "transactions",
+        "schedules",
+        "schedule_overrides",
+        "schedule_future_overrides",
+    ] {
         db.execute(
             &format!("UPDATE {table} SET category=?1 WHERE category=?2"),
             params![new, old],
@@ -183,7 +188,7 @@ pub fn delete_category(id: String, state: tauri::State<'_, AppState>) -> Result<
 fn delete_in_db(db: &mut Connection, id: String) -> Result<(), String> {
     let tx = db.transaction().map_err(database_error)?;
     let (label, _) = path(&tx, &id)?;
-    let used: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM transactions WHERE category=?1 UNION ALL SELECT 1 FROM schedules WHERE category=?1 UNION ALL SELECT 1 FROM schedule_overrides WHERE category=?1 UNION ALL SELECT 1 FROM categories WHERE parent_id=?2)",params![label,id],|r|r.get(0)).map_err(database_error)?;
+    let used: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM transactions WHERE category=?1 UNION ALL SELECT 1 FROM schedules WHERE category=?1 UNION ALL SELECT 1 FROM schedule_overrides WHERE category=?1 UNION ALL SELECT 1 FROM schedule_future_overrides WHERE category=?1 UNION ALL SELECT 1 FROM categories WHERE parent_id=?2)",params![label,id],|r|r.get(0)).map_err(database_error)?;
     if used {
         return Err("Cette catégorie est utilisée ou contient des sous-catégories. Fusionnez-la ou retirez ses références avant de la supprimer.".into());
     }

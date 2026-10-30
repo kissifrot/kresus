@@ -28,6 +28,10 @@ fn open_existing_database(path: &Path) -> Result<Connection, String> {
     let writable = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|e| format!("La base ne peut pas être ouverte en écriture : {e}"))?;
     writable.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS schedule_limits (schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE, remaining_count INTEGER CHECK (remaining_count > 0), end_date TEXT, CHECK (remaining_count IS NULL OR end_date IS NULL));").map_err(database_error)?;
+    writable
+        .execute_batch(include_str!("schedule_future_schema.sql"))
+        .map_err(database_error)?;
+    migrate_schedule_payment(&writable).map_err(database_error)?;
     Ok(writable)
 }
 
@@ -243,11 +247,35 @@ pub(crate) fn initialize_database(connection: &Connection) -> Result<(), rusqlit
     Ok(())
 }
 
+// Add nullable payment fields to existing databases without changing their data.
+pub(crate) fn migrate_schedule_payment(connection: &Connection) -> Result<(), rusqlite::Error> {
+    for table in [
+        "schedules",
+        "schedule_overrides",
+        "schedule_future_overrides",
+    ] {
+        for column in ["payment_method", "cheque"] {
+            let exists: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",
+                params![table, column],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                connection
+                    .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn initialize_schema_and_data(
     connection: &Connection,
     seed_demo: bool,
 ) -> Result<(), rusqlite::Error> {
     connection.execute_batch(include_str!("schema.sql"))?;
+    connection.execute_batch(include_str!("schedule_future_schema.sql"))?;
+    migrate_schedule_payment(connection)?;
 
     // Seed only a new database, in the same transaction as schema creation.
     if seed_demo {

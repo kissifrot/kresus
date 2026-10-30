@@ -53,6 +53,7 @@ pub fn run() {
             schedules::list_schedules,
             schedules::create_schedule,
             schedules::update_schedule,
+            schedules::update_future_occurrence,
             schedules::delete_schedule,
             transactions::create_transaction,
             transactions::create_transfer,

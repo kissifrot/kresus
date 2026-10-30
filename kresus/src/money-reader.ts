@@ -118,6 +118,7 @@ export function readMoneySchedules(
     frequency: string;
     amount: number;
     kind: string;
+    paymentMethod: "cheque" | null;
   }[] = [];
   const warnings: string[] = [];
   for (const bill of bills) {
@@ -180,6 +181,19 @@ export function readMoneySchedules(
       }
       destinationAccountId = source.hacctLink;
     }
+    // The only verified non-transfer signature comes from the supplied cheque example.
+    // Unrecognised flags must not be guessed: Money has other payment methods.
+    const paymentMethod =
+      destinationAccountId == null &&
+      source.grfstem === 2050 &&
+      source.grfEntryMethods === 1 &&
+      source.fPrint === false
+        ? "cheque"
+        : null;
+    if (!paymentMethod)
+      warnings.push(
+        `Échéance Money ${bill.hbill} : méthode de paiement non reconnue ; à vérifier après import.`,
+      );
     const payee = payees.find((p) => p.hpay === (source.lHpay ?? source.hpay));
     schedules.push({
       id: bill.hbill,
@@ -191,10 +205,10 @@ export function readMoneySchedules(
       frequency,
       amount,
       kind: destinationAccountId != null ? "transfer" : amount > 0 ? "credit" : "debit",
+      paymentMethod,
     });
   }
-  if (schedules.length)
-    warnings.push("La méthode de paiement et les notes des échéances Money ne sont pas importées.");
+  if (schedules.length) warnings.push("Les notes des échéances Money ne sont pas importées.");
   return { schedules, warnings };
 }
 

@@ -33,6 +33,8 @@ struct MoneySchedule {
     amount: i64,
     kind: String,
     #[serde(default)]
+    payment_method: Option<String>,
+    #[serde(default)]
     remaining_count: Option<i64>,
     #[serde(default)]
     end_date: Option<String>,
@@ -205,6 +207,9 @@ fn import_into_database(
     let tx = db.transaction().map_err(database_error)?;
     tx.execute_batch(include_str!("schema.sql"))
         .map_err(database_error)?;
+    tx.execute_batch(include_str!("schedule_future_schema.sql"))
+        .map_err(database_error)?;
+    crate::database::migrate_schedule_payment(&tx).map_err(database_error)?;
     let selected: HashMap<i64, &str> = selection.iter().map(|s| (s.id, s.kind.as_str())).collect();
     if selected.len() != selection.len()
         || selected.is_empty()
@@ -286,6 +291,17 @@ fn import_into_database(
         {
             return Err("Échéance Money invalide.".into());
         }
+        if !matches!(
+            schedule.payment_method.as_deref(),
+            None | Some("cheque" | "bank_transfer" | "direct_debit")
+        ) || (schedule.kind == "transfer"
+            && schedule
+                .payment_method
+                .as_deref()
+                .is_some_and(|m| m != "bank_transfer"))
+        {
+            return Err("Méthode de paiement Money invalide.".into());
+        }
         if !matches!(schedule.frequency.as_str(), "Mensuelle" | "Bimestrielle") {
             return Err("Périodicité Money non prise en charge.".into());
         }
@@ -314,7 +330,7 @@ fn import_into_database(
         } else {
             &schedule.kind
         };
-        tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![id,format!("money-account-{}",schedule.account_id),schedule.label,schedule.category,schedule.next_due,schedule.frequency,schedule.amount,stored_kind]).map_err(database_error)?;
+        tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![id,format!("money-account-{}",schedule.account_id),schedule.label,schedule.category,schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method]).map_err(database_error)?;
         tx.execute("INSERT INTO schedule_anchors (schedule_id,anchor_day) VALUES (?1, CAST(strftime('%d',?2) AS INTEGER))", params![id,schedule.next_due]).map_err(database_error)?;
         // Persist the reviewed limit alongside the imported series.
         tx.execute(
@@ -379,6 +395,66 @@ mod tests {
     }
 
     #[test]
+    fn imports_verified_payment_method_and_rejects_invalid_values() {
+        let mut preview = fixture();
+        preview.schedules.push(MoneySchedule {
+            id: 9,
+            account_id: 1,
+            destination_account_id: None,
+            label: "Chèque".into(),
+            category: "Divers".into(),
+            next_due: "2028-01-31".into(),
+            frequency: "Mensuelle".into(),
+            amount: -1200,
+            kind: "debit".into(),
+            payment_method: Some("cheque".into()),
+            remaining_count: None,
+            end_date: None,
+        });
+        let mut db = Connection::open_in_memory().unwrap();
+        import_into_database(
+            &mut db,
+            &preview,
+            &[MoneySelection {
+                id: 1,
+                kind: "Compte courant".into(),
+            }],
+        )
+        .unwrap();
+        let method: Option<String> = db
+            .query_row(
+                "SELECT payment_method FROM schedules WHERE id='money-schedule-9'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(method.as_deref(), Some("cheque"));
+        preview.schedules[0].payment_method = Some("invalid".into());
+        let mut invalid = Connection::open_in_memory().unwrap();
+        assert!(
+            import_into_database(
+                &mut invalid,
+                &preview,
+                &[MoneySelection {
+                    id: 1,
+                    kind: "Compte courant".into()
+                }]
+            )
+            .is_err()
+        );
+        assert_eq!(
+            invalid
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name='accounts'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
     fn imported_transfer_series_requires_both_accounts_and_records_linked_operations() {
         let mut preview = fixture();
         preview.accounts.push(MoneyAccount {
@@ -398,6 +474,7 @@ mod tests {
             frequency: "Bimestrielle".into(),
             amount: -10000,
             kind: "transfer".into(),
+            payment_method: None,
             remaining_count: None,
             end_date: None,
         });
@@ -469,6 +546,7 @@ mod tests {
                 frequency: "Mensuelle".into(),
                 amount: -1200,
                 kind: "debit".into(),
+                payment_method: None,
                 remaining_count,
                 end_date,
             });
@@ -535,6 +613,7 @@ mod tests {
                 frequency: "Mensuelle".into(),
                 amount: -1200,
                 kind: "debit".into(),
+                payment_method: None,
                 remaining_count,
                 end_date,
             });

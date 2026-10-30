@@ -17,6 +17,7 @@ type Schedule = Omit<Series, "anchorDay"> & {
   remainingCount?: number | null;
   endDate?: string | null;
   series: Series;
+  futureOverrides?: (Omit<Series, "anchorDay"> & { originalDue: string })[];
 };
 
 const baseSeries = (date: string, day: number): Series => ({
@@ -45,7 +46,10 @@ async function openCalendar(
   });
   // Use the real calendar renderer with an isolated fake Tauri backend.
   const invoke = vi.fn(
-    async (command: string, args?: { schedule?: Schedule; scope?: string; id?: string }) => {
+    async (
+      command: string,
+      args?: { schedule?: Schedule; scope?: string; id?: string; originalDue?: string },
+    ) => {
       if (command === "list_accounts")
         return [
           {
@@ -114,6 +118,14 @@ async function openCalendar(
         schedules.splice(index, 1);
         return;
       }
+      if (command === "update_future_occurrence" && args?.schedule && args.originalDue) {
+        const series = schedules.find((item) => item.id === args.schedule!.id)!;
+        series.futureOverrides = (series.futureOverrides ?? []).filter(
+          (item) => item.originalDue !== args.originalDue,
+        );
+        series.futureOverrides.push({ ...args.schedule, originalDue: args.originalDue });
+        return;
+      }
       if (command === "update_schedule" && args?.schedule && args.scope === "occurrence") {
         schedules[0] = { ...args.schedule, series: schedules[0].series };
         return;
@@ -172,6 +184,36 @@ describe("schedule calendar", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.doUnmock("@tauri-apps/api/core");
+  });
+
+  it("shows a yearly overview with leap-day projections, limits and month navigation", async () => {
+    vi.setSystemTime(new Date(2028, 0, 1, 12));
+    const item = recurring("2028-01-31", 31, "Mensuelle");
+    item.remainingCount = 2;
+    await openCalendar([item]);
+    (document.querySelector("#schedule-year-view") as HTMLButtonElement).click();
+    const rows = document.querySelectorAll(".annual-schedules tbody tr");
+    expect(rows).toHaveLength(12);
+    expect(rows[0]?.textContent).toContain("31 · Yolo");
+    expect(rows[1]?.textContent).toContain("29 · Yolo (prévision)");
+    expect(rows[2]?.textContent).not.toContain("Yolo");
+    (document.querySelector('[data-annual-month="1"]') as HTMLButtonElement).click();
+    expect(document.querySelector(".calendar-toolbar h2")?.textContent).toBe("février 2028");
+    expect(calendarEvents()[0]?.textContent).toContain("29Yolo");
+    (document.querySelector("#schedule-year-view") as HTMLButtonElement).click();
+    (document.querySelector("#next-year") as HTMLButtonElement).click();
+    expect(document.querySelector(".annual-toolbar h2")?.textContent).toBe("2029");
+    expect(document.querySelector(".annual-schedules tbody")?.textContent).not.toContain("Yolo");
+  });
+
+  it("opens overdue occurrences from the annual view", async () => {
+    vi.setSystemTime(new Date(2028, 0, 15, 12));
+    await openCalendar([recurring("2028-01-10", 10, "Mensuelle")]);
+    (document.querySelector("#schedule-year-view") as HTMLButtonElement).click();
+    (document.querySelector("#show-overdue") as HTMLButtonElement).click();
+    expect(document.querySelector(".annual-schedules")).toBeNull();
+    expect(document.querySelector(".schedule-list-heading")?.textContent).toContain("en retard");
+    expect(document.querySelector("[data-record-schedule]")).not.toBeNull();
   });
 
   it.each([
@@ -485,6 +527,80 @@ describe("schedule calendar", () => {
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["31Yolo"]);
     expect(document.querySelector(".schedule-list")?.textContent).toContain("100,00");
     expect(document.querySelector(".schedule-list")?.textContent).not.toContain("Exception");
+  });
+
+  it.each(["calendar", "annual"])(
+    "edits a future occurrence from the %s view and moves it across months",
+    async (view) => {
+      vi.setSystemTime(new Date(2028, 0, 1, 12));
+      const invoke = await openCalendar([recurring("2028-01-31", 31, "Mensuelle")]);
+      if (view === "annual") {
+        (document.querySelector("#schedule-year-view") as HTMLButtonElement).click();
+      } else {
+        (document.querySelector("#next-month") as HTMLButtonElement).click();
+      }
+      (
+        document.querySelector(
+          '[data-edit-future][data-original-due="2028-02-29"]',
+        ) as HTMLButtonElement
+      ).click();
+      const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
+      expect(form.querySelector<HTMLElement>(".schedule-scope")!.hidden).toBe(true);
+      (form.elements.namedItem("nextDue") as HTMLInputElement).value = "2028-03-02";
+      (form.elements.namedItem("label") as HTMLInputElement).value = "Exception";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await vi.waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith(
+          "update_future_occurrence",
+          expect.objectContaining({
+            originalDue: "2028-02-29",
+            schedule: expect.objectContaining({ nextDue: "2028-03-02", label: "Exception" }),
+          }),
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(document.querySelector("#schedule-dialog")!.hasAttribute("open")).toBe(false),
+      );
+      if (view === "annual") {
+        const rows = document.querySelectorAll(".annual-schedules tbody tr");
+        expect(rows[1]!.textContent).not.toContain("Yolo");
+        expect(rows[2]!.textContent).toContain("02 · Exception");
+        expect(rows[2]!.textContent).toContain("31 · Yolo");
+      } else {
+        expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["2Exception", "31Yolo"]);
+        (document.querySelector("#previous-month") as HTMLButtonElement).click();
+        expect(calendarEvents()).toHaveLength(0);
+      }
+    },
+  );
+
+  it("allows a cheque number only when cheque is selected, including for a future occurrence", async () => {
+    vi.setSystemTime(new Date(2028, 0, 1, 12));
+    const invoke = await openCalendar([recurring("2028-01-31", 31, "Mensuelle")]);
+    (document.querySelector("#next-month") as HTMLButtonElement).click();
+    (document.querySelector("[data-edit-future]") as HTMLButtonElement).click();
+    const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
+    const method = form.elements.namedItem("paymentMethod") as HTMLSelectElement;
+    const cheque = form.elements.namedItem("cheque") as HTMLInputElement;
+    expect(cheque.disabled).toBe(true);
+    method.value = "cheque";
+    method.dispatchEvent(new Event("change"));
+    expect(cheque.disabled).toBe(false);
+    cheque.value = "00123";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "update_future_occurrence",
+        expect.objectContaining({
+          schedule: expect.objectContaining({ paymentMethod: "cheque", cheque: "00123" }),
+        }),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelector("#schedule-dialog")!.hasAttribute("open")).toBe(false),
+    );
+    (document.querySelector("[data-edit-future]") as HTMLButtonElement).click();
+    expect(document.querySelector<HTMLInputElement>('[name="cheque"]')!.value).toBe("00123");
   });
 
   it("saves an occurrence edit and displays its updated date and amount", async () => {

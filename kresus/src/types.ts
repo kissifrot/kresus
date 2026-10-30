@@ -29,6 +29,8 @@ export type ScheduleSeries = {
   amount: number;
   kind: "debit" | "credit" | "transfer";
   destinationAccountId?: string | null;
+  paymentMethod?: "cheque" | "bank_transfer" | "direct_debit" | null;
+  cheque?: string | null;
 };
 export type Schedule = ScheduleSeries & {
   id: string;
@@ -36,9 +38,11 @@ export type Schedule = ScheduleSeries & {
   remainingCount?: number | null;
   endDate?: string | null;
   series: ScheduleSeries & { anchorDay: number };
+  futureOverrides?: (ScheduleSeries & { originalDue: string })[];
 };
 export type CalendarOccurrence = ScheduleSeries & {
   id: string;
   frequency: string;
   projected: boolean;
+  originalDue?: string;
 };

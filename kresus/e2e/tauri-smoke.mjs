@@ -395,6 +395,17 @@ try {
   const scheduleId = await execute(
     "return [...document.querySelectorAll('.schedule-row')].find(row => row.textContent.includes('Échéance recette'))?.querySelector('[data-edit-schedule]')?.dataset.editSchedule;",
   );
+  await click("#schedule-year-view");
+  await waitFor(
+    async () => (await text(".annual-schedules")).includes("Échéance recette"),
+    "Vue annuelle des échéances",
+  );
+  const currentMonth = await execute("return new Date().getMonth();");
+  await click(`[data-annual-month="${currentMonth}"]`);
+  await waitFor(
+    async () => await visible(`[data-edit-schedule="${scheduleId}"]`),
+    "Retour au mois depuis la vue annuelle",
+  );
   await click(`[data-edit-schedule="${scheduleId}"]`);
   await fill("#schedule-form", { amount: "11.50", scope: "occurrence" });
   await click('#schedule-form button[type="submit"]');

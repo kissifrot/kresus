@@ -12,7 +12,7 @@ Le fichier enrichi comporte deux comptes bancaires en euros : le compte courant 
 
 Dans ce fichier, les deux séries sont décrites dans `BILL`. Leurs modèles apparaissent dans `TRN` avec `frq = 3`, et le champ `cFrqInst` vaut respectivement 1 et 2. Le modèle de virement a deux lignes liées dans `TRN_XFER`, reliées aux deux comptes. Ces éléments ne constituent pas des opérations enregistrées : les importer dans le registre modifierait à tort les soldes. Le lecteur reconnaît ces deux séries et les importe ; les autres configurations non vérifiées produisent un avertissement. Les virements déjà enregistrés et les ventilations restent refusés.
 
-Les captures de Money sont des références pour les informations et le comportement métier ; Kresus conserve son interface simplifiée. Elles permettent notamment de vérifier la prochaine date, le retard et les échéances en fin de mois. L’import des séries à durée limitée reste à relier aux champs Money : le stockage SQLite et ses tests sont préparés, mais la signification exacte de `cInstMax` et `dtMax` doit être vérifiée sur des exemples créés dans Money avant d’activer la lecture. Les autres fréquences et la méthode de paiement restent à implémenter.
+Les captures de Money sont des références pour les informations et le comportement métier ; Kresus conserve son interface simplifiée. Elles permettent notamment de vérifier la prochaine date, le retard et les échéances en fin de mois. L’import des séries à durée limitée reste à relier aux champs Money : le stockage SQLite et ses tests sont préparés, mais la signification exacte de `cInstMax` et `dtMax` doit être vérifiée sur des exemples créés dans Money avant d’activer la lecture. L’import des autres fréquences et des méthodes de paiement non identifiées reste à implémenter.
 
 ## Correspondance proposée
 
@@ -42,13 +42,17 @@ Le compte de placement comporte trois lignes `TRN` avec un titre `hsec`, une act
 
 ## Prototype sans Java
 
-Un prototype séparé utilise TypeScript et `mdb-reader` pour lire le fichier sans Java. Sur cet échantillon, les objets des comptes bancaires admissibles, des 138 catégories et des deux opérations concordent avec le lecteur Jackcess ; le solde du compte est de 875 €. Le prototype et la comparaison reproductible sont décrits dans [`kresus/scripts/money-prototype/README.md`](../kresus/scripts/money-prototype/README.md). Le lecteur de l'application utilise toujours Java. Une intégration à la WebView Tauri et la compatibilité Windows ne sont pas encore vérifiées.
+Un prototype séparé utilise TypeScript et `mdb-reader` pour lire le fichier sans Java. Sur cet échantillon, les objets des comptes bancaires admissibles, des 138 catégories et des deux opérations concordent avec le lecteur Jackcess ; le solde du compte est de 875 €. Le prototype et la comparaison reproductible sont décrits dans [`kresus/scripts/money-prototype/README.md`](../kresus/scripts/money-prototype/README.md). Le lecteur est intégré à la WebView Tauri et fonctionne sans Java. La compatibilité Windows reste à vérifier.
 
 ## Première implémentation
 
-Un import expérimental avec aperçu est désormais disponible : voir les prérequis et limites dans le README de `kresus`. Il crée une nouvelle base, conserve les références dans les commentaires et refuse les fichiers contenant des virements enregistrés ou des ventilations. Les échéances mensuelles et bimestrielles sans limite reconnues sont importées. La prise en charge des placements reste à concevoir.
+L’import des fichiers protégés par mot de passe est hors périmètre du projet.
 
-## Étapes de réalisation et suites
+Un import expérimental avec aperçu est désormais disponible : voir les prérequis et limites dans le README de `kresus`. Il crée une nouvelle base, conserve les références dans les commentaires et refuse les fichiers contenant des virements enregistrés ou des ventilations. Les échéances mensuelles et bimestrielles sans limite reconnues sont importées. La signature observée pour l’échéance « par chèque » est reconnue ; les autres méthodes sont signalées comme non identifiées. Un virement interne ne suffit pas à déduire la méthode Money : l’exemple fourni apparaît comme « Autre ». Les numéros de chèque ne sont pas déduits de `szId`. La prise en charge des placements reste à concevoir.
+
+## Démarche initiale et suites
+
+Les trois premières étapes ont été réalisées pour les données prises en charge ; la quatrième reste à poursuivre sur d’autres fichiers.
 
 1. Créer un lecteur local en lecture seule, sans envoi du fichier ou du mot de passe. Évaluer l'intégration et la distribution de Jackcess et d'un environnement Java, ou une autre bibliothèque compatible, ainsi que leurs licences. La preuve de lecture ne démontre pas qu'un lecteur Rust est disponible.
 2. Produire un aperçu avant écriture : comptes et types à confirmer, devise, nombres de catégories et d'opérations, montants non représentables, soldes calculés et avertissements détaillés sur les éléments ignorés.
@@ -56,3 +60,14 @@ Un import expérimental avec aperçu est désormais disponible : voir les prére
 4. Comparer les résultats à Money, comme ici pour le solde initial et le solde du compte bancaire, puis reproduire ces vérifications sur d'autres fichiers. Tester avec des fichiers fictifs comportant des opérations pointées, chèques, virements, ventilations, échéances, devises différentes et catégories homonymes ; cet échantillon ne les valide pas.
 
 Le fichier Money n'a pas été modifié. La concordance des soldes bancaires est confirmée sur cet échantillon. Tant que la représentation des placements n'est pas définie et que les autres cas métier ne sont pas testés, l'import ne doit pas être présenté comme complet.
+
+## Exemples à ajouter au prochain fichier Money
+
+Créer des échéances fictives facilement identifiables, puis noter leurs paramètres et conserver le fichier et si possible des captures :
+
+- Une série à durée limitée par un nombre d’occurrences connu, avec première date et nombre précisés.
+- Une série à durée limitée par une date de fin connue, avec première date et date de fin précisées.
+- Des échéances identiques sauf leur méthode de paiement, avec un libellé distinct pour chacune : chèque, virement automatique, prélèvement et autre, ainsi que les autres choix proposés par Money. Préciser la méthode correspondant à chaque libellé.
+- Si Money le permet, une échéance par chèque avec un numéro connu, pour vérifier où il est stocké.
+
+Ces exemples permettront de confronter les champs aux valeurs affichées par Money avant d’étendre l’import ; les fichiers protégés par mot de passe restent hors périmètre.

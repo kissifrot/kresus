@@ -299,3 +299,24 @@ fn restore_rejects_incompatible_database_without_touching_current_data() {
         "Données conservées"
     );
 }
+
+#[test]
+fn legacy_schedules_are_migrated_without_losing_data() {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch(include_str!("schema.sql")).unwrap();
+    db.execute_batch(include_str!("schedule_future_schema.sql"))
+        .unwrap();
+    db.execute("INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES ('old','Ancien','Compte courant',0,'')", []).unwrap();
+    db.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind) VALUES ('old-schedule','old','Loyer','Logement','2028-01-01','Mensuelle',-100,'debit')", []).unwrap();
+    initialize_database(&db).unwrap();
+    initialize_database(&db).unwrap();
+    let (label, method, cheque): (String, Option<String>, Option<String>) = db
+        .query_row(
+            "SELECT label,payment_method,cheque FROM schedules WHERE id='old-schedule'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(label, "Loyer");
+    assert_eq!((method, cheque), (None, None));
+}
