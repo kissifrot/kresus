@@ -6,8 +6,18 @@ export let transactions: Transaction[] = [];
 export let schedules: Schedule[] = [];
 export let categories: Category[] = [];
 export let selectedAccount: Account;
-export function setAccounts(value: Account[]) { accounts = value; }
-export function setTransactions(value: Transaction[]) { transactions = value; }
-export function setSchedules(value: Schedule[]) { schedules = value; }
-export function setCategories(value: Category[]) { categories = value; }
-export function setSelectedAccount(value: Account) { selectedAccount = value; }
+export function setAccounts(value: Account[]) {
+  accounts = value;
+}
+export function setTransactions(value: Transaction[]) {
+  transactions = value;
+}
+export function setSchedules(value: Schedule[]) {
+  schedules = value;
+}
+export function setCategories(value: Category[]) {
+  categories = value;
+}
+export function setSelectedAccount(value: Account) {
+  selectedAccount = value;
+}

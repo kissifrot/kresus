@@ -1,51 +1,148 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
-type Series = { accountId: string; label: string; category: string; nextDue: string; amount: number; kind: string; anchorDay: number; destinationAccountId?: string | null };
-type Schedule = Omit<Series, "anchorDay"> & { id: string; frequency: string; remainingCount?: number | null; endDate?: string | null; series: Series };
+type Series = {
+  accountId: string;
+  label: string;
+  category: string;
+  nextDue: string;
+  amount: number;
+  kind: string;
+  anchorDay: number;
+  destinationAccountId?: string | null;
+};
+type Schedule = Omit<Series, "anchorDay"> & {
+  id: string;
+  frequency: string;
+  remainingCount?: number | null;
+  endDate?: string | null;
+  series: Series;
+};
 
-const baseSeries = (date: string, day: number): Series => ({ accountId: "account", label: "Yolo", category: "Divers", nextDue: date, amount: -100, kind: "debit", anchorDay: day });
+const baseSeries = (date: string, day: number): Series => ({
+  accountId: "account",
+  label: "Yolo",
+  category: "Divers",
+  nextDue: date,
+  amount: -100,
+  kind: "debit",
+  anchorDay: day,
+});
 const recurring = (date: string, day: number, frequency = "Annuelle"): Schedule => {
   const series = baseSeries(date, day);
   return { ...series, id: "schedule", frequency, series };
 };
 
-async function openCalendar(schedules: Schedule[], twoAccounts = false, onRecord?: (id: string) => void) {
+async function openCalendar(
+  schedules: Schedule[],
+  twoAccounts = false,
+  onRecord?: (id: string) => void,
+) {
   // Convert fixture euros to the integer-cent API representation.
-  schedules.forEach((item) => { item.amount = Math.round(item.amount * 100); item.series = { ...item.series, amount: Math.round(item.series.amount * 100) }; });
-  // Use the real calendar renderer with an isolated fake Tauri backend.
-  const invoke = vi.fn(async (command: string, args?: { schedule?: Schedule; scope?: string; id?: string }) => {
-    if (command === "list_accounts") return [{ id: "account", name: "Compte", kind: "Compte courant", openingBalance: 0, currentBalance: 0, bank: "" }, ...(twoAccounts ? [{ id: "saving", name: "Épargne", kind: "Épargne", openingBalance: 0, currentBalance: 0, bank: "" }] : [])];
-    if (command === "list_schedules") return schedules;
-    if (command === "list_categories") return ["Divers", "Alimentation"].map((name) => ({ id: name, name, parentId: null }));
-    if (command === "list_transactions") return [];
-    if (command === "list_register") return { rows: [], totalCount: 0, filteredCount: 0, unreconciledCount: 0, income: 0, expenses: 0, creditCount: 0, debitCount: 0, page: 1, pageCount: 1 };
-    if (command === "list_payees") return ["Marché <bio>", "EDF"];
-    if (command === "create_schedule" && args?.schedule) {
-      const item = args.schedule;
-      schedules.push({ ...item, series: { accountId: item.accountId, label: item.label, category: item.category, nextDue: item.nextDue, amount: item.amount, kind: item.kind, destinationAccountId: item.destinationAccountId, anchorDay: Number(item.nextDue.slice(-2)) } });
-      return;
-    }
-    if (command === "record_schedule") { onRecord?.(args!.id!); return; }
-    if (command === "delete_schedule") {
-      const index = schedules.findIndex((schedule) => schedule.id === args?.id);
-      if (index < 0) throw new Error("Échéance introuvable");
-      schedules.splice(index, 1);
-      return;
-    }
-    if (command === "update_schedule" && args?.schedule && args.scope === "occurrence") {
-      schedules[0] = { ...args.schedule, series: schedules[0].series };
-      return;
-    }
-    if (command === "update_schedule" && args?.schedule && args.scope === "series") {
-      const updated = args.schedule;
-      const original = schedules[0].series;
-      const anchorDay = updated.nextDue === original.nextDue ? original.anchorDay : Number(updated.nextDue.slice(-2));
-      schedules[0] = { ...updated, series: { accountId: updated.accountId, label: updated.label, category: updated.category, nextDue: updated.nextDue, amount: updated.amount, kind: updated.kind, destinationAccountId: updated.destinationAccountId, anchorDay } };
-      return;
-    }
-    throw new Error(`Unexpected command: ${command}`);
+  schedules.forEach((item) => {
+    item.amount = Math.round(item.amount * 100);
+    item.series = { ...item.series, amount: Math.round(item.series.amount * 100) };
   });
+  // Use the real calendar renderer with an isolated fake Tauri backend.
+  const invoke = vi.fn(
+    async (command: string, args?: { schedule?: Schedule; scope?: string; id?: string }) => {
+      if (command === "list_accounts")
+        return [
+          {
+            id: "account",
+            name: "Compte",
+            kind: "Compte courant",
+            openingBalance: 0,
+            currentBalance: 0,
+            bank: "",
+          },
+          ...(twoAccounts
+            ? [
+                {
+                  id: "saving",
+                  name: "Épargne",
+                  kind: "Épargne",
+                  openingBalance: 0,
+                  currentBalance: 0,
+                  bank: "",
+                },
+              ]
+            : []),
+        ];
+      if (command === "list_schedules") return schedules;
+      if (command === "list_categories")
+        return ["Divers", "Alimentation"].map((name) => ({ id: name, name, parentId: null }));
+      if (command === "list_transactions") return [];
+      if (command === "list_register")
+        return {
+          rows: [],
+          totalCount: 0,
+          filteredCount: 0,
+          unreconciledCount: 0,
+          income: 0,
+          expenses: 0,
+          creditCount: 0,
+          debitCount: 0,
+          page: 1,
+          pageCount: 1,
+        };
+      if (command === "list_payees") return ["Marché <bio>", "EDF"];
+      if (command === "create_schedule" && args?.schedule) {
+        const item = args.schedule;
+        schedules.push({
+          ...item,
+          series: {
+            accountId: item.accountId,
+            label: item.label,
+            category: item.category,
+            nextDue: item.nextDue,
+            amount: item.amount,
+            kind: item.kind,
+            destinationAccountId: item.destinationAccountId,
+            anchorDay: Number(item.nextDue.slice(-2)),
+          },
+        });
+        return;
+      }
+      if (command === "record_schedule") {
+        onRecord?.(args!.id!);
+        return;
+      }
+      if (command === "delete_schedule") {
+        const index = schedules.findIndex((schedule) => schedule.id === args?.id);
+        if (index < 0) throw new Error("Échéance introuvable");
+        schedules.splice(index, 1);
+        return;
+      }
+      if (command === "update_schedule" && args?.schedule && args.scope === "occurrence") {
+        schedules[0] = { ...args.schedule, series: schedules[0].series };
+        return;
+      }
+      if (command === "update_schedule" && args?.schedule && args.scope === "series") {
+        const updated = args.schedule;
+        const original = schedules[0].series;
+        const anchorDay =
+          updated.nextDue === original.nextDue
+            ? original.anchorDay
+            : Number(updated.nextDue.slice(-2));
+        schedules[0] = {
+          ...updated,
+          series: {
+            accountId: updated.accountId,
+            label: updated.label,
+            category: updated.category,
+            nextDue: updated.nextDue,
+            amount: updated.amount,
+            kind: updated.kind,
+            destinationAccountId: updated.destinationAccountId,
+            anchorDay,
+          },
+        };
+        return;
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    },
+  );
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
   await import("../src/main");
   await vi.waitFor(() => expect(document.querySelector("#schedules-nav")).not.toBeNull());
@@ -54,7 +151,9 @@ async function openCalendar(schedules: Schedule[], twoAccounts = false, onRecord
 }
 
 function calendarEvents() {
-  return [...document.querySelectorAll<HTMLElement>(".calendar-cell")].filter((cell) => cell.querySelector(".calendar-event"));
+  return [...document.querySelectorAll<HTMLElement>(".calendar-cell")].filter((cell) =>
+    cell.querySelector(".calendar-event"),
+  );
 }
 
 describe("schedule calendar", () => {
@@ -63,10 +162,17 @@ describe("schedule calendar", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     document.body.innerHTML = '<div id="app"></div>';
     localStorage.clear();
-    HTMLDialogElement.prototype.showModal = function () { this.open = true; };
-    HTMLDialogElement.prototype.close = function () { this.open = false; };
+    HTMLDialogElement.prototype.showModal = function () {
+      this.open = true;
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.open = false;
+    };
   });
-  afterEach(() => { vi.useRealTimers(); vi.doUnmock("@tauri-apps/api/core"); });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.doUnmock("@tauri-apps/api/core");
+  });
 
   it.each([
     { year: 2027, februaryDay: 28 },
@@ -103,7 +209,8 @@ describe("schedule calendar", () => {
     const counted = recurring("2028-01-31", 31, "Mensuelle");
     counted.remainingCount = 2;
     const dated = recurring("2028-01-31", 31, "Mensuelle");
-    dated.id = "dated"; dated.endDate = "2028-02-29";
+    dated.id = "dated";
+    dated.endDate = "2028-02-29";
     await openCalendar([counted, dated]);
     (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(document.querySelectorAll(".calendar-event")).toHaveLength(2);
@@ -117,11 +224,20 @@ describe("schedule calendar", () => {
     (document.querySelector("#new-schedule") as HTMLButtonElement).click();
     const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
     const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
-    field("label").value = "Mensualité"; field("amount").value = "10";
-    field("limitType").value = "count"; field("limitType").dispatchEvent(new Event("change"));
+    field("label").value = "Mensualité";
+    field("amount").value = "10";
+    field("limitType").value = "count";
+    field("limitType").dispatchEvent(new Event("change"));
     field("remainingCount").value = "3";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("create_schedule", expect.objectContaining({ schedule: expect.objectContaining({ remainingCount: 3, endDate: null }) })));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "create_schedule",
+        expect.objectContaining({
+          schedule: expect.objectContaining({ remainingCount: 3, endDate: null }),
+        }),
+      ),
+    );
   });
 
   it("exposes the full calendar label in a native tooltip", async () => {
@@ -158,9 +274,12 @@ describe("schedule calendar", () => {
   it("sums schedule amounts in cents and submits exact cents", async () => {
     vi.setSystemTime(new Date(2026, 9, 1, 12));
     const first = recurring("2026-10-15", 15, "Mensuelle");
-    first.amount = -0.10; first.series.amount = -0.10;
+    first.amount = -0.1;
+    first.series.amount = -0.1;
     const second = recurring("2026-10-16", 16, "Mensuelle");
-    second.id = "second"; second.amount = -0.20; second.series.amount = -0.20;
+    second.id = "second";
+    second.amount = -0.2;
+    second.series.amount = -0.2;
     const invoke = await openCalendar([first, second]);
     expect(document.querySelector(".schedule-summary")?.textContent).toContain("0,30");
     (document.querySelector('[data-edit-schedule="schedule"]') as HTMLButtonElement).click();
@@ -168,19 +287,33 @@ describe("schedule calendar", () => {
     expect((form.elements.namedItem("amount") as HTMLInputElement).value).toBe("0.10");
     (form.elements.namedItem("amount") as HTMLInputElement).value = "0.29";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("update_schedule", expect.objectContaining({ schedule: expect.objectContaining({ amount: -29 }) })));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "update_schedule",
+        expect.objectContaining({ schedule: expect.objectContaining({ amount: -29 }) }),
+      ),
+    );
   });
 
   it("confirms deletion of an overdue series and retains the overdue view", async () => {
     vi.setSystemTime(new Date(2026, 9, 29, 12));
     const invoke = await openCalendar([recurring("2026-09-29", 29, "Mensuelle")]);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi
+      .spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
     (document.querySelector("#show-overdue") as HTMLButtonElement).click();
     (document.querySelector("[data-delete-schedule]") as HTMLButtonElement).click();
     expect(invoke).not.toHaveBeenCalledWith("delete_schedule", expect.anything());
     (document.querySelector("[data-delete-schedule]") as HTMLButtonElement).click();
-    expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining("Les opérations déjà enregistrées seront conservées"));
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).toContain("Aucune échéance en retard"));
+    expect(confirm).toHaveBeenLastCalledWith(
+      expect.stringContaining("Les opérations déjà enregistrées seront conservées"),
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).toContain(
+        "Aucune échéance en retard",
+      ),
+    );
     expect(invoke).toHaveBeenCalledWith("delete_schedule", { id: "schedule" });
     expect(document.querySelector("#show-overdue")).toBeNull();
     confirm.mockRestore();
@@ -193,7 +326,11 @@ describe("schedule calendar", () => {
     (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(document.querySelector(".schedule-projected")).not.toBeNull();
     (document.querySelector("[data-delete-schedule]") as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).toContain("Aucune échéance pour ce mois"));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).toContain(
+        "Aucune échéance pour ce mois",
+      ),
+    );
     expect(invoke).toHaveBeenCalledWith("delete_schedule", { id: "schedule" });
     confirm.mockRestore();
   });
@@ -205,7 +342,11 @@ describe("schedule calendar", () => {
     invoke.mockRejectedValueOnce(new Error("base indisponible"));
     const button = document.querySelector<HTMLButtonElement>("[data-delete-schedule]")!;
     button.click();
-    await vi.waitFor(() => expect(document.querySelector(".schedule-message")?.textContent).toContain("Suppression impossible"));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-message")?.textContent).toContain(
+        "Suppression impossible",
+      ),
+    );
     expect(button.disabled).toBe(false);
     expect(document.querySelector(".schedule-row")?.textContent).toContain("Yolo");
     confirm.mockRestore();
@@ -224,21 +365,38 @@ describe("schedule calendar", () => {
     });
     (document.querySelector("#show-overdue") as HTMLButtonElement).click();
     let rows = [...document.querySelectorAll<HTMLElement>(".schedule-row")];
-    expect(rows.map((row) => row.querySelector(".schedule-row-copy strong")?.textContent)).toEqual(["Ancienne", "Récente"]);
+    expect(rows.map((row) => row.querySelector(".schedule-row-copy strong")?.textContent)).toEqual([
+      "Ancienne",
+      "Récente",
+    ]);
     expect(rows[0].textContent).toContain("2025");
     (rows[0].querySelector("[data-edit-schedule]") as HTMLButtonElement).click();
-    expect((document.querySelector<HTMLFormElement>("#schedule-form")!.elements.namedItem("label") as HTMLInputElement).value).toBe("Ancienne");
+    expect(
+      (
+        document
+          .querySelector<HTMLFormElement>("#schedule-form")!
+          .elements.namedItem("label") as HTMLInputElement
+      ).value,
+    ).toBe("Ancienne");
     (document.querySelector(".schedule-close.secondary-button") as HTMLButtonElement).click();
     (rows[0].querySelector("[data-record-schedule]") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("record_schedule", { id: "older" }));
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).not.toContain("2025"));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).not.toContain("2025"),
+    );
     expect(document.querySelectorAll(".schedule-row")).toHaveLength(2);
     (document.querySelector('[data-record-schedule="older"]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(document.querySelectorAll(".schedule-row")).toHaveLength(1));
     (document.querySelector('[data-record-schedule="recent"]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).toContain("Aucune échéance en retard"));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).toContain(
+        "Aucune échéance en retard",
+      ),
+    );
     (document.querySelector("#back-to-month") as HTMLButtonElement).click();
-    expect(document.querySelector(".schedule-list-heading h2")?.textContent).toBe("Échéances du mois");
+    expect(document.querySelector(".schedule-list-heading h2")?.textContent).toBe(
+      "Échéances du mois",
+    );
   });
 
   it("suggests existing payees for new and edited schedules without replacing typed text", async () => {
@@ -249,19 +407,36 @@ describe("schedule calendar", () => {
     let input = form.elements.namedItem("label") as HTMLInputElement;
     expect(input.getAttribute("list")).toBe("schedule-payee-suggestions");
     input.value = "Nouvelle saisie";
-    await vi.waitFor(() => expect([...form.querySelectorAll<HTMLOptionElement>("#schedule-payee-suggestions option")].map((option) => option.value)).toEqual(["Marché <bio>", "EDF"]));
+    await vi.waitFor(() =>
+      expect(
+        [...form.querySelectorAll<HTMLOptionElement>("#schedule-payee-suggestions option")].map(
+          (option) => option.value,
+        ),
+      ).toEqual(["Marché <bio>", "EDF"]),
+    );
     expect(input.value).toBe("Nouvelle saisie");
     (form.querySelector(".schedule-close.secondary-button") as HTMLButtonElement).click();
     (document.querySelector("[data-edit-schedule]") as HTMLButtonElement).click();
     form = document.querySelector<HTMLFormElement>("#schedule-form")!;
     input = form.elements.namedItem("label") as HTMLInputElement;
     expect(input.value).toBe("Yolo");
-    await vi.waitFor(() => expect(form.querySelectorAll("#schedule-payee-suggestions option")).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(form.querySelectorAll("#schedule-payee-suggestions option")).toHaveLength(2),
+    );
     input.value = "Nouveau destinataire";
     (form.elements.namedItem("amount") as HTMLInputElement).value = "25";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).toContain("Nouveau destinataire"));
-    expect(invoke).toHaveBeenCalledWith("update_schedule", expect.objectContaining({ schedule: expect.objectContaining({ label: "Nouveau destinataire" }) }));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).toContain(
+        "Nouveau destinataire",
+      ),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      "update_schedule",
+      expect.objectContaining({
+        schedule: expect.objectContaining({ label: "Nouveau destinataire" }),
+      }),
+    );
     expect(invoke.mock.calls.filter(([command]) => command === "list_payees")).toHaveLength(2);
   });
 
@@ -269,7 +444,8 @@ describe("schedule calendar", () => {
     vi.setSystemTime(new Date(2025, 1, 10, 12));
     await openCalendar([recurring("2024-02-29", 29)]);
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["28Yolo"]);
-    for (let i = 0; i < 36; i++) (document.querySelector("#next-month") as HTMLButtonElement).click();
+    for (let i = 0; i < 36; i++)
+      (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(document.querySelector(".calendar-toolbar h2")?.textContent).toBe("février 2028");
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["29Yolo"]);
     expect(document.querySelector(".schedule-projected")?.textContent).toBe("Prévision");
@@ -282,14 +458,25 @@ describe("schedule calendar", () => {
     expect(calendarEvents()).toHaveLength(0);
     (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["28Yolo"]);
-    for (let i = 0; i < 3; i++) (document.querySelector("#next-month") as HTMLButtonElement).click();
+    for (let i = 0; i < 3; i++)
+      (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["30Yolo"]);
   });
 
   it("shows a one-time exception on its changed date while future projections use the series values", async () => {
     vi.setSystemTime(new Date(2027, 1, 1, 12));
     const series = baseSeries("2027-01-31", 31);
-    const changed: Schedule = { id: "schedule", frequency: "Mensuelle", series, accountId: "account", label: "Exception", category: "Divers", nextDue: "2027-02-02", amount: -25, kind: "debit" };
+    const changed: Schedule = {
+      id: "schedule",
+      frequency: "Mensuelle",
+      series,
+      accountId: "account",
+      label: "Exception",
+      category: "Divers",
+      nextDue: "2027-02-02",
+      amount: -25,
+      kind: "debit",
+    };
     await openCalendar([changed]);
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["2Exception", "28Yolo"]);
     expect(document.querySelector(".schedule-list")?.textContent).toContain("25,00");
@@ -308,8 +495,16 @@ describe("schedule calendar", () => {
     (form.elements.namedItem("nextDue") as HTMLInputElement).value = "2027-01-20";
     (form.elements.namedItem("amount") as HTMLInputElement).value = "25";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).toContain("25,00"));
-    expect(invoke).toHaveBeenCalledWith("update_schedule", expect.objectContaining({ scope: "occurrence", schedule: expect.objectContaining({ nextDue: "2027-01-20", amount: -2500 }) }));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).toContain("25,00"),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      "update_schedule",
+      expect.objectContaining({
+        scope: "occurrence",
+        schedule: expect.objectContaining({ nextDue: "2027-01-20", amount: -2500 }),
+      }),
+    );
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["20Yolo"]);
     (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["15Yolo"]);
@@ -333,12 +528,26 @@ describe("schedule calendar", () => {
     (form.elements.namedItem("label") as HTMLInputElement).value = "Nouveau loyer";
     (form.elements.namedItem("amount") as HTMLInputElement).value = "125";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).toContain("125,00"));
-    expect(invoke).toHaveBeenCalledWith("update_schedule", expect.objectContaining({ scope: "series", schedule: expect.objectContaining({ nextDue: "2027-01-20", frequency: "Trimestrielle", label: "Nouveau loyer", amount: -12500 }) }));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).toContain("125,00"),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      "update_schedule",
+      expect.objectContaining({
+        scope: "series",
+        schedule: expect.objectContaining({
+          nextDue: "2027-01-20",
+          frequency: "Trimestrielle",
+          label: "Nouveau loyer",
+          amount: -12500,
+        }),
+      }),
+    );
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["20Nouveau loyer"]);
     (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(calendarEvents()).toHaveLength(0);
-    for (let i = 0; i < 2; i++) (document.querySelector("#next-month") as HTMLButtonElement).click();
+    for (let i = 0; i < 2; i++)
+      (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["20Nouveau loyer"]);
     expect(document.querySelector(".schedule-list")?.textContent).toContain("125,00");
     expect(document.querySelector(".schedule-projected")?.textContent).toBe("Prévision");
@@ -365,7 +574,8 @@ describe("schedule calendar", () => {
     (document.querySelector("#new-schedule") as HTMLButtonElement).click();
     const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
     const kind = form.elements.namedItem("kind") as HTMLSelectElement;
-    kind.value = "transfer"; kind.dispatchEvent(new Event("change", { bubbles: true }));
+    kind.value = "transfer";
+    kind.dispatchEvent(new Event("change", { bubbles: true }));
     const destination = form.elements.namedItem("destinationAccountId") as HTMLSelectElement;
     expect(destination.disabled).toBe(false);
     expect(destination.value).toBe("saving");
@@ -377,26 +587,61 @@ describe("schedule calendar", () => {
     expect(form.querySelector("[role=alert]")?.textContent).toContain("deux comptes différents");
     destination.value = "saving";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).toContain("Épargne mensuelle"));
-    expect(invoke).toHaveBeenCalledWith("create_schedule", expect.objectContaining({ schedule: expect.objectContaining({ kind: "transfer", accountId: "account", destinationAccountId: "saving", amount: -5000 }) }));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).toContain("Épargne mensuelle"),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      "create_schedule",
+      expect.objectContaining({
+        schedule: expect.objectContaining({
+          kind: "transfer",
+          accountId: "account",
+          destinationAccountId: "saving",
+          amount: -5000,
+        }),
+      }),
+    );
     expect(document.querySelector(".schedule-list")?.textContent).toContain("Compte → Épargne");
     (document.querySelector("[data-record-schedule]") as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("record_schedule", expect.objectContaining({ id: expect.any(String) })));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "record_schedule",
+        expect.objectContaining({ id: expect.any(String) }),
+      ),
+    );
   });
 
   it("edits one transfer occurrence while retaining the destination of the series", async () => {
     vi.setSystemTime(new Date(2028, 0, 15, 12));
-    const series = { ...baseSeries("2028-01-31", 31), kind: "transfer", destinationAccountId: "saving" };
+    const series = {
+      ...baseSeries("2028-01-31", 31),
+      kind: "transfer",
+      destinationAccountId: "saving",
+    };
     const item: Schedule = { ...series, id: "scheduled-transfer", frequency: "Mensuelle", series };
     const invoke = await openCalendar([item], true);
     (document.querySelector("[data-edit-schedule]") as HTMLButtonElement).click();
     const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
     expect((form.elements.namedItem("kind") as HTMLSelectElement).value).toBe("transfer");
-    expect((form.elements.namedItem("destinationAccountId") as HTMLSelectElement).value).toBe("saving");
+    expect((form.elements.namedItem("destinationAccountId") as HTMLSelectElement).value).toBe(
+      "saving",
+    );
     (form.elements.namedItem("amount") as HTMLInputElement).value = "20";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect(document.querySelector(".schedule-list")?.textContent).toContain("20,00"));
-    expect(invoke).toHaveBeenCalledWith("update_schedule", expect.objectContaining({ scope: "occurrence", schedule: expect.objectContaining({ kind: "transfer", destinationAccountId: "saving", amount: -2000 }) }));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".schedule-list")?.textContent).toContain("20,00"),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      "update_schedule",
+      expect.objectContaining({
+        scope: "occurrence",
+        schedule: expect.objectContaining({
+          kind: "transfer",
+          destinationAccountId: "saving",
+          amount: -2000,
+        }),
+      }),
+    );
     (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(document.querySelector(".schedule-list")?.textContent).toContain("100,00");
     expect(document.querySelector(".schedule-list")?.textContent).toContain("Compte → Épargne");

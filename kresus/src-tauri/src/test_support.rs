@@ -1,5 +1,5 @@
-use crate::database::initialize_database;
 use crate::accounts::Account;
+use crate::database::initialize_database;
 use rusqlite::Connection;
 use std::fs;
 
@@ -8,7 +8,9 @@ pub(crate) struct TestDatabasePath(pub(crate) std::path::PathBuf);
 impl Drop for TestDatabasePath {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
-        if let Some(directory) = self.0.parent() { let _ = fs::remove_dir(directory); }
+        if let Some(directory) = self.0.parent() {
+            let _ = fs::remove_dir(directory);
+        }
     }
 }
 
@@ -16,7 +18,8 @@ pub(crate) fn temporary_database_path() -> TestDatabasePath {
     static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     loop {
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let directory = std::env::temp_dir().join(format!("kresus-test-{}-{id}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("kresus-test-{}-{id}", std::process::id()));
         match fs::create_dir(&directory) {
             Ok(()) => return TestDatabasePath(directory.join("test.sqlite3")),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -32,5 +35,12 @@ pub(crate) fn database() -> Connection {
 }
 
 pub(crate) fn account(id: &str, kind: &str, balance: f64) -> Account {
-    Account { id: id.into(), name: "  Household  ".into(), kind: kind.into(), opening_balance: (balance * 100.0).round() as i64, bank: "  Bank  ".into(), current_balance: 0 }
+    Account {
+        id: id.into(),
+        name: "  Household  ".into(),
+        kind: kind.into(),
+        opening_balance: (balance * 100.0).round() as i64,
+        bank: "  Bank  ".into(),
+        current_balance: 0,
+    }
 }

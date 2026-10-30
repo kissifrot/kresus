@@ -38,6 +38,10 @@ Les tests Rust, placés près de chaque domaine, utilisent des bases SQLite isol
 
 Pour de futurs tests des commandes Tauri ou de l’interface, voir la documentation officielle : [tests Tauri](https://v2.tauri.app/develop/tests/), [simulation des API](https://v2.tauri.app/develop/tests/mocking/) et [WebDriver](https://v2.tauri.app/develop/tests/webdriver/).
 
+### Formatage du code
+
+Depuis le répertoire `kresus`, `yarn format` applique Prettier aux fichiers TypeScript, CSS et HTML et `rustfmt` aux sources Rust. `yarn format:check` vérifie les mêmes fichiers sans les modifier. Les deux formateurs utilisent une largeur cible de 100 caractères ; les requêtes SQL et certains blocs HTML inclus dans des chaînes peuvent nécessiter une mise en forme manuelle.
+
 ### Parcours Tauri avec WebDriver sous Linux
 
 Le parcours `e2e/tauri-smoke.mjs` lance la vraie application dans sa WebView, avec une base fictive temporaire de 12 000 opérations. Il vérifie la navigation, la pagination et le filtre « À pointer », puis la création d’un compte, la gestion d’une opération avec commentaire et son pointage, la création, la modification et la suppression d’un virement, la gestion des catégories, ainsi que la création, la modification ponctuelle et de série, l’enregistrement et la suppression d’une échéance. Lorsque le fichier fictif `references/Money.mny` est disponible, il vérifie également l’aperçu Money, la création d’une nouvelle base et son contenu SQLite (compte, catégories, opérations, échéances, solde et enregistrement d’un virement récurrent). On peut spécifier son emplacement avec `KRESUS_MONEY_SAMPLE` ; ce test attend les valeurs du fichier de référence (comptes de 1 000 € et 2 000 €, opérations de −100 € et −25 €, 138 catégories). Sans ce fichier, il est signalé comme ignoré. Les confirmations sont acceptées automatiquement dans cette base temporaire. Les durées affichées incluent les échanges WebDriver ; ce parcours ne couvre pas encore tous les scénarios du document initial et ne remplace pas une inspection visuelle manuelle.

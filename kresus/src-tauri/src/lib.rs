@@ -3,9 +3,9 @@ mod categories;
 mod database;
 mod money_import;
 mod schedules;
-mod transactions;
 #[cfg(test)]
 mod test_support;
+mod transactions;
 
 use database::{AppState, initialize_database};
 use rusqlite::Connection;
@@ -24,10 +24,42 @@ pub fn run() {
             let default_path = directory.join("kresus.sqlite3");
             let connection = Connection::open(&default_path)?;
             initialize_database(&connection)?;
-            app.manage(AppState { database: Mutex::new(connection), default_path, money_preview: Mutex::new(None) });
+            app.manage(AppState {
+                database: Mutex::new(connection),
+                default_path,
+                money_preview: Mutex::new(None),
+            });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![money_import::choose_money_file, money_import::set_money_preview, money_import::import_money, database::choose_database, database::use_default_database, accounts::list_accounts, accounts::create_account, categories::list_categories, categories::create_category, categories::rename_category, categories::delete_category, categories::merge_category, transactions::list_transactions, transactions::list_register, transactions::list_payees, schedules::list_schedules, schedules::create_schedule, schedules::update_schedule, schedules::delete_schedule, transactions::create_transaction, transactions::create_transfer, transactions::get_transfer, transactions::update_transfer, transactions::update_transaction, transactions::toggle_transaction_reconciliation, transactions::delete_transaction, schedules::record_schedule])
+        .invoke_handler(tauri::generate_handler![
+            money_import::choose_money_file,
+            money_import::set_money_preview,
+            money_import::import_money,
+            database::choose_database,
+            database::use_default_database,
+            accounts::list_accounts,
+            accounts::create_account,
+            categories::list_categories,
+            categories::create_category,
+            categories::rename_category,
+            categories::delete_category,
+            categories::merge_category,
+            transactions::list_transactions,
+            transactions::list_register,
+            transactions::list_payees,
+            schedules::list_schedules,
+            schedules::create_schedule,
+            schedules::update_schedule,
+            schedules::delete_schedule,
+            transactions::create_transaction,
+            transactions::create_transfer,
+            transactions::get_transfer,
+            transactions::update_transfer,
+            transactions::update_transaction,
+            transactions::toggle_transaction_reconciliation,
+            transactions::delete_transaction,
+            schedules::record_schedule
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Kresus");
 }
