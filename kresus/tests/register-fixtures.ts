@@ -135,6 +135,11 @@ export async function openRegister(
           pageCount,
         };
       }
+      case "balance_history":
+        return Array.from({ length: 12 }, (_, index) => ({
+          date: `2027-${String(index + 1).padStart(2, "0")}-28`,
+          balance: index * 1000 - 5000,
+        }));
       case "list_payees":
         return [
           ...new Set(

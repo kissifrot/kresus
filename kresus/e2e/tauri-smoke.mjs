@@ -184,6 +184,19 @@ try {
   console.log(
     `Démarrage Tauri et chargement du compte : ${(performance.now() - started).toFixed(0)} ms`,
   );
+  // The chart is loaded on demand and works on the large test database.
+  await click("#balance-history-toggle");
+  await waitFor(
+    async () =>
+      (await execute("return document.querySelectorAll('#balance-history circle').length")) > 2,
+    "Historique du solde",
+  );
+  await screenshot("historique-solde-1280x820");
+  await request("POST", `/session/${session}/window/rect`, { width: 900, height: 620 });
+  await screenshot("historique-solde-900x620");
+  await request("POST", `/session/${session}/window/rect`, { width: 1280, height: 820 });
+  await click("#balance-history-toggle");
+  console.log("Historique du solde : points quotidiens chargés depuis SQLite");
   // Check keyboard focus and activation without programmatically clicking the destination.
   await execute("document.querySelector('#household-nav').focus()");
   await key("\uE004"); // Tab
@@ -283,19 +296,6 @@ try {
       ],
       cancel: ".dialog-cancel",
     },
-    {
-      trigger: "#new-transfer",
-      dialog: "#transfer-dialog",
-      fields: [
-        "[name=sourceId]",
-        "[name=destinationId]",
-        "[name=date]",
-        "[name=amount]",
-        "[name=category]",
-        "[name=note]",
-      ],
-      cancel: ".transfer-close",
-    },
   ]) {
     await activateFocused(scenario.trigger);
     await waitFor(
@@ -310,6 +310,26 @@ try {
       `Annulation clavier ${scenario.dialog}`,
     );
   }
+  await activateFocused("#new-transaction");
+  await waitFor(() => visible("#transaction-dialog[open]"), "Création virement au clavier");
+  await fill("#transaction-form", { type: "transfer" });
+  await screenshot("formulaire-virement");
+  await execute("document.querySelector('#transaction-form [name=type]').focus()");
+  for (const field of [
+    "[name=sourceId]",
+    "[name=destinationId]",
+    "[name=date]",
+    "[name=amount]",
+    "[name=category]",
+    "[name=note]",
+    ".dialog-cancel",
+  ])
+    await tabTo(`#transaction-form ${field}`);
+  await key("\uE007");
+  await waitFor(
+    async () => !(await visible("#transaction-dialog[open]")),
+    "Annulation du virement au clavier",
+  );
   await activateFocused("#categories-nav");
   await waitFor(
     async () => (await text(".page-heading h1")) === "Catégories",
@@ -351,8 +371,13 @@ try {
       async () => (await execute("return window.innerWidth")) <= width,
       "Taille du registre",
     );
+    const controlSizes = await execute(
+      `return ['#transaction-search','#transaction-search-form button','#transaction-filter'].map(selector => document.querySelector(selector).getBoundingClientRect().height)`,
+    );
+    if (Math.max(...controlSizes) - Math.min(...controlSizes) > 1)
+      throw new Error(`Contrôles du registre désalignés à ${width} × ${height} : ${controlSizes}`);
     await screenshot(`registre-${width}x${height}`);
-    await execute("document.querySelector('thead input[type=checkbox]').focus()");
+    await execute("document.querySelector('#transaction-filter').focus()");
     await tabTo("tbody tr[data-transaction]", 3);
     await key("\uE007");
     await waitFor(() => visible(".transaction-editor"), "Éditeur au clavier");
@@ -460,6 +485,15 @@ try {
     "Opération après sauvegarde",
   );
   await click("#restore-database");
+  await waitFor(() => visible(".confirmation-dialog[open]"), "Confirmation de restauration");
+  if (!(await text(".confirmation-message")).includes("remplacées"))
+    throw new Error("Avertissement de restauration absent");
+  await click(".confirmation-cancel");
+  if (!(await text("tbody")).includes("À effacer par restauration"))
+    throw new Error("Restauration effectuée malgré l’annulation");
+  await click("#restore-database");
+  await waitFor(() => visible(".confirmation-dialog[open]"), "Confirmation de restauration");
+  await click(".confirmation-accept");
   await waitFor(
     async () => (await text(".database-error")).includes("Sauvegarde restaurée"),
     "Restauration",
@@ -545,7 +579,7 @@ try {
     "Réinitialisation recherche",
   );
   console.log("Recherche par commentaire et réinitialisation OK");
-  await execute("document.querySelector('thead input[type=checkbox]').focus()");
+  await execute("document.querySelector('#transaction-filter').focus()");
   await key("\uE004");
   if (!(await execute("return document.activeElement.matches('tbody tr[data-transaction]')")))
     throw new Error("La touche Tab n’atteint pas la première opération.");
@@ -575,6 +609,14 @@ try {
   await click("[data-reconcile]");
   await waitFor(async () => (await text("[data-reconcile]")) === "P", "Pointage");
   await click("[data-delete]");
+  await waitFor(() => visible("#delete-transaction-dialog[open]"), "Confirmation de suppression");
+  if (!(await text(".delete-confirmation-message")).includes("Achat modifié"))
+    throw new Error("Confirmation d’opération incorrecte");
+  await click(".delete-cancel");
+  if (!(await text("tbody")).includes("Achat modifié"))
+    throw new Error("L’annulation a supprimé l’opération");
+  await click("[data-delete]");
+  await click(".delete-confirm");
   await waitFor(
     async () => !(await text("tbody")).includes("Achat modifié"),
     "Suppression d’opération",
@@ -585,13 +627,14 @@ try {
     "Opérations : création, chèque, commentaire, modification, pointage et suppression OK",
   );
 
-  await click("#new-transfer");
-  await fill("#transfer-form", {
+  await click("#new-transaction");
+  await fill("#transaction-form", { type: "transfer" });
+  await fill("#transaction-form", {
     destinationId: "test-courant",
     amount: "25.50",
     note: "Virement recette",
   });
-  await click('#transfer-form button[type="submit"]');
+  await click('#transaction-form button[type="submit"]');
   await waitFor(
     async () => (await text("tbody")).includes("Virement vers Compte courant"),
     "Création de virement",
@@ -600,9 +643,19 @@ try {
     throw new Error("Solde du virement incorrect");
   await execute("document.querySelector('tbody tr[data-transaction]').focus()");
   await key("\uE007");
-  await waitFor(() => visible("#transfer-dialog[open]"), "Édition de virement au clavier");
-  await fill("#transfer-form", { amount: "30.00" });
-  await click('#transfer-form button[type="submit"]');
+  await waitFor(() => visible(".transfer-editor"), "Édition de virement au clavier");
+  if (!(await execute("return document.querySelector('.summary-grid').hidden")))
+    throw new Error("Le résumé reste affiché pendant la modification du virement.");
+  await request("POST", `/session/${session}/window/rect`, { width: 900, height: 620 });
+  const editorSize = await execute(
+    "const p=document.querySelector('.transaction-editor-panel'); return [p.scrollWidth,p.clientWidth]",
+  );
+  if (editorSize[0] > editorSize[1] + 1)
+    throw new Error("Éditeur de virement tronqué à la taille minimale.");
+  await screenshot("editeur-virement-900x620");
+  await request("POST", `/session/${session}/window/rect`, { width: 1280, height: 820 });
+  await fill(".transfer-editor", { amount: "30.00" });
+  await click('.transfer-editor button[type="submit"]');
   await waitFor(
     async () => (await text(".balance-card")).includes("70,00"),
     "Modification du virement",
@@ -621,6 +674,17 @@ try {
     "return [...document.querySelectorAll('tbody tr')].find(row => row.textContent.includes('Virement depuis Compte recette'))?.querySelector('[data-delete]')?.dataset.delete;",
   );
   await click(`[data-delete="${transferDeleteId}"]`);
+  await waitFor(
+    () => visible("#delete-transaction-dialog[open]"),
+    "Confirmation de suppression du virement",
+  );
+  if (!(await text(".delete-confirmation-message")).includes("deux opérations"))
+    throw new Error("Confirmation du virement incorrecte");
+  await click(".delete-cancel");
+  if (!(await text("tbody")).includes("Virement depuis Compte recette"))
+    throw new Error("L’annulation a supprimé le virement");
+  await click(`[data-delete="${transferDeleteId}"]`);
+  await click(".delete-confirm");
   await waitFor(
     async () => !(await text("tbody")).includes("Virement depuis Compte recette"),
     "Suppression du virement",
@@ -670,6 +734,14 @@ try {
     "Fusion de sous-catégorie",
   );
   await click(`[data-delete-category="${rootId}"]`);
+  await waitFor(() => visible(".confirmation-dialog[open]"), "Confirmation de catégorie");
+  if (!(await text(".confirmation-message")).includes("Catégorie recette"))
+    throw new Error("Confirmation de catégorie incorrecte");
+  await click(".confirmation-cancel");
+  if (!(await categoryId("Catégorie recette")))
+    throw new Error("Catégorie supprimée malgré l’annulation");
+  await click(`[data-delete-category="${rootId}"]`);
+  await click(".confirmation-accept");
   await waitFor(async () => !(await categoryId("Catégorie recette")), "Suppression de catégorie");
   console.log("Catégories : création, renommage, fusion et suppression OK");
 
@@ -751,6 +823,14 @@ try {
     "Prévision après modification de série",
   );
   await click(`[data-delete-schedule="${scheduleId}"]`);
+  await waitFor(() => visible(".confirmation-dialog[open]"), "Confirmation d’échéance");
+  if (!(await text(".confirmation-message")).includes("opérations déjà enregistrées"))
+    throw new Error("Confirmation d’échéance incorrecte");
+  await click(".confirmation-cancel");
+  if (!(await visible(`[data-delete-schedule="${scheduleId}"]`)))
+    throw new Error("Échéance supprimée malgré l’annulation");
+  await click(`[data-delete-schedule="${scheduleId}"]`);
+  await click(".confirmation-accept");
   await waitFor(
     async () => !(await visible(`[data-delete-schedule="${scheduleId}"]`)),
     "Suppression de série",
@@ -889,9 +969,10 @@ try {
   const receiptId = await execute(
     "return [...document.querySelectorAll('[data-account]')].find(button => button.textContent.includes('Compte recette')).dataset.account",
   );
-  await click("#new-transfer");
-  await fill("#transfer-form", { destinationId: "test-courant", amount: "10,00" });
-  await click('#transfer-form button[type="submit"]');
+  await click("#new-transaction");
+  await fill("#transaction-form", { type: "transfer" });
+  await fill("#transaction-form", { destinationId: "test-courant", amount: "10,00" });
+  await click('#transaction-form button[type="submit"]');
   await waitFor(
     async () => (await text("tbody")).includes("Virement vers Compte courant"),
     "Virement pour rapport",

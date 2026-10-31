@@ -340,17 +340,17 @@ describe("schedule calendar", () => {
   it("confirms deletion of an overdue series and retains the overdue view", async () => {
     vi.setSystemTime(new Date(2026, 9, 29, 12));
     const invoke = await openCalendar([recurring("2026-09-29", 29, "Mensuelle")]);
-    const confirm = vi
-      .spyOn(window, "confirm")
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
     (document.querySelector("#show-overdue") as HTMLButtonElement).click();
     (document.querySelector("[data-delete-schedule]") as HTMLButtonElement).click();
+    expect(document.querySelector(".confirmation-message")?.textContent).toContain(
+      "Les opérations déjà enregistrées seront conservées",
+    );
+    document
+      .querySelector<HTMLDialogElement>(".confirmation-dialog")!
+      .dispatchEvent(new Event("cancel", { cancelable: true }));
     expect(invoke).not.toHaveBeenCalledWith("delete_schedule", expect.anything());
     (document.querySelector("[data-delete-schedule]") as HTMLButtonElement).click();
-    expect(confirm).toHaveBeenLastCalledWith(
-      expect.stringContaining("Les opérations déjà enregistrées seront conservées"),
-    );
+    (document.querySelector(".confirmation-accept") as HTMLButtonElement).click();
     await vi.waitFor(() =>
       expect(document.querySelector(".schedule-list")?.textContent).toContain(
         "Aucune échéance en retard",
@@ -358,32 +358,30 @@ describe("schedule calendar", () => {
     );
     expect(invoke).toHaveBeenCalledWith("delete_schedule", { id: "schedule" });
     expect(document.querySelector("#show-overdue")).toBeNull();
-    confirm.mockRestore();
   });
 
   it("can delete a series from one of its projected occurrences", async () => {
     vi.setSystemTime(new Date(2026, 9, 1, 12));
     const invoke = await openCalendar([recurring("2026-10-15", 15, "Mensuelle")]);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     (document.querySelector("#next-month") as HTMLButtonElement).click();
     expect(document.querySelector(".schedule-projected")).not.toBeNull();
     (document.querySelector("[data-delete-schedule]") as HTMLButtonElement).click();
+    (document.querySelector(".confirmation-accept") as HTMLButtonElement).click();
     await vi.waitFor(() =>
       expect(document.querySelector(".schedule-list")?.textContent).toContain(
         "Aucune échéance pour ce mois",
       ),
     );
     expect(invoke).toHaveBeenCalledWith("delete_schedule", { id: "schedule" });
-    confirm.mockRestore();
   });
 
   it("reports a failed deletion and leaves the series available", async () => {
     vi.setSystemTime(new Date(2026, 9, 1, 12));
     const invoke = await openCalendar([recurring("2026-10-15", 15, "Mensuelle")]);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     invoke.mockRejectedValueOnce(new Error("base indisponible"));
     const button = document.querySelector<HTMLButtonElement>("[data-delete-schedule]")!;
     button.click();
+    (document.querySelector(".confirmation-accept") as HTMLButtonElement).click();
     await vi.waitFor(() =>
       expect(document.querySelector(".schedule-message")?.textContent).toContain(
         "Suppression impossible",
@@ -391,7 +389,6 @@ describe("schedule calendar", () => {
     );
     expect(button.disabled).toBe(false);
     expect(document.querySelector(".schedule-row")?.textContent).toContain("Yolo");
-    confirm.mockRestore();
   });
 
   it("opens overdue occurrences from the summary and keeps the list updated after recording", async () => {

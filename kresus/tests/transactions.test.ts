@@ -5,6 +5,7 @@ import { openRegister, field, submit, click } from "./register-fixtures";
 describe("transaction register", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     document.body.innerHTML = '<div id="app"></div>';
     localStorage.clear();
     HTMLDialogElement.prototype.showModal = function () {
@@ -16,6 +17,7 @@ describe("transaction register", () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.doUnmock("@tauri-apps/api/core");
   });
 
@@ -46,9 +48,34 @@ describe("transaction register", () => {
     row = document.querySelector<HTMLTableRowElement>('tr[data-transaction="debit"]')!;
     expect(document.activeElement).toBe(row);
     row
-      .querySelector<HTMLInputElement>('input[type="checkbox"]')!
+      .querySelector<HTMLButtonElement>("[data-reconcile]")!
       .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(document.querySelector(".transaction-editor")).toBeNull();
+  });
+
+  it("requires confirmation before deleting an ordinary operation", async () => {
+    const invoke = await openRegister();
+    const button = document.querySelector<HTMLButtonElement>('[data-delete="debit"]')!;
+    expect(button.textContent).toBe("Supprimer");
+    button.click();
+    expect(document.querySelector<HTMLDialogElement>("#delete-transaction-dialog")!.open).toBe(
+      true,
+    );
+    expect(document.querySelector(".delete-confirmation-message")?.textContent).toBe(
+      "Supprimer l’opération « Courses » ?",
+    );
+    expect(invoke).not.toHaveBeenCalledWith("delete_transaction", expect.anything());
+    expect(document.querySelector('tr[data-transaction="debit"]')).not.toBeNull();
+    click(".delete-cancel");
+    expect(document.querySelector<HTMLDialogElement>("#delete-transaction-dialog")!.open).toBe(
+      false,
+    );
+    button.click();
+    click(".delete-confirm");
+    await vi.waitFor(() =>
+      expect(document.querySelector('tr[data-transaction="debit"]')).toBeNull(),
+    );
+    expect(invoke).toHaveBeenCalledWith("delete_transaction", { id: "debit" });
   });
 
   it("searches the whole account history, combines filters and clears the search", async () => {
@@ -147,6 +174,7 @@ describe("transaction register", () => {
     );
     expect(document.querySelector(".balance-card strong")?.textContent).toContain("0,01");
     click("[data-delete]");
+    click(".delete-confirm");
     await vi.waitFor(() =>
       expect(document.querySelector(".balance-card")?.classList.contains("negative-balance")).toBe(
         false,
@@ -501,6 +529,50 @@ describe("transaction register", () => {
     });
   });
 
+  it("treats an external transfer as a debit and disables internal transfers for one account", async () => {
+    const invoke = await openRegister({ transactions: [] });
+    click("#new-transaction");
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    expect(form.querySelector<HTMLOptionElement>('option[value="transfer"]')!.disabled).toBe(true);
+    field(form, "label").value = "Virement au propriétaire";
+    field(form, "amount").value = "50";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "create_transaction",
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            label: "Virement au propriétaire",
+            amount: -5000,
+          }),
+        }),
+      ),
+    );
+    expect(invoke).not.toHaveBeenCalledWith("create_transfer", expect.anything());
+  });
+
+  it("restores ordinary fields when switching away from an internal transfer", async () => {
+    await openRegister({
+      accounts: [
+        { id: "one", name: "Principal", kind: "Compte courant", openingBalance: 100, bank: "" },
+        { id: "two", name: "Épargne", kind: "Épargne", openingBalance: 0, bank: "" },
+      ],
+    });
+    click("#new-transaction");
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    const type = field(form, "type");
+    type.value = "transfer";
+    type.dispatchEvent(new Event("change"));
+    expect(field(form, "label").disabled).toBe(true);
+    expect(field(form, "sourceId").disabled).toBe(false);
+    type.value = "debit";
+    type.dispatchEvent(new Event("change"));
+    expect(field(form, "label").disabled).toBe(false);
+    expect(field(form, "label").required).toBe(true);
+    expect(field(form, "sourceId").disabled).toBe(true);
+    expect(form.querySelector<HTMLElement>(".transaction-payee")!.hidden).toBe(false);
+  });
+
   it("creates a linked transfer visible in both accounts and deletes both sides", async () => {
     const invoke = await openRegister({
       accounts: [
@@ -509,8 +581,12 @@ describe("transaction register", () => {
       ],
       transactions: [],
     });
-    click("#new-transfer");
-    const form = document.querySelector<HTMLFormElement>("#transfer-form")!;
+    click("#new-transaction");
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    field(form, "type").value = "transfer";
+    field(form, "type").dispatchEvent(new Event("change"));
+    expect(form.querySelector<HTMLElement>(".transaction-payee")!.hidden).toBe(true);
+    expect(field(form, "label").disabled).toBe(true);
     field(form, "destinationId").value = "one";
     field(form, "amount").value = "25.50";
     submit(form);
@@ -542,8 +618,18 @@ describe("transaction register", () => {
     await vi.waitFor(() =>
       expect(document.querySelector("tbody")?.textContent).toContain("Virement depuis Principal"),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     click("[data-delete]");
+    expect(document.querySelector<HTMLDialogElement>("#delete-transaction-dialog")!.open).toBe(
+      true,
+    );
+    expect(document.querySelector(".delete-confirmation-message")?.textContent).toBe(
+      "Supprimer ce virement et ses deux opérations ?",
+    );
+    expect(invoke).not.toHaveBeenCalledWith("delete_transaction", expect.anything());
+    expect(document.querySelector("tbody")?.textContent).toContain("Virement depuis Principal");
+    click(".delete-cancel");
+    click("[data-delete]");
+    click(".delete-confirm");
     await vi.waitFor(() =>
       expect(document.querySelector("tbody")?.textContent).not.toContain("Virement"),
     );
@@ -564,8 +650,10 @@ describe("transaction register", () => {
       ],
       transactions: [],
     });
-    click("#new-transfer");
-    let form = document.querySelector<HTMLFormElement>("#transfer-form")!;
+    click("#new-transaction");
+    let form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    field(form, "type").value = "transfer";
+    field(form, "type").dispatchEvent(new Event("change"));
     field(form, "destinationId").value = "two";
     field(form, "amount").value = "25";
     field(form, "date").value = "2027-01-15";
@@ -581,10 +669,19 @@ describe("transaction register", () => {
     transferRow.focus();
     transferRow.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await vi.waitFor(() =>
-      expect(document.querySelector<HTMLDialogElement>("#transfer-dialog")?.open).toBe(true),
+      expect(document.querySelector<HTMLFormElement>(".transfer-editor")).not.toBeNull(),
     );
-    form = document.querySelector<HTMLFormElement>("#transfer-form")!;
-    expect(form.querySelector("h2")?.textContent).toBe("Modifier le virement");
+    form = document.querySelector<HTMLFormElement>(".transfer-editor")!;
+    expect(form.closest(".transaction-editor-panel")?.querySelector("h2")?.textContent).toBe(
+      "Modifier le virement",
+    );
+    expect(document.querySelector<HTMLElement>(".summary-grid")!.hidden).toBe(true);
+    expect(document.activeElement).toBe(field(form, "sourceId"));
+    field(form, "destinationId").value = "one";
+    submit(form);
+    expect(form.querySelector(".editor-error")?.textContent).toContain("deux comptes différents");
+    expect(invoke).not.toHaveBeenCalledWith("update_transfer", expect.anything());
+    field(form, "destinationId").value = "two";
     expect(field(form, "sourceId").value).toBe("one");
     expect(field(form, "destinationId").value).toBe("two");
     field(form, "amount").value = "40";
@@ -607,7 +704,18 @@ describe("transaction register", () => {
       }),
     });
     click('[data-account="one"]');
+    await vi.waitFor(() =>
+      expect(document.querySelector(".page-heading h1")?.textContent).toBe("Principal"),
+    );
     await vi.waitFor(() => expect(document.querySelector("tbody")?.textContent).toContain("40,00"));
+    click("tbody tr[data-transaction] .date-cell");
+    await vi.waitFor(() => expect(document.querySelector(".transfer-editor")).not.toBeNull());
+    expect(
+      field(document.querySelector<HTMLFormElement>(".transfer-editor")!, "amount").value,
+    ).toBe("40,00");
+    click(".transfer-editor .cancel-editor");
+    expect(document.querySelector(".transfer-editor")).toBeNull();
+    expect(document.querySelector<HTMLElement>(".summary-grid")!.hidden).toBe(false);
   });
 
   it("shows current balances for all accounts and updates them after editing and deleting", async () => {
@@ -647,6 +755,7 @@ describe("transaction register", () => {
     submit(form);
     await vi.waitFor(() => expect(balance("one")).toContain("70,00"));
     click('[data-delete="debit"]');
+    click(".delete-confirm");
     await vi.waitFor(() => expect(balance("one")).toContain("100,00"));
     expect(balance("two")).toContain("225,00");
   });
@@ -706,6 +815,7 @@ describe("transaction register", () => {
       expect(document.querySelector('[data-reconcile="debit"]')?.textContent).toBe("P"),
     );
     click('[data-delete="debit"]');
+    click(".delete-confirm");
     await vi.waitFor(() =>
       expect(document.querySelector('tr[data-transaction="debit"]')).toBeNull(),
     );

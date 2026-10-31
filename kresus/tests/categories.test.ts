@@ -121,8 +121,12 @@ describe("category management", () => {
     submit(form);
     await vi.waitFor(() => expect(document.querySelector('[data-merge="food"]')).toBeNull());
     expect(invoke).toHaveBeenCalledWith("merge_category", { sourceId: "food", targetId: "other" });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     click('[data-delete-category="other"]');
+    expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull();
+    click(".confirmation-cancel");
+    expect(invoke).not.toHaveBeenCalledWith("delete_category", expect.anything());
+    click('[data-delete-category="other"]');
+    click(".confirmation-accept");
     await vi.waitFor(() =>
       expect(document.querySelector(".category-panel")?.textContent).toContain("Aucune catégorie"),
     );

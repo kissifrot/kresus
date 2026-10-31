@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { confirmAction } from "./confirmation";
 import type { Account, Schedule, CalendarOccurrence } from "./types";
 import { accounts, schedules, selectedAccount, setAccounts, setSchedules } from "./state";
 import { euro, escapeHtml, parsePositiveCents, centsInput } from "./format";
@@ -460,9 +461,11 @@ function renderScheduleView(showOverdue: boolean) {
       const schedule = schedules.find((item) => item.id === button.dataset.deleteSchedule);
       if (
         !schedule ||
-        !window.confirm(
+        !(await confirmAction(
+          "Confirmer la suppression",
           `Supprimer la série « ${schedule.label} » et toutes ses échéances à venir ? Les opérations déjà enregistrées seront conservées.`,
-        )
+          "Supprimer",
+        ))
       )
         return;
       button.disabled = true;

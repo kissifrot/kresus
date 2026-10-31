@@ -217,7 +217,33 @@ try {
       )?.includes("Base habituelle"),
     "Retour à la base habituelle",
   );
-  console.log("Dialogues natifs : sauvegarde, ouverture et retour à la base habituelle vérifiés.");
+  await click("#restore-database");
+  await selectPath(await dialog(), backupPath);
+  await waitFor(async () => {
+    try {
+      return (await text(".confirmation-dialog[open]")).includes("remplacées");
+    } catch {
+      return false;
+    }
+  }, "Confirmation de restauration");
+  await click(".confirmation-cancel");
+  await click("#restore-database");
+  await selectPath(await dialog(), backupPath);
+  await waitFor(async () => {
+    try {
+      return (await text(".confirmation-dialog[open]")).includes("remplacées");
+    } catch {
+      return false;
+    }
+  }, "Confirmation de restauration");
+  await click(".confirmation-accept");
+  await waitFor(
+    async () => (await text(".database-error")).includes("Sauvegarde restaurée"),
+    "Restauration native",
+  );
+  console.log(
+    "Dialogues natifs : sauvegarde, ouverture et confirmation de restauration vérifiées.",
+  );
   // Copy the fixture into the disposable directory and never alter the original.
   const sample = process.env.KRESUS_MONEY_SAMPLE ?? resolve(root, "../references/Money.mny");
   if (existsSync(sample)) {

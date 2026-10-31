@@ -5,6 +5,12 @@ beforeEach(() => {
   vi.resetModules();
   document.body.innerHTML = '<div id="app"></div>';
   localStorage.clear();
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
 });
 afterEach(() => {
   vi.doUnmock("@tauri-apps/api/core");
@@ -119,7 +125,6 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
     throw new Error(command);
   });
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
-  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValue(true);
   await import("../src/main");
   await vi.waitFor(() => expect(document.querySelector("#backup-database")).not.toBeNull());
   (document.querySelector("#backup-database") as HTMLButtonElement).click();
@@ -127,10 +132,21 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
     expect(document.querySelector(".database-error")?.textContent).toContain("Sauvegarde créée"),
   );
   (document.querySelector("#restore-database") as HTMLButtonElement).click();
-  await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() =>
+    expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull(),
+  );
+  expect(document.querySelector(".confirmation-message")?.textContent).toContain("backup.sqlite3");
+  (document.querySelector(".confirmation-cancel") as HTMLButtonElement).click();
+  await vi.waitFor(() =>
+    expect((document.querySelector("#restore-database") as HTMLButtonElement).disabled).toBe(false),
+  );
   expect(invoke).not.toHaveBeenCalledWith("restore_database", expect.anything());
   failRestore = true;
   (document.querySelector("#restore-database") as HTMLButtonElement).click();
+  await vi.waitFor(() =>
+    expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull(),
+  );
+  (document.querySelector(".confirmation-accept") as HTMLButtonElement).click();
   await vi.waitFor(() =>
     expect(document.querySelector(".database-error")?.textContent).toContain("Fichier invalide"),
   );
@@ -138,8 +154,11 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
   failRestore = false;
   (document.querySelector("#restore-database") as HTMLButtonElement).click();
   await vi.waitFor(() =>
+    expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull(),
+  );
+  (document.querySelector(".confirmation-accept") as HTMLButtonElement).click();
+  await vi.waitFor(() =>
     expect(document.querySelector(".page-heading h1")?.textContent).toBe("after"),
   );
   expect(document.querySelector(".database-error")?.textContent).toContain("Sauvegarde restaurée");
-  confirm.mockRestore();
 });

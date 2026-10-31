@@ -49,6 +49,7 @@ pub fn run() {
             categories::merge_category,
             transactions::list_transactions,
             transactions::list_register,
+            transactions::balance_history,
             transactions::list_payees,
             schedules::list_schedules,
             schedules::create_schedule,

@@ -3,6 +3,7 @@ import type { Category, Schedule, Transaction } from "./types";
 import { categories, selectedAccount, setCategories, setSchedules, setTransactions } from "./state";
 import { escapeHtml } from "./format";
 import { render } from "./accounts";
+import { confirmAction } from "./confirmation";
 
 export function categoryLabel(category: Category): string {
   const parent = categories.find((item) => item.id === category.parentId);
@@ -145,7 +146,15 @@ export function renderCategories() {
   document.querySelectorAll<HTMLElement>("[data-delete-category]").forEach((button) =>
     button.addEventListener("click", async () => {
       const item = categories.find((category) => category.id === button.dataset.deleteCategory);
-      if (!item || !window.confirm(`Supprimer « ${categoryLabel(item)} » ?`)) return;
+      if (
+        !item ||
+        !(await confirmAction(
+          "Confirmer la suppression",
+          `Supprimer « ${categoryLabel(item)} » ?`,
+          "Supprimer",
+        ))
+      )
+        return;
       try {
         await invoke("delete_category", { id: item.id });
         await refreshCategories();

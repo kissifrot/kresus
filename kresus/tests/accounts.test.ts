@@ -19,6 +19,26 @@ describe("accounts", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("loads the selected account’s balance history only when requested", async () => {
+    const invoke = await openRegister();
+    expect(document.querySelector<HTMLElement>("#balance-history")!.hidden).toBe(true);
+    expect(invoke).not.toHaveBeenCalledWith("balance_history", expect.anything());
+    click("#balance-history-toggle");
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("#balance-history circle")).toHaveLength(12),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      "balance_history",
+      expect.objectContaining({ accountId: "one" }),
+    );
+    expect(document.querySelector("#balance-history")?.textContent).toContain("60,00");
+    expect(document.querySelector("#balance-history-toggle")?.getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    click("#balance-history-toggle");
+    expect(document.querySelector<HTMLElement>("#balance-history")!.hidden).toBe(true);
+  });
+
   it("defaults a new operation to the local calendar date", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2027, 0, 2, 0, 30));

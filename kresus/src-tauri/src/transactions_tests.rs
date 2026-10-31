@@ -531,3 +531,58 @@ fn cheque_validation_is_shared_by_creation_and_editing() {
         .unwrap();
     assert_eq!(saved, (Some("0012345".into()), -100));
 }
+
+#[test]
+fn balance_history_uses_daily_totals_and_prior_history_without_future_operations() {
+    let db = database();
+    create_account_in_db(&db, account("history", "Compte courant", 100.0)).unwrap();
+    for (id, date, amount) in [
+        ("before", "2027-01-01", 25.0),
+        ("feb", "2028-02-29", -30.0),
+        ("march", "2028-03-10", 10.0),
+        ("future", "2028-03-21", 900.0),
+    ] {
+        let mut item = operation(id, "history", amount);
+        item.date = date.into();
+        create_transaction_in_db(&db, item).unwrap();
+    }
+    let points = balance_history_in_db(&db, "history", "2028-03-20").unwrap();
+    assert_eq!(points.len(), 4);
+    assert_eq!(
+        (&points[0].date, points[0].balance),
+        (&"2027-04-01".to_string(), 12500)
+    );
+    assert_eq!(
+        (&points[1].date, points[1].balance),
+        (&"2028-02-29".to_string(), 9500)
+    );
+    assert_eq!(
+        (&points[3].date, points[3].balance),
+        (&"2028-03-20".to_string(), 10500)
+    );
+    assert!(balance_history_in_db(&db, "missing", "2028-03-20").is_err());
+    assert!(balance_history_in_db(&db, "history", "2028-02-30").is_err());
+}
+
+#[test]
+fn balance_history_includes_each_side_of_a_transfer_in_its_account() {
+    let mut db = database();
+    let t = transfer();
+    create_transfer_in_db(&mut db, t).unwrap();
+    let source = balance_history_in_db(&db, "ccp", "2028-01-31").unwrap();
+    let destination = balance_history_in_db(&db, "sylvie", "2028-01-31").unwrap();
+    let source_balance = crate::accounts::list_accounts_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|a| a.id == "ccp")
+        .unwrap()
+        .current_balance;
+    let destination_balance = crate::accounts::list_accounts_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|a| a.id == "sylvie")
+        .unwrap()
+        .current_balance;
+    assert_eq!(source.last().unwrap().balance, source_balance);
+    assert_eq!(destination.last().unwrap().balance, destination_balance);
+}

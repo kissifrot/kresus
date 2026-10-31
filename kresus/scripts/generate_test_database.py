@@ -43,14 +43,29 @@ def generate(path: Path, count: int) -> None:
             ]
             main_count = count * 5 // 6
             savings_count = count - main_count
+            # Reserve regular, predictable income before filling the remaining slots.
+            months = []
+            month = START.replace(day=1)
+            while month <= END:
+                months.append(month)
+                month = (month.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+            incomes_per_month = min(2, max(0, (main_count - 2) // len(months)))
             rows = []
-            for i in range(count):
-                main = i < main_count
-                index, account_count = (i, main_count) if main else (i - main_count, savings_count)
+            for month in months:
+                for index, (day, label, amount) in enumerate([
+                    (5, "Salaire fictif", 195000),
+                    (12, "Pension fictive", 85000),
+                ][:incomes_per_month]):
+                    date = min(max(month.replace(day=day), START), END)
+                    rows.append((f"income-{month:%Y-%m}-{index}", "test-courant", date.isoformat(),
+                                 label, "Revenus", None, amount, 1, "Revenu mensuel fictif"))
+            regular_count = len(rows)
+            other_main_count = main_count - regular_count
+            for i in range(count - regular_count):
+                main = i < other_main_count
+                index, account_count = (i, other_main_count) if main else (i - other_main_count, savings_count)
                 date = START + dt.timedelta(days=index * (END - START).days // (account_count - 1))
-                if main and i % 35 == 0:
-                    label, category, amount = "Salaire fictif", "Revenus", rng.randint(180000, 230000)
-                elif not main and i % 12 == 0:
+                if not main and i % 12 == 0:
                     label, category, amount = "Intérêts fictifs", "Revenus", rng.randint(100, 5000)
                 else:
                     label, category = rng.choice(expenses)

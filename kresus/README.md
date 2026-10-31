@@ -93,11 +93,13 @@ Le premier mesure le registre, un filtre, le pointage et les changements de comp
 
 ### Générer une base de test
 
-Le script crée une base Kresus distincte avec 12 000 opérations fictives réparties sur dix ans, dont 10 000 sur le compte courant. Il nécessite Python 3 et sa bibliothèque SQLite intégrée :
+Le script crée une base Kresus distincte avec 12 000 opérations fictives réparties sur dix ans, dont 10 000 sur le compte courant. Elle comprend chaque mois un salaire et une pension fictifs ; le nombre total reste fixé à 12 000 opérations. Il nécessite Python 3 et sa bibliothèque SQLite intégrée :
 
 ```sh
 python3 scripts/generate_test_database.py
 ```
+
+Les tests du générateur se lancent avec `python3 -m unittest discover -s scripts/tests`. Le script ne remplace jamais une base existante : pour obtenir les nouvelles données, choisir un nouveau nom de fichier.
 
 Le fichier est créé dans `donnees-test/kresus-test-12000.sqlite3` et peut être ouvert depuis la barre latérale de Kresus. Pour choisir un autre emplacement ou volume :
 

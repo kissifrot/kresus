@@ -126,10 +126,6 @@ export function bindTransactionActions() {
     const openEditor = (keyboard: boolean) => {
       const item = transactions.find((transaction) => transaction.id === row.dataset.transaction);
       if (!item) return;
-      if (item.transferId) {
-        void openTransferEditor(item.transferId);
-        return;
-      }
       document.querySelector(".transaction-editor-panel")?.remove();
       document
         .querySelectorAll("tr[data-transaction]")
@@ -139,6 +135,28 @@ export function bindTransactionActions() {
       summary.hidden = true;
       const editor = document.createElement("section");
       editor.className = "transaction-editor-panel";
+      const cancel = () => {
+        editor.remove();
+        row.classList.remove("editing");
+        summary.hidden = false;
+        if (keyboard) row.focus();
+      };
+      // Refresh both account balances after a transfer is updated.
+      const saved = async () => {
+        await refreshTransactions();
+        if (keyboard)
+          document
+            .querySelectorAll<HTMLTableRowElement>("tr[data-transaction]")
+            .forEach((candidate) => {
+              if (candidate.dataset.transaction === item.id) candidate.focus();
+            });
+      };
+      if (item.transferId) {
+        document.querySelector(".transactions-panel")!.after(editor);
+        void openTransferEditor(editor, item.transferId, keyboard, cancel, saved);
+        return;
+      }
+
       editor.innerHTML = `
         <h2>Modifier l’opération</h2>
         <form class="transaction-editor">
@@ -164,10 +182,7 @@ export function bindTransactionActions() {
         editor.querySelector<HTMLDataListElement>("#edit-payee-suggestions")!,
       );
       editor.querySelector(".cancel-editor")?.addEventListener("click", () => {
-        editor.remove();
-        row.classList.remove("editing");
-        summary.hidden = false;
-        if (keyboard) row.focus();
+        cancel();
       });
       editor.querySelector("form")?.addEventListener("submit", async (submitEvent) => {
         submitEvent.preventDefault();
@@ -187,14 +202,7 @@ export function bindTransactionActions() {
               amount: values.get("type") === "credit" ? amount : -amount,
             },
           });
-          await refreshTransactions();
-          if (keyboard) {
-            document
-              .querySelectorAll<HTMLTableRowElement>("tr[data-transaction]")
-              .forEach((candidate) => {
-                if (candidate.dataset.transaction === item.id) candidate.focus();
-              });
-          }
+          await saved();
         } catch (error) {
           editor.querySelector<HTMLElement>(".editor-error")!.textContent =
             `Enregistrement impossible : ${String(error)}`;
@@ -212,9 +220,45 @@ export function bindTransactionActions() {
       }
     });
   });
+  const creationForm = document.querySelector<HTMLFormElement>("#transaction-form")!;
+  // A transfer has two accounts; ordinary debits and credits have a payee and cheque.
+  function updateCreationType() {
+    const transfer =
+      (creationForm.elements.namedItem("type") as HTMLSelectElement).value === "transfer";
+    creationForm.querySelector<HTMLElement>(".transaction-transfer-accounts")!.hidden = !transfer;
+    creationForm.querySelector<HTMLElement>(".transaction-payee")!.hidden = transfer;
+    creationForm.querySelector<HTMLElement>(".transaction-cheque")!.hidden = transfer;
+    for (const name of ["sourceId", "destinationId"]) {
+      const input = creationForm.elements.namedItem(name) as HTMLSelectElement;
+      input.disabled = !transfer;
+      input.required = transfer;
+    }
+    const label = creationForm.elements.namedItem("label") as HTMLInputElement;
+    label.disabled = transfer;
+    label.required = !transfer;
+    (creationForm.elements.namedItem("cheque") as HTMLInputElement).disabled = transfer;
+    creationForm.querySelector<HTMLButtonElement>('button[type="submit"]')!.textContent = transfer
+      ? "Créer le virement"
+      : "Ajouter l’opération";
+  }
+  (creationForm.elements.namedItem("cheque") as HTMLInputElement).addEventListener(
+    "input",
+    (event) => (event.currentTarget as HTMLInputElement).setCustomValidity(""),
+  );
+  (creationForm.elements.namedItem("type") as HTMLSelectElement).addEventListener(
+    "change",
+    updateCreationType,
+  );
   document.querySelector("#new-transaction")?.addEventListener("click", () => {
     const dialog = document.querySelector<HTMLDialogElement>("#transaction-dialog")!;
     const suggestions = dialog.querySelector<HTMLDataListElement>("#payee-suggestions")!;
+    creationForm.reset();
+    (creationForm.elements.namedItem("cheque") as HTMLInputElement).setCustomValidity("");
+    (creationForm.elements.namedItem("sourceId") as HTMLSelectElement).value = selectedAccount.id;
+    (creationForm.elements.namedItem("destinationId") as HTMLSelectElement).value =
+      accounts.find((account) => account.id !== selectedAccount.id)?.id ?? "";
+    creationForm.querySelector<HTMLElement>(".transaction-error")!.textContent = "";
+    updateCreationType();
     dialog.querySelector<HTMLInputElement>('input[name="date"]')!.value = localDate(new Date());
     dialog.showModal();
     void loadPayeeSuggestions(suggestions);
@@ -227,6 +271,17 @@ export function bindTransactionActions() {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const values = new FormData(form);
+    const isTransfer = values.get("type") === "transfer";
+    if (
+      isTransfer &&
+      (values.get("sourceId") === values.get("destinationId") ||
+        !values.get("sourceId") ||
+        !values.get("destinationId"))
+    ) {
+      form.querySelector<HTMLElement>(".transaction-error")!.textContent =
+        "Choisissez deux comptes différents.";
+      return;
+    }
     const cheque = String(values.get("cheque") ?? "").trim();
     if (cheque && !/^\d{7}$/.test(cheque)) {
       (form.elements.namedItem("cheque") as HTMLInputElement).setCustomValidity(
@@ -237,18 +292,31 @@ export function bindTransactionActions() {
     }
     try {
       const amount = parsePositiveCents(String(values.get("amount")));
-      await invoke("create_transaction", {
-        transaction: {
-          id: crypto.randomUUID(),
-          accountId: selectedAccount.id,
-          date: String(values.get("date")),
-          label: String(values.get("label")).trim(),
-          category: String(values.get("category")),
-          cheque: cheque || null,
-          note: String(values.get("note") ?? "").trim(),
-          amount: values.get("type") === "credit" ? amount : -amount,
-        },
-      });
+      if (isTransfer) {
+        await invoke("create_transfer", {
+          transfer: {
+            id: crypto.randomUUID(),
+            sourceId: String(values.get("sourceId")),
+            destinationId: String(values.get("destinationId")),
+            date: String(values.get("date")),
+            amount,
+            category: String(values.get("category")),
+            note: String(values.get("note") ?? "").trim(),
+          },
+        });
+      } else
+        await invoke("create_transaction", {
+          transaction: {
+            id: crypto.randomUUID(),
+            accountId: selectedAccount.id,
+            date: String(values.get("date")),
+            label: String(values.get("label")).trim(),
+            category: String(values.get("category")),
+            cheque: cheque || null,
+            note: String(values.get("note") ?? "").trim(),
+            amount: values.get("type") === "credit" ? amount : -amount,
+          },
+        });
       closeDialog();
       await refreshTransactions();
     } catch (error) {
@@ -262,15 +330,44 @@ export function bindTransactionActions() {
       await refreshTransactions();
     }),
   );
+  const deleteDialog = document.querySelector<HTMLDialogElement>("#delete-transaction-dialog")!;
+  const confirmButton = deleteDialog.querySelector<HTMLButtonElement>(".delete-confirm")!;
+  let pendingDelete: string | null = null;
+  // An application dialog is visible in the Tauri WebView and works for both operation types.
   document.querySelectorAll<HTMLElement>("[data-delete]").forEach((button) =>
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       const item = transactions.find((transaction) => transaction.id === button.dataset.delete);
-      if (item?.transferId && !window.confirm("Supprimer ce virement et ses deux opérations ?"))
-        return;
-      await invoke("delete_transaction", { id: button.dataset.delete });
-      await refreshTransactions();
+      if (!item) return;
+      pendingDelete = item.id;
+      deleteDialog.querySelector<HTMLElement>(".delete-confirmation-message")!.textContent =
+        item.transferId
+          ? "Supprimer ce virement et ses deux opérations ?"
+          : `Supprimer l’opération « ${item.label} » ?`;
+      deleteDialog.querySelector<HTMLElement>(".editor-error")!.textContent = "";
+      deleteDialog.showModal();
     }),
   );
+  deleteDialog
+    .querySelector(".delete-cancel")!
+    .addEventListener("click", () => deleteDialog.close());
+  deleteDialog.addEventListener("close", () => {
+    pendingDelete = null;
+  });
+  confirmButton.addEventListener("click", async () => {
+    const id = pendingDelete;
+    if (!id || confirmButton.disabled) return;
+    confirmButton.disabled = true;
+    try {
+      await invoke("delete_transaction", { id });
+      deleteDialog.close();
+      await refreshTransactions();
+    } catch (error) {
+      deleteDialog.querySelector<HTMLElement>(".editor-error")!.textContent =
+        `Suppression impossible : ${String(error)}`;
+    } finally {
+      confirmButton.disabled = false;
+    }
+  });
 }
 
 function closeDialog() {

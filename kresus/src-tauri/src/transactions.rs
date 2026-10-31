@@ -86,6 +86,77 @@ pub(crate) fn list_transactions_in_db(
     rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
 }
 
+// The chart exchanges daily balances in integer cents.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BalancePoint {
+    date: String,
+    balance: i64,
+}
+
+#[tauri::command]
+pub fn balance_history(
+    account_id: String,
+    today: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<BalancePoint>, String> {
+    let db = state
+        .database
+        .lock()
+        .map_err(|_| "La base de données est indisponible.".to_string())?;
+    balance_history_in_db(&db, &account_id, &today)
+}
+
+fn balance_history_in_db(
+    db: &Connection,
+    account_id: &str,
+    today: &str,
+) -> Result<Vec<BalancePoint>, String> {
+    let valid: bool = db
+        .query_row(
+            "SELECT COALESCE(length(?1)=10 AND date(?1,'+0 days')=?1,0)",
+            [today],
+            |r| r.get(0),
+        )
+        .map_err(database_error)?;
+    if !valid {
+        return Err("Date invalide.".into());
+    }
+    let exists: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM accounts WHERE id=?1)",
+            [account_id],
+            |r| r.get(0),
+        )
+        .map_err(database_error)?;
+    if !exists {
+        return Err("Compte introuvable.".into());
+    }
+    // Keep the beginning and end of the period, plus one point per day with activity.
+    let mut statement = db.prepare("WITH movements AS (
+        SELECT operation_date AS day, SUM(amount_cents) AS amount FROM transactions
+        WHERE account_id=?1 AND operation_date>=date(?2,'start of month','-11 months') AND operation_date<=?2 GROUP BY operation_date
+      ), dates AS (
+        SELECT date(?2,'start of month','-11 months') AS day
+        UNION SELECT day FROM movements UNION SELECT ?2
+      ), baseline AS (
+        SELECT opening_balance_cents + COALESCE((SELECT SUM(amount_cents) FROM transactions WHERE account_id=?1 AND operation_date<date(?2,'start of month','-11 months')),0) AS amount
+        FROM accounts WHERE id=?1
+      )
+      SELECT dates.day, baseline.amount + SUM(COALESCE(movements.amount,0)) OVER (ORDER BY dates.day)
+      FROM dates CROSS JOIN baseline LEFT JOIN movements ON movements.day=dates.day ORDER BY dates.day").map_err(database_error)?;
+    let rows = statement
+        .query_map(params![account_id, today], |r| {
+            Ok(BalancePoint {
+                date: r.get(0)?,
+                balance: r.get(1)?,
+            })
+        })
+        .map_err(database_error)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(database_error)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterRow {
