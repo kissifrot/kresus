@@ -2,6 +2,7 @@
 """Generate a deterministic Kresus database with fictitious transactions."""
 
 import argparse
+from contextlib import closing
 import datetime as dt
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ def generate(path: Path, count: int) -> None:
     os.close(descriptor)
     try:
         rng = random.Random(20261029)
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.execute("PRAGMA foreign_keys = ON")
             db.executescript(SCHEMA.read_text(encoding="utf-8"))
             db.executemany("INSERT INTO accounts VALUES (?, ?, ?, ?, ?)", [

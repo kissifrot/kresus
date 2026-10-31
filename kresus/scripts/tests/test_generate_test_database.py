@@ -1,5 +1,6 @@
 """Checks the properties of generated data without touching existing databases."""
 import importlib.util
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -16,7 +17,7 @@ class GeneratedDatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "example.sqlite3"
             generator.generate(path, 12000)
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 12000)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions WHERE account_id='test-courant'").fetchone()[0], 10000)
                 rows = db.execute("SELECT substr(operation_date,1,7), label, COUNT(*), MIN(amount_cents) FROM transactions WHERE label IN ('Salaire fictif','Pension fictive') GROUP BY 1,2").fetchall()
@@ -28,7 +29,7 @@ class GeneratedDatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "example.sqlite3"
             generator.generate(path, 12)
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 12)
             before = path.read_bytes()
             with self.assertRaises(FileExistsError):

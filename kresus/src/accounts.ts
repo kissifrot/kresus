@@ -29,6 +29,7 @@ import { bindBalanceHistory } from "./balance-history";
 import { confirmAction } from "./confirmation";
 import { showAbout } from "./about";
 
+const brandIcon = new URL("../assets/kresus-icon.svg", import.meta.url).href;
 let activeDatabase: string | null = null;
 
 export function render() {
@@ -62,7 +63,7 @@ export function render() {
       .join("");
   document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">k</div><div><strong>kresus</strong><span>FINANCES FAMILIALES</span></div></div>
+      <div class="brand"><img class="brand-mark" src="${brandIcon}" alt=""><div><strong>kresus</strong><span>FINANCES FAMILIALES</span></div></div>
       <button class="nav-item" id="household-nav"><span>▦</span> Vue d’ensemble</button>
       <button class="nav-item" id="schedules-nav"><span>◷</span> Échéances <i>${schedules.length}</i></button>
       <button class="nav-item" id="categories-nav"><span>▤</span> Catégories</button>

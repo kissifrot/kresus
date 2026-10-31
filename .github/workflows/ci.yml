@@ -1,0 +1,103 @@
+name: Tests et installateurs
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    name: Tests et compilation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    defaults:
+      run:
+        working-directory: kresus
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v7
+
+      # Tauri's Linux WebView and native menu require GTK and WebKitGTK development files.
+      - name: Installer les dépendances système Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: kresus/.nvmrc
+          check-latest: true
+
+      - name: Installer Yarn Classic
+        run: npm install --global yarn@1.22.22
+
+      - name: Installer Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Installer Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Installer les dépendances JavaScript
+        run: yarn install --frozen-lockfile --non-interactive
+
+      - name: Vérifier le formatage
+        if: runner.os == 'Linux'
+        run: yarn format:check
+
+      - name: Tests TypeScript
+        run: yarn test
+
+      - name: Tests Rust
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Tests du générateur de base
+        run: python -m unittest discover -s scripts/tests
+
+      # Build installers only after tests; keep them as workflow artifacts, not releases.
+      - name: Créer le paquet Debian
+        if: runner.os == 'Linux'
+        run: yarn tauri build --bundles deb
+
+      - name: Créer les installateurs Windows
+        if: runner.os == 'Windows'
+        run: yarn tauri build --bundles nsis,msi
+
+      - name: Conserver le paquet Debian
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: kresus-linux-deb
+          path: kresus/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Conserver l’installateur Windows NSIS
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: kresus-windows-nsis
+          path: kresus/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Conserver l’installateur Windows MSI
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: kresus-windows-msi
+          path: kresus/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 7

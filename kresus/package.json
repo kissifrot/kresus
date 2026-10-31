@@ -13,6 +13,7 @@
     "test:performance": "vitest run --config vitest.performance.config.ts --reporter=verbose",
     "preview": "vite preview",
     "tauri": "tauri",
+    "icons": "node scripts/generate-icons.mjs",
     "test:e2e": "node e2e/tauri-smoke.mjs",
     "format": "prettier --no-error-on-unmatched-pattern --write \"src/**/*.{ts,css}\" \"tests/**/*.ts\" \"benchmarks/**/*.ts\" \"e2e/**/*.mjs\" \"scripts/money-prototype/*.ts\" \"*.ts\" \"*.html\" && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "format:check": "prettier --no-error-on-unmatched-pattern --check \"src/**/*.{ts,css}\" \"tests/**/*.ts\" \"benchmarks/**/*.ts\" \"e2e/**/*.mjs\" \"scripts/money-prototype/*.ts\" \"*.ts\" \"*.html\" && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",

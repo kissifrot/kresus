@@ -56,16 +56,8 @@ button {
   padding: 0 11px 34px;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
   width: 37px;
   height: 37px;
-  border-radius: 12px;
-  background: #27734f;
-  color: #fff;
-  font:
-    800 23px Manrope,
-    sans-serif;
 }
 .brand strong {
   display: block;

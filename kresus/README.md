@@ -48,6 +48,24 @@ Dans le menu « Fichier », « Sauvegarder… » crée un nouveau fichier SQLite
 
 « Restaurer… » permet de sélectionner une sauvegarde, puis demande confirmation avant de remplacer la **base actuellement ouverte**. Le fichier sélectionné est vérifié et reste intact. Une base temporairement ouverte est restaurée elle aussi dans son fichier ; au redémarrage, l’application ouvre de nouveau la base habituelle.
 
+### Icône de l’application
+
+La source vectorielle est [`assets/kresus-icon.svg`](assets/kresus-icon.svg). Après toute modification, générer les icônes de bureau à partir du SVG avec :
+
+```sh
+yarn icons
+```
+
+Cette commande utilise le générateur d’icônes de Tauri et met à jour les formats PNG, ICO, ICNS et les variantes Windows dans `src-tauri/icons`. Elle nécessite les dépendances du projet. Le SVG sert aussi directement à la marque affichée dans la barre latérale ; la fenêtre « À propos » utilise le PNG généré. Les formats mobiles produits temporairement par Tauri ne sont pas conservés dans le projet.
+
+### Vérifications GitHub Actions
+
+Le workflow [`ci.yml`](../.github/workflows/ci.yml) lance sur Linux et Windows les tests TypeScript, Rust et du générateur de base, puis construit les paquets Tauri en mode release : un paquet `.deb` pour les distributions Linux compatibles Debian et deux installateurs Windows x64 (`.msi` et `-setup.exe` NSIS). Le formatage est vérifié sous Linux. Le workflow se déclenche sur les pushs et les pull requests et peut aussi être lancé manuellement depuis l’onglet Actions de GitHub. Les fichiers sont téléchargeables comme artefacts de l’exécution pendant sept jours ; aucune version GitHub Release n’est publiée automatiquement.
+
+Les installateurs sont des builds de test non signés. Ils ne remplacent pas une validation sur les systèmes visés ; ils peuvent nécessiter une confirmation du système à l’installation. Le paquet Debian est construit sur Ubuntu 24.04, afin de stabiliser sa base de compatibilité ; une distribution plus ancienne peut ne pas fournir les versions nécessaires de ses bibliothèques. Tauri recommande de construire sur le système le plus ancien que l’on souhaite prendre en charge : voir sa [documentation Debian](https://v2.tauri.app/distribute/debian/). Le runner Ubuntu 22.04 étant en cours de retrait, une éventuelle cible plus ancienne nécessitera une autre solution de compilation. Les formats Linux universels et d’autres architectures restent à étudier. La [documentation Tauri pour Windows](https://v2.tauri.app/distribute/windows-installer/) précise notamment que la génération MSI nécessite Windows et la fonctionnalité VBScript.
+
+Les fichiers `.mny` étant exclus du dépôt, le test qui lit le fichier Money de référence est ignoré dans Actions ; les tests synthétiques restent exécutés. Les tests WebDriver et les dialogues graphiques ne sont pas lancés par ce workflow. Un résultat vert vérifie la compilation et les tests automatisés, mais ne remplace pas une recette de l’interface sous Windows.
+
 ### Formatage du code
 
 Depuis le répertoire `kresus`, `yarn format` applique Prettier aux fichiers TypeScript, CSS et HTML et `rustfmt` aux sources Rust. `yarn format:check` vérifie les mêmes fichiers sans les modifier. Les deux formateurs utilisent une largeur cible de 100 caractères ; les requêtes SQL et certains blocs HTML inclus dans des chaînes peuvent nécessiter une mise en forme manuelle.
