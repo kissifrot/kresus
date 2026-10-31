@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -477,6 +477,18 @@ try {
     async () => (await text(".database-error")).includes("Sauvegarde créée"),
     "Sauvegarde",
   );
+  // A second backup to the same debug-selected path must not overwrite the first.
+  const savedBytes = readFileSync(join(temp, "backup.sqlite3"));
+  await click("#backup-database");
+  await waitFor(
+    async () => (await text(".database-error")).includes("Sauvegarde impossible"),
+    "Erreur de sauvegarde",
+  );
+  if (
+    !readFileSync(join(temp, "backup.sqlite3")).equals(savedBytes) ||
+    !(await text(".balance-card")).includes("100,00")
+  )
+    throw new Error("Échec de sauvegarde : données modifiées");
   await click("#new-transaction");
   await fill("#transaction-form", { label: "À effacer par restauration", amount: "10.00" });
   await click('#transaction-form button[type="submit"]');

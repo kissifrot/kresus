@@ -89,8 +89,12 @@ it("switches databases, supports cancellation and returns to the default databas
 it("confirms restoration, refreshes data, and reports backup and restore failures", async () => {
   let active = "before";
   let failRestore = false;
+  let failBackup = false;
   const invoke = vi.fn(async (command: string) => {
-    if (command === "backup_database") return "/tmp/backup.sqlite3";
+    if (command === "backup_database") {
+      if (failBackup) throw new Error("Destination inaccessible");
+      return "/tmp/backup.sqlite3";
+    }
     if (command === "choose_restore_file") return "/tmp/backup.sqlite3";
     if (command === "restore_database") {
       if (failRestore) throw new Error("Fichier invalide");
@@ -131,6 +135,15 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
   await vi.waitFor(() =>
     expect(document.querySelector(".database-error")?.textContent).toContain("Sauvegarde créée"),
   );
+  failBackup = true;
+  (document.querySelector("#backup-database") as HTMLButtonElement).click();
+  await vi.waitFor(() =>
+    expect(document.querySelector(".database-error")?.textContent).toContain(
+      "Destination inaccessible",
+    ),
+  );
+  expect(document.querySelector(".page-heading h1")?.textContent).toBe("before");
+  expect((document.querySelector("#backup-database") as HTMLButtonElement).disabled).toBe(false);
   (document.querySelector("#restore-database") as HTMLButtonElement).click();
   await vi.waitFor(() =>
     expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull(),
