@@ -66,6 +66,10 @@ Les installateurs sont des builds de test non signés. Ils ne remplacent pas une
 
 Les fichiers `.mny` étant exclus du dépôt, le test qui lit le fichier Money de référence est ignoré dans Actions ; les tests synthétiques restent exécutés. Les tests WebDriver et les dialogues graphiques ne sont pas lancés par ce workflow. Un résultat vert vérifie la compilation et les tests automatisés, mais ne remplace pas une recette de l’interface sous Windows.
 
+### Mises à jour des dépendances
+
+[Dependabot](../.github/dependabot.yml) vérifie chaque semaine les dépendances Yarn de l’application, les dépendances Cargo et les actions GitHub. Les mises à jour mineures et correctives sont regroupées par écosystème ; les mises à jour majeures restent séparées pour faciliter leur examen. Les pull requests passent par les vérifications GitHub Actions. La configuration prend effet une fois ajoutée à la branche par défaut du dépôt.
+
 ### Formatage du code
 
 Depuis le répertoire `kresus`, `yarn format` applique Prettier aux fichiers TypeScript, CSS et HTML et `rustfmt` aux sources Rust. `yarn format:check` vérifie les mêmes fichiers sans les modifier. Les deux formateurs utilisent une largeur cible de 100 caractères ; les requêtes SQL et certains blocs HTML inclus dans des chaînes peuvent nécessiter une mise en forme manuelle.
