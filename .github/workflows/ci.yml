@@ -1,4 +1,4 @@
-name: Tests et installateurs
+name: Tests and installers
 
 on:
   push:
@@ -10,72 +10,74 @@ permissions:
 
 jobs:
   test-and-build:
-    name: Tests et compilation (${{ matrix.os }})
+    name: Tests and build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]
+        os: [ubuntu-26.04, windows-latest]
     defaults:
       run:
         working-directory: kresus
     steps:
-      - name: Récupérer les sources
+      - name: Check out sources
         uses: actions/checkout@v7
 
       # Tauri's Linux WebView and native menu require GTK and WebKitGTK development files.
-      - name: Installer les dépendances système Linux
+      - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
 
-      - name: Installer Node.js
+      - name: Install Node.js
         uses: actions/setup-node@v7
         with:
           node-version-file: kresus/.nvmrc
           check-latest: true
 
-      - name: Installer Yarn Classic
+      - name: Install Yarn Classic
         run: npm install --global yarn@1.22.22
 
-      - name: Installer Rust
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
-      - name: Installer Python
+      - name: Install Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
-      - name: Installer les dépendances JavaScript
+      - name: Install JavaScript dependencies
         run: yarn install --frozen-lockfile --non-interactive
 
-      - name: Vérifier le formatage
+      - name: Check formatting
         if: runner.os == 'Linux'
         run: yarn format:check
 
-      - name: Tests TypeScript
+      - name: TypeScript tests
         run: yarn test
 
-      - name: Tests Rust
+      - name: Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
-      - name: Tests du générateur de base
+      - name: Database generator tests
         run: python -m unittest discover -s scripts/tests
 
       # Build installers only after tests; keep them as workflow artifacts, not releases.
-      - name: Créer le paquet Debian
+      - name: Build Debian package
         if: runner.os == 'Linux'
         run: yarn tauri build --bundles deb
 
-      - name: Créer les installateurs Windows
+      - name: Build Windows installers
         if: runner.os == 'Windows'
+        # Bash preserves the comma-separated argument instead of treating it as an array.
+        shell: bash
         run: yarn tauri build --bundles nsis,msi
 
-      - name: Conserver le paquet Debian
+      - name: Upload Debian package
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
@@ -84,7 +86,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Conserver l’installateur Windows NSIS
+      - name: Upload Windows NSIS installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
@@ -93,7 +95,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Conserver l’installateur Windows MSI
+      - name: Upload Windows MSI installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
