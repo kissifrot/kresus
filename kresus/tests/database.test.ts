@@ -58,28 +58,29 @@ it("switches databases, supports cancellation and returns to the default databas
   });
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
   await import("../src/main");
+  const { runMenuAction } = await import("../src/accounts");
   await vi.waitFor(() =>
     expect(document.querySelector(".page-heading h1")?.textContent).toBe("Principal"),
   );
-  (document.querySelector("#choose-database") as HTMLButtonElement).click();
+  void runMenuAction("open");
   await vi.waitFor(() =>
     expect(document.querySelector(".page-heading h1")?.textContent).toBe("Compte test"),
   );
   expect(document.querySelector(".database-controls")?.textContent).toContain("test.sqlite3");
   expect(document.querySelector('[data-account="default"]')).toBeNull();
   choice = null;
-  (document.querySelector("#choose-database") as HTMLButtonElement).click();
+  void runMenuAction("open");
   await vi.waitFor(() =>
     expect(document.body.classList.contains("database-switching")).toBe(false),
   );
   expect(document.querySelector(".page-heading h1")?.textContent).toBe("Compte test");
   choice = "invalid";
-  (document.querySelector("#choose-database") as HTMLButtonElement).click();
+  void runMenuAction("open");
   await vi.waitFor(() =>
     expect(document.querySelector(".database-error")?.textContent).toContain("Base incompatible"),
   );
   expect(document.querySelector(".page-heading h1")?.textContent).toBe("Compte test");
-  (document.querySelector("#default-database") as HTMLButtonElement).click();
+  void runMenuAction("default");
   await vi.waitFor(() =>
     expect(document.querySelector(".page-heading h1")?.textContent).toBe("Principal"),
   );
@@ -130,32 +131,39 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
   });
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
   await import("../src/main");
-  await vi.waitFor(() => expect(document.querySelector("#backup-database")).not.toBeNull());
-  (document.querySelector("#backup-database") as HTMLButtonElement).click();
+  const { runMenuAction } = await import("../src/accounts");
+  await vi.waitFor(() => expect(document.querySelector(".database-controls")).not.toBeNull());
+  void runMenuAction("backup");
   await vi.waitFor(() =>
     expect(document.querySelector(".database-error")?.textContent).toContain("Sauvegarde créée"),
   );
   failBackup = true;
-  (document.querySelector("#backup-database") as HTMLButtonElement).click();
+  void runMenuAction("backup");
   await vi.waitFor(() =>
     expect(document.querySelector(".database-error")?.textContent).toContain(
       "Destination inaccessible",
     ),
   );
   expect(document.querySelector(".page-heading h1")?.textContent).toBe("before");
-  expect((document.querySelector("#backup-database") as HTMLButtonElement).disabled).toBe(false);
-  (document.querySelector("#restore-database") as HTMLButtonElement).click();
+
+  void runMenuAction("restore");
   await vi.waitFor(() =>
     expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull(),
   );
   expect(document.querySelector(".confirmation-message")?.textContent).toContain("backup.sqlite3");
-  (document.querySelector(".confirmation-cancel") as HTMLButtonElement).click();
-  await vi.waitFor(() =>
-    expect((document.querySelector("#restore-database") as HTMLButtonElement).disabled).toBe(false),
+  const backupsBefore = invoke.mock.calls.filter(
+    ([command]) => command === "backup_database",
+  ).length;
+  await runMenuAction("backup");
+  expect(invoke.mock.calls.filter(([command]) => command === "backup_database")).toHaveLength(
+    backupsBefore,
   );
+  (document.querySelector(".confirmation-cancel") as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(document.querySelector(".confirmation-dialog")).toBeNull());
+  await Promise.resolve();
   expect(invoke).not.toHaveBeenCalledWith("restore_database", expect.anything());
   failRestore = true;
-  (document.querySelector("#restore-database") as HTMLButtonElement).click();
+  void runMenuAction("restore");
   await vi.waitFor(() =>
     expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull(),
   );
@@ -165,7 +173,7 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
   );
   expect(document.querySelector(".page-heading h1")?.textContent).toBe("before");
   failRestore = false;
-  (document.querySelector("#restore-database") as HTMLButtonElement).click();
+  void runMenuAction("restore");
   await vi.waitFor(() =>
     expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull(),
   );

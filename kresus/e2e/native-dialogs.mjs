@@ -104,6 +104,13 @@ async function click(selector) {
     {},
   );
 }
+// Emit the same event as a native menu item; native shortcut activation is checked separately.
+async function menuAction(action) {
+  await request("POST", `/session/${session}/execute/sync`, {
+    script: "return window.__TAURI__.event.emit('kresus-menu', arguments[0])",
+    args: [action],
+  });
+}
 async function text(selector) {
   const result = await request("POST", `/session/${session}/element`, {
     using: "css selector",
@@ -181,13 +188,33 @@ try {
     async () => (await text(".page-heading h1")) === "Compte courant — test",
     "Registre",
   );
+  // Exercise a real native menu accelerator, including Rust-to-WebView dispatch.
+  const windowId = xdotool("search", "--onlyvisible", "--name", "Kresus — Finances familiales")
+    .split("\n")
+    .at(-1);
+  xdotool("windowfocus", "--sync", windowId);
+  xdotool("key", "ctrl+o");
+  await closeDialog(await dialog());
+  console.log("Menu natif : raccourci Ouvrir et annulation vérifiés.");
+  xdotool("windowfocus", "--sync", windowId);
+  xdotool("key", "alt+a", "Return");
+  await waitFor(async () => (await text(".about-dialog[open]")).includes("Version"), "À propos");
+  const about = await request("POST", `/session/${session}/execute/sync`, {
+    script:
+      "const d=document.querySelector('.about-dialog'); const i=d.querySelector('img'); return [d.textContent,i.complete,i.naturalWidth]",
+    args: [],
+  });
+  const version = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8")).version;
+  if (!about[0].includes(version) || !about[1] || !about[2])
+    throw new Error("Version ou icône absente de la fenêtre À propos.");
+  await click(".about-dialog button");
   for (const [selector, name] of [
-    ["#choose-database", "Ouverture d’une base"],
-    ["#backup-database", "Sauvegarde"],
-    ["#restore-database", "Restauration"],
-    ["#import-money", "Import Money"],
+    ["open", "Ouverture d’une base"],
+    ["backup", "Sauvegarde"],
+    ["restore", "Restauration"],
+    ["import", "Import Money"],
   ]) {
-    await click(selector);
+    await menuAction(selector);
     const id = await dialog();
     await closeDialog(id);
     console.log(`${name} : dialogue natif ouvert et annulé au clavier`);
@@ -195,14 +222,14 @@ try {
   if (existsSync(join(temp, "backup.sqlite3")))
     throw new Error("L’annulation a créé une sauvegarde.");
   const backupPath = join(temp, "native-backup.sqlite3");
-  await click("#backup-database");
+  await menuAction("backup");
   await selectPath(await dialog(), backupPath);
   await waitFor(() => existsSync(backupPath), "Création de la sauvegarde native");
   await waitFor(
     async () => (await text(".database-error")).includes("Sauvegarde créée"),
     "Confirmation de sauvegarde",
   );
-  await click("#choose-database");
+  await menuAction("open");
   await selectPath(await dialog(), backupPath);
   await waitFor(
     async () =>
@@ -243,7 +270,7 @@ c.commit()`,
   );
   if (legacySetup.status !== 0)
     throw new Error(`Préparation de base ancienne : ${legacySetup.stderr}`);
-  await click("#choose-database");
+  await menuAction("open");
   await selectPath(await dialog(), legacyPath);
   await waitFor(
     async () =>
@@ -278,7 +305,7 @@ assert c.execute("select count(*) from schedules where account_id='receipt-busin
   // Reject an incompatible database while retaining the current migrated one.
   const incompatible = join(temp, "incompatible.sqlite3");
   writeFileSync(incompatible, "not a database");
-  await click("#choose-database");
+  await menuAction("open");
   await selectPath(await dialog(), incompatible);
   await waitFor(
     async () =>
@@ -379,7 +406,7 @@ assert c.execute("select next_due from schedules where id='due-today'").fetchone
   console.log(
     "Base ancienne : migration et rejet d’une base invalide ; retards et rapport multicomptes vérifiés.",
   );
-  await click("#default-database");
+  await menuAction("default");
   await waitFor(
     async () =>
       (
@@ -390,7 +417,7 @@ assert c.execute("select next_due from schedules where id='due-today'").fetchone
       )?.includes("Base habituelle"),
     "Retour à la base habituelle",
   );
-  await click("#restore-database");
+  await menuAction("restore");
   await selectPath(await dialog(), backupPath);
   await waitFor(async () => {
     try {
@@ -400,7 +427,7 @@ assert c.execute("select next_due from schedules where id='due-today'").fetchone
     }
   }, "Confirmation de restauration");
   await click(".confirmation-cancel");
-  await click("#restore-database");
+  await menuAction("restore");
   await selectPath(await dialog(), backupPath);
   await waitFor(async () => {
     try {
@@ -432,7 +459,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
     { encoding: "utf8" },
   );
   if (snapshot.status !== 0) throw new Error(snapshot.stderr);
-  await click("#restore-database");
+  await menuAction("restore");
   await selectPath(await dialog(), invalidPath);
   await waitFor(async () => {
     try {
@@ -470,7 +497,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
   if (existsSync(sample)) {
     const moneyPath = join(temp, "money-sample.mny");
     copyFileSync(sample, moneyPath);
-    await click("#import-money");
+    await menuAction("import");
     await selectPath(await dialog(), moneyPath);
     const preview = await waitFor(async () => {
       try {

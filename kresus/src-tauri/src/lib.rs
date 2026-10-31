@@ -1,6 +1,7 @@
 mod accounts;
 mod categories;
 mod database;
+mod menu;
 mod money_import;
 mod schedules;
 #[cfg(test)]
@@ -18,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            menu::install(app)?;
             // Keep the database in the platform-specific application data directory.
             let directory = app.path().app_data_dir()?;
             fs::create_dir_all(&directory)?;

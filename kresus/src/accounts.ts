@@ -27,6 +27,7 @@ import { renderHousehold } from "./household";
 import { openMoneyImport } from "./money-import";
 import { bindBalanceHistory } from "./balance-history";
 import { confirmAction } from "./confirmation";
+import { showAbout } from "./about";
 
 let activeDatabase: string | null = null;
 
@@ -73,7 +74,7 @@ export function render() {
       <div class="account-group"><div class="group-label">ÉPARGNE <span>${accounts.filter((account) => account.kind === "Épargne").length}</span></div>${accountList("Épargne")}</div>
       <div class="account-group"><div class="group-label">ASSURANCE VIE <span>${accounts.filter((account) => account.kind === "Assurance vie").length}</span></div>${accountList("Assurance vie")}</div>
       </div>
-      <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><button type="button" id="choose-database">Ouvrir une base…</button><button type="button" id="import-money">Importer Money…</button><button type="button" id="backup-database">Sauvegarder…</button><button type="button" id="restore-database">Restaurer…</button>${activeDatabase ? '<button type="button" id="default-database">Revenir à la base habituelle</button>' : ""}<p class="database-error" role="status"></p></div>
+      <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><p class="database-error" role="status"></p></div>
     </aside>
     <main class="main-area">
       <header class="topbar"><div class="breadcrumb"><button type="button" id="household-breadcrumb">Mon foyer</button> <span>/</span> <button type="button" id="accounts-breadcrumb">Comptes</button> <span>/</span> <strong>${escapeHtml(selectedAccount.name)}</strong></div></header>
@@ -125,19 +126,6 @@ export function render() {
   document.querySelector("#household-breadcrumb")?.addEventListener("click", renderHousehold);
   document.querySelector("#household-nav")?.addEventListener("click", renderHousehold);
   document.querySelector("#accounts-breadcrumb")?.addEventListener("click", renderAccountsList);
-  document
-    .querySelector("#backup-database")
-    ?.addEventListener("click", () => void backupDatabase());
-  document
-    .querySelector("#restore-database")
-    ?.addEventListener("click", () => void restoreDatabase());
-  document.querySelector("#import-money")?.addEventListener("click", () => void openMoneyImport());
-  document
-    .querySelector("#choose-database")
-    ?.addEventListener("click", () => void changeDatabase(false));
-  document
-    .querySelector("#default-database")
-    ?.addEventListener("click", () => void changeDatabase(true));
   bindTransactionFilter();
   const accountDialog = document.querySelector<HTMLDialogElement>("#account-dialog")!;
   document
@@ -216,10 +204,6 @@ export function renderAccountsList() {
 
 // Reload all domains after a successful switch; cancelled selections do nothing.
 async function changeDatabase(useDefault: boolean) {
-  const buttons = document.querySelectorAll<HTMLButtonElement>(
-    "#choose-database, #default-database",
-  );
-  buttons.forEach((button) => (button.disabled = true));
   document.body.classList.add("database-switching");
   let switched = false;
   try {
@@ -246,7 +230,6 @@ async function changeDatabase(useDefault: boolean) {
     if (target) target.textContent = `Ouverture impossible : ${String(error)}`;
   } finally {
     document.body.classList.remove("database-switching");
-    buttons.forEach((button) => (button.disabled = false));
   }
 }
 
@@ -268,24 +251,18 @@ export async function reloadDatabase(path: string | null) {
 }
 
 async function backupDatabase() {
-  const button = document.querySelector<HTMLButtonElement>("#backup-database")!;
   const message = document.querySelector<HTMLElement>(".database-error")!;
-  button.disabled = true;
   message.textContent = "";
   try {
     const path = await invoke<string | null>("backup_database");
     if (path) message.textContent = `Sauvegarde créée : ${path}`;
   } catch (error) {
     message.textContent = `Sauvegarde impossible : ${String(error)}`;
-  } finally {
-    button.disabled = false;
   }
 }
 
 async function restoreDatabase() {
-  const button = document.querySelector<HTMLButtonElement>("#restore-database")!;
   const message = document.querySelector<HTMLElement>(".database-error")!;
-  button.disabled = true;
   message.textContent = "";
   let restored = false;
   try {
@@ -311,6 +288,36 @@ async function restoreDatabase() {
     } else message.textContent = `Restauration impossible : ${String(error)}`;
   } finally {
     document.body.classList.remove("database-switching");
-    button.disabled = false;
+  }
+}
+
+// Serialize menu workflows and ignore actions while a modal is already open.
+let menuBusy = false;
+export async function runMenuAction(action: string) {
+  if (menuBusy || document.querySelector("dialog[open]")) return;
+  menuBusy = true;
+  try {
+    switch (action) {
+      case "open":
+        await changeDatabase(false);
+        break;
+      case "default":
+        if (activeDatabase) await changeDatabase(true);
+        break;
+      case "backup":
+        await backupDatabase();
+        break;
+      case "restore":
+        await restoreDatabase();
+        break;
+      case "import":
+        await openMoneyImport();
+        break;
+      case "about":
+        showAbout();
+        break;
+    }
+  } finally {
+    menuBusy = false;
   }
 }

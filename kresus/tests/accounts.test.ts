@@ -66,7 +66,7 @@ describe("accounts", () => {
     );
     expect(document.querySelector<HTMLElement>(".sidebar-accounts")!.scrollTop).toBe(120);
     expect(document.querySelector(".sidebar-accounts #choose-database")).toBeNull();
-    expect(document.querySelector(".sidebar > .database-controls #choose-database")).not.toBeNull();
+    expect(document.querySelector(".sidebar > .database-controls #choose-database")).toBeNull();
   });
 
   it("shows the next five pending schedules in date order, including overdue and transfer details", async () => {

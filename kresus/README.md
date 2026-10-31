@@ -38,9 +38,13 @@ Les tests Rust, placés près de chaque domaine, utilisent des bases SQLite isol
 
 Pour de futurs tests des commandes Tauri ou de l’interface, voir la documentation officielle : [tests Tauri](https://v2.tauri.app/develop/tests/), [simulation des API](https://v2.tauri.app/develop/tests/mocking/) et [WebDriver](https://v2.tauri.app/develop/tests/webdriver/).
 
+### Menus
+
+Le menu natif « Fichier » donne accès à l’ouverture d’une base, au retour à la base habituelle, à l’import Money, à la sauvegarde, à la restauration et à la fermeture de l’application. Les raccourcis Ctrl+O et Ctrl+Maj+S ouvrent respectivement une base et le dialogue de sauvegarde. Le menu « Aide → À propos de Kresus » présente l’icône et la version installée. La base active reste indiquée dans la barre latérale.
+
 ### Sauvegarde et restauration
 
-Dans la barre latérale, « Sauvegarder… » crée un nouveau fichier SQLite à l’emplacement choisi, sans interrompre l’application. Choisir un nom qui n’existe pas encore : la sauvegarde ne remplace aucun fichier. La copie est réalisée par SQLite et inclut les écritures présentes dans le journal WAL.
+Dans le menu « Fichier », « Sauvegarder… » crée un nouveau fichier SQLite à l’emplacement choisi, sans interrompre l’application. Choisir un nom qui n’existe pas encore : la sauvegarde ne remplace aucun fichier. La copie est réalisée par SQLite et inclut les écritures présentes dans le journal WAL.
 
 « Restaurer… » permet de sélectionner une sauvegarde, puis demande confirmation avant de remplacer la **base actuellement ouverte**. Le fichier sélectionné est vérifié et reste intact. Une base temporairement ouverte est restaurée elle aussi dans son fichier ; au redémarrage, l’application ouvre de nouveau la base habituelle.
 
@@ -72,7 +76,7 @@ Le test crée son propre répertoire de données temporaire et ne charge pas la 
 
 ### Dialogues natifs et inspection visuelle sous Linux
 
-Le parcours complémentaire utilise les vrais sélecteurs GTK : il vérifie leur ouverture et leur annulation au clavier, puis crée une sauvegarde, l’ouvre et revient à la base habituelle. Il utilise une base temporaire et retire les chemins substitués par la compilation `e2e`. Sous Linux avec WebKitGTK, `xdotool`, Xvfb, D-Bus et le sélecteur GTK disponibles :
+Le parcours complémentaire vérifie le raccourci natif d’ouverture et l’accès à « À propos » par le menu, puis utilise les vrais sélecteurs GTK : il vérifie leur ouverture et leur annulation au clavier, puis crée une sauvegarde, l’ouvre et revient à la base habituelle. Il utilise une base temporaire et retire les chemins substitués par la compilation `e2e`. Sous Linux avec WebKitGTK, `xdotool`, Xvfb, D-Bus et le sélecteur GTK disponibles :
 
 ```sh
 GDK_BACKEND=x11 XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP=GNOME xvfb-run -a dbus-run-session -- yarn test:e2e:native
@@ -101,7 +105,7 @@ python3 scripts/generate_test_database.py
 
 Les tests du générateur se lancent avec `python3 -m unittest discover -s scripts/tests`. Le script ne remplace jamais une base existante : pour obtenir les nouvelles données, choisir un nouveau nom de fichier.
 
-Le fichier est créé dans `donnees-test/kresus-test-12000.sqlite3` et peut être ouvert depuis la barre latérale de Kresus. Pour choisir un autre emplacement ou volume :
+Le fichier est créé dans `donnees-test/kresus-test-12000.sqlite3` et peut être ouvert depuis le menu « Fichier » de Kresus. Pour choisir un autre emplacement ou volume :
 
 ```sh
 python3 scripts/generate_test_database.py --output donnees-test/autre-test.sqlite3 --operations 60000
@@ -111,7 +115,7 @@ Le script refuse d’écraser un fichier existant et utilise le schéma SQLite d
 
 ## Données et sauvegarde
 
-La base SQLite `kresus.sqlite3` est créée dans le répertoire de données de l’application fourni par Tauri. Sous Linux, il s’agit généralement de `~/.local/share/com.kissifrot.kresus/`. Copier ce fichier lorsque l’application est arrêtée permet de le sauvegarder. Le bouton « Ouvrir une base… » permet de sélectionner une autre base SQLite compatible Kresus, ouverte en lecture-écriture directement à son emplacement. Le nom du fichier actif apparaît dans la barre latérale ; « Revenir à la base habituelle » rétablit la base du répertoire utilisateur. Le choix ne persiste pas après redémarrage. Les fichiers SQLite arbitraires ou sans compte sont refusés ; aucun import Money ni génération de base volumineuse n’est effectué par cette commande. Les montants sont stockés, échangés entre Rust et TypeScript et calculés en centimes entiers ; les euros sont utilisés à la saisie et à l’affichage.
+La base SQLite `kresus.sqlite3` est créée dans le répertoire de données de l’application fourni par Tauri. Sous Linux, il s’agit généralement de `~/.local/share/com.kissifrot.kresus/`. Copier ce fichier lorsque l’application est arrêtée permet de le sauvegarder. La commande « Fichier → Ouvrir une base… » permet de sélectionner une autre base SQLite compatible Kresus, ouverte en lecture-écriture directement à son emplacement. Le nom du fichier actif apparaît dans la barre latérale ; « Revenir à la base habituelle » rétablit la base du répertoire utilisateur. Le choix ne persiste pas après redémarrage. Les fichiers SQLite arbitraires ou sans compte sont refusés ; aucun import Money ni génération de base volumineuse n’est effectué par cette commande. Les montants sont stockés, échangés entre Rust et TypeScript et calculés en centimes entiers ; les euros sont utilisés à la saisie et à l’affichage.
 
 Les données d’exemple sont insérées uniquement à la création d’une nouvelle base. Une donnée d’exemple supprimée ne réapparaît pas au redémarrage, y compris pour les bases créées par une version précédente. L’initialisation peut également migrer les anciennes opérations utilisateur enregistrées dans le stockage local du prototype. Les détails et autres limites sont décrits dans la spécification.
 
@@ -123,6 +127,6 @@ Dans `src/`, `main.ts` charge les données au démarrage. `accounts.ts`, `househ
 
 ## Import expérimental Microsoft Money
 
-Dans la barre latérale, choisir « Importer Money… », sélectionner le fichier `.mny`, vérifier l’aperçu et choisir le type de chaque compte. L’import crée une **nouvelle** base SQLite à l'emplacement choisi, sans écraser de fichier existant, puis l'ouvre jusqu'au prochain redémarrage. La lecture est locale et ne nécessite pas Java. Les fichiers de plus de 16 Mo ne sont pas encore acceptés.
+Dans le menu « Fichier », choisir « Importer Money… », sélectionner le fichier `.mny`, vérifier l’aperçu et choisir le type de chaque compte. L’import crée une **nouvelle** base SQLite à l'emplacement choisi, sans écraser de fichier existant, puis l'ouvre jusqu'au prochain redémarrage. La lecture est locale et ne nécessite pas Java. Les fichiers de plus de 16 Mo ne sont pas encore acceptés.
 
 L’import des fichiers Money protégés par mot de passe est hors périmètre du projet. Cette première version lit les fichiers MSISAM Jet 4 récents sans mot de passe, les comptes bancaires ouverts en euros, leurs opérations ordinaires et les catégories. Elle exclut les placements et refuse les fichiers contenant des virements enregistrés, des ventilations ou des opérations et catégories non représentables. Les échéances mensuelles ou bimestrielles sans limite reconnues, y compris les virements récurrents, sont importées ; les autres sont signalées. Les deux comptes doivent être sélectionnés pour importer un virement récurrent. La méthode de paiement par chèque est reconnue pour la signature vérifiée sur le fichier de référence ; les autres méthodes sont signalées dans l’aperçu et restent non précisées. Les notes des échéances ne sont pas reprises. Les références Money sont conservées dans les commentaires, sans interprétation comme numéros de chèque ; les statuts Money pointé et rapproché sont regroupés. Certaines variantes Money ne sont pas encore prises en charge. L'aperçu affiche au plus 100 opérations ; l'import ne se limite pas à ces 100 lignes. La compatibilité Windows reste à valider sur une installation Windows.

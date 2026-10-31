@@ -38,8 +38,6 @@ type MoneyPreview = {
 
 // The backend holds the analyzed data; the UI submits only reviewed account choices.
 export async function openMoneyImport() {
-  const button = document.querySelector<HTMLButtonElement>("#import-money")!;
-  button.disabled = true;
   try {
     const bytes = await invoke<number[] | null>("choose_money_file");
     if (!bytes) return;
@@ -105,7 +103,5 @@ export async function openMoneyImport() {
   } catch (error) {
     document.querySelector<HTMLElement>(".database-error")!.textContent =
       `Lecture impossible : ${String(error)}`;
-  } finally {
-    button.disabled = false;
   }
 }

@@ -93,6 +93,13 @@ async function element(selector) {
   });
   return value["element-6066-11e4-a52e-4f735466cecf"];
 }
+// Emit the same event as a native menu item; native shortcut activation is checked separately.
+async function menuAction(action) {
+  await request("POST", `/session/${session}/execute/sync`, {
+    script: "return window.__TAURI__.event.emit('kresus-menu', arguments[0])",
+    args: [action],
+  });
+}
 async function text(selector) {
   return request("GET", `/session/${session}/element/${await element(selector)}/text`);
 }
@@ -472,14 +479,14 @@ try {
   );
   if (!(await text(".balance-card")).includes("100,00")) throw new Error("Solde initial incorrect");
   console.log("Compte : création et solde initial OK");
-  await click("#backup-database");
+  await menuAction("backup");
   await waitFor(
     async () => (await text(".database-error")).includes("Sauvegarde créée"),
     "Sauvegarde",
   );
   // A second backup to the same debug-selected path must not overwrite the first.
   const savedBytes = readFileSync(join(temp, "backup.sqlite3"));
-  await click("#backup-database");
+  await menuAction("backup");
   await waitFor(
     async () => (await text(".database-error")).includes("Sauvegarde impossible"),
     "Erreur de sauvegarde",
@@ -496,14 +503,14 @@ try {
     async () => (await text("tbody")).includes("À effacer par restauration"),
     "Opération après sauvegarde",
   );
-  await click("#restore-database");
+  await menuAction("restore");
   await waitFor(() => visible(".confirmation-dialog[open]"), "Confirmation de restauration");
   if (!(await text(".confirmation-message")).includes("remplacées"))
     throw new Error("Avertissement de restauration absent");
   await click(".confirmation-cancel");
   if (!(await text("tbody")).includes("À effacer par restauration"))
     throw new Error("Restauration effectuée malgré l’annulation");
-  await click("#restore-database");
+  await menuAction("restore");
   await waitFor(() => visible(".confirmation-dialog[open]"), "Confirmation de restauration");
   await click(".confirmation-accept");
   await waitFor(
@@ -1069,7 +1076,7 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
   if (moneySample) {
     if (!existsSync(moneySample)) throw new Error("Fichier Money de test introuvable.");
     const destination = moneyDestination;
-    await click("#import-money");
+    await menuAction("import");
     await waitFor(() => visible(".money-import-dialog[open]"), "Aperçu Money");
     await execute("document.querySelector('.money-import-dialog .dialog-close').focus()");
     await tabTo('.money-import-dialog input[name="account"]');
