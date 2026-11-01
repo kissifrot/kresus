@@ -12,7 +12,7 @@ Le fichier enrichi comporte deux comptes bancaires en euros : le compte courant 
 
 Dans ce fichier, les deux séries sont décrites dans `BILL`. Leurs modèles apparaissent dans `TRN` avec `frq = 3`, et le champ `cFrqInst` vaut respectivement 1 et 2. Le modèle de virement a deux lignes liées dans `TRN_XFER`, reliées aux deux comptes. Ces éléments ne constituent pas des opérations enregistrées : les importer dans le registre modifierait à tort les soldes. Le lecteur reconnaît ces deux séries et les importe ; les autres configurations non vérifiées produisent un avertissement. Les virements enregistrés correspondant aux signatures vérifiées sont désormais importés ; les ventilations restent refusées.
 
-Les captures de Money sont des références pour les informations et le comportement métier ; Kresus conserve son interface simplifiée. Elles permettent notamment de vérifier la prochaine date, le retard et les échéances en fin de mois. L’import des séries à durée limitée reste à relier aux champs Money : le stockage SQLite et ses tests sont préparés, mais la signification exacte de `cInstMax` et `dtMax` doit être vérifiée sur des exemples créés dans Money avant d’activer la lecture. L’import des autres fréquences et des méthodes de paiement non identifiées reste à implémenter.
+Les captures de Money sont des références pour les informations et le comportement métier ; Kresus conserve son interface simplifiée. Elles permettent notamment de vérifier la prochaine date, le retard et les échéances en fin de mois. Depuis l’étude des deux exemples supplémentaires, les séries non commencées sont importées lorsque `cInstMax` et `dtMax` donnent la même dernière occurrence ; la date de fin est conservée. Les limites incohérentes et les séries partiellement enregistrées restent exclues. L’import des autres fréquences et des méthodes de paiement non identifiées reste à implémenter.
 
 ## Correspondance proposée
 
@@ -48,7 +48,7 @@ Un prototype séparé utilise TypeScript et `mdb-reader` pour lire le fichier sa
 
 L’import des fichiers protégés par mot de passe est hors périmètre du projet.
 
-Un import expérimental avec aperçu est désormais disponible : voir les prérequis et limites dans le README de `kresus`. Il crée une nouvelle base, conserve les références dans les commentaires et importe les virements enregistrés vérifiés et refuse les fichiers contenant des ventilations. Les échéances mensuelles et bimestrielles sans limite reconnues sont importées. La signature observée pour l’échéance « par chèque » est reconnue ; les autres méthodes sont signalées comme non identifiées. Un virement interne ne suffit pas à déduire la méthode Money : l’exemple fourni apparaît comme « Autre ». Les numéros de chèque ne sont pas déduits de `szId`. La prise en charge des placements reste à concevoir. Celle des opérations ventilées reste à décider.
+Un import expérimental avec aperçu est désormais disponible : voir les prérequis et limites dans le README de `kresus`. Il crée une nouvelle base, conserve les références dans les commentaires et importe les virements enregistrés vérifiés et refuse les fichiers contenant des ventilations. Les échéances mensuelles et bimestrielles reconnues sont importées, sans limite ou avec une date de fin et un nombre d’occurrences concordants. La signature observée pour l’échéance « par chèque » est reconnue ; les autres méthodes sont signalées comme non identifiées. Un virement interne ne suffit pas à déduire la méthode Money : l’exemple fourni apparaît comme « Autre ». Les numéros de chèque ne sont pas déduits de `szId`. La prise en charge des placements reste à concevoir. Celle des opérations ventilées reste à décider.
 
 ## Démarche initiale et suites
 
@@ -61,17 +61,9 @@ Les trois premières étapes ont été réalisées pour les données prises en c
 
 Le fichier Money n'a pas été modifié. La concordance des soldes bancaires est confirmée sur cet échantillon. Tant que la représentation des placements n'est pas définie et que les autres cas métier ne sont pas testés, l'import ne doit pas être présenté comme complet.
 
-## Exemples à ajouter au prochain fichier Money
+## Prochain fichier Money fictif
 
-Créer des échéances fictives facilement identifiables, puis noter leurs paramètres et conserver le fichier et si possible des captures :
-
-- Deux virements déjà enregistrés entre comptes bancaires, dans des sens opposés, avec dates, montants, comptes et soldes affichés dans Money. Si possible, pointer un seul côté de l’un des virements.
-- Une série à durée limitée par un nombre d’occurrences connu, avec première date et nombre précisés.
-- Une série à durée limitée par une date de fin connue, avec première date et date de fin précisées.
-- Des échéances identiques sauf leur méthode de paiement, avec un libellé distinct pour chacune : chèque, virement automatique, prélèvement et autre, ainsi que les autres choix proposés par Money. Préciser la méthode correspondant à chaque libellé.
-- Si Money le permet, une échéance par chèque avec un numéro connu, pour vérifier où il est stocké.
-
-Ces exemples permettront de confronter les champs aux valeurs affichées par Money avant d’étendre l’import ; les fichiers protégés par mot de passe restent hors périmètre.
+La [liste de préparation du prochain fichier](prochain-fichier-money.md) distingue les exemples déjà disponibles, ceux qui restent nécessaires et les informations à relever dans Money. Elle remplace l’ancienne liste de demandes.
 
 L’étude du [modèle Money documenté par Monize](https://github.com/kenlasko/monize/blob/main/docs/ms-money-data-model.md#trn_xfer-transfer-pairs) décrit `TRN_XFER.htrnFrom` et `htrnLink` comme des références vers les deux écritures `TRN`, sans appariement approximatif par montant. Cette source issue de rétro-ingénierie constitue une hypothèse à confronter au prochain fichier.
 
@@ -79,14 +71,16 @@ Le stockage préparatoire des paires de virements est testé sur des données sy
 
 ## Échantillon enrichi — 1er novembre 2026
 
-Le fichier `references/Money.mny` mis à jour contient une paire de virements enregistrés entre le compte courant et le livret A : débit et crédit de 100 € datés du 31 octobre 2026, associés par `TRN_XFER`. La paire du virement récurrent déjà présente dans le précédent échantillon est distincte. Les statuts affichés et l’intention des données restent à confirmer dans Money.
+Le fichier `references/Money.mny` mis à jour contient une paire de virements enregistrés entre le compte courant et le livret A : débit et crédit de 100 € datés du 31 octobre 2026, associés par `TRN_XFER`. La paire du virement récurrent déjà présente dans le précédent échantillon est distincte. Le pointage du côté compte courant a été confirmé dans Money.
 
 Trois nouvelles échéances sont présentes. Deux lignes `BILL` mensuelles comportent respectivement les valeurs brutes `cInstMax = 10`, `dt = 2026-11-04`, `dtMax = 2027-08-04` et `cInstMax = 5`, `dt = 2026-11-19`, `dtMax = 2027-03-19`. La troisième a `cFrqInst = 0,5`. Ces valeurs ne démontrent pas à elles seules si la limite a été saisie comme nombre ou comme date, ni la signification de la périodicité ; elles doivent être confrontées aux paramètres affichés dans Money avant modification du lecteur.
 
 Le fichier enrichi est désormais importé avec sa paire d’écritures liées et les pointages indépendants. Le test sur le fichier local et les parcours Tauri ont été adaptés ; le fichier `.mny` est exclu du dépôt, donc ce test reste ignoré dans GitHub Actions.
 
-Money calcule automatiquement un nombre d’occurrences lorsqu’une date de fin est saisie, comme confirmé par l’utilisateur. La présence simultanée de `cInstMax` et `dtMax` ne permet donc pas de déduire directement lequel des deux paramètres a été choisi à la saisie. Le virement de 100 € entre les deux comptes a également été confirmé ; le détail du pointage et la correspondance des méthodes de paiement restent à préciser.
+Money calcule automatiquement un nombre d’occurrences lorsqu’une date de fin est saisie, comme confirmé par l’utilisateur. La présence simultanée de `cInstMax` et `dtMax` ne permet donc pas de déduire directement lequel des deux paramètres a été choisi à la saisie. Le virement de 100 € entre les deux comptes et son pointage ont également été confirmés ; la correspondance des autres méthodes de paiement reste à préciser.
 
 L’utilisateur confirme que seule l’écriture du compte courant est pointée pour le virement de 100 €. Dans le fichier, ses deux écritures portent respectivement `cs = 1` (débit du compte courant) et `cs = 0` (crédit du livret A), ce qui permet de vérifier la conservation indépendante du pointage pour cet exemple. Les valeurs affichées pour les deux échéances « Groupe Orange » ont également été confirmées : 10 occurrences jusqu’au 4 août 2027 pour 200 €, et 5 occurrences jusqu’au 19 mars 2027 pour 300 €. Le mode de saisie de chaque limite et les méthodes de paiement restent à préciser.
 
-Le lecteur accepte les paires enregistrées dont les comptes, montants opposés et indicateurs correspondent à l’exemple observé ; les paires absentes, incohérentes ou vers des comptes non pris en charge sont refusées. La sélection doit inclure les deux comptes ou aucun. Les séries limitées de ce fichier restent signalées comme non importées.
+Le lecteur accepte les paires enregistrées dont les comptes, montants opposés et indicateurs correspondent à l’exemple observé ; les paires absentes, incohérentes ou vers des comptes non pris en charge sont refusées. La sélection doit inclure les deux comptes ou aucun. Les deux séries limitées de ce fichier sont désormais importées avec leur date de fin inclusive ; l’autre périodicité reste signalée comme non importée.
+
+Pour une série non commencée, l’import calcule la dernière occurrence à partir du jour d’ancrage et de `cInstMax`, puis vérifie qu’elle ne dépasse pas `dtMax` et que la suivante le dépasse. La date `dtMax` est conservée dans Kresus : cela respecte la fin observée sans prétendre connaître le mode de saisie initial. Les fins de mois et années bissextiles sont couvertes par les tests ; les limites contradictoires sont signalées et non importées.

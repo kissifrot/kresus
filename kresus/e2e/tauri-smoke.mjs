@@ -1086,18 +1086,20 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
       !preview.includes("138 catégories") ||
       !preview.includes("775,00") ||
       !preview.includes("3 opérations") ||
-      !preview.includes("2 échéances") ||
+      !preview.includes("4 échéances") ||
       !preview.includes("1 virement enregistré") ||
-      !preview.includes("3 échéances ne seront pas importées")
+      !preview.includes("1 échéance ne sera pas importée")
     )
       throw new Error("Aperçu Money incomplet.");
+    await execute(
+      "[...document.querySelectorAll('.money-import-dialog details summary')].find(s => s.textContent.startsWith('Voir les échéances')).click()",
+    );
+    const schedulePreview = await text(".money-import-dialog");
+    if (!schedulePreview.includes("04/08/2027") || !schedulePreview.includes("19/03/2027"))
+      throw new Error("Dates de fin absentes de l’aperçu.");
     await click(".money-warning details summary");
     const skipped = await execute("return document.querySelector('.money-skipped-details').value");
-    if (
-      !skipped.includes("Groupe Orange") ||
-      !skipped.includes("durée limitée") ||
-      !skipped.includes("périodicité")
-    )
+    if (!skipped.includes("EDF") || !skipped.includes("périodicité"))
       throw new Error("Détail des échéances non importées incomplet.");
     if (existsSync(destination)) throw new Error("La base de destination existe avant l’import.");
     // Importing only one side must fail without leaving a new database behind.
@@ -1136,7 +1138,9 @@ n = c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fet
 s = c.execute("SELECT next_due, frequency, amount_cents FROM schedules ORDER BY next_due").fetchall()
 pair = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-9-10'").fetchone()
 assert pair == (-10000,1,10000,0), pair
-assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-10000,), (-10000,), (-2500,), (10000,)] and n == 138 and s == [("2026-10-15", "Bimestrielle", -10000), ("2026-10-31", "Mensuelle", -12000)], (a, t, n, s)`,
+limits=c.execute("SELECT schedule_id,end_date,remaining_count FROM schedule_limits WHERE end_date IS NOT NULL ORDER BY schedule_id").fetchall()
+assert limits == [('money-schedule-3','2027-08-04',None),('money-schedule-4','2027-03-19',None)], limits
+assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-10000,), (-10000,), (-2500,), (10000,)] and n == 138 and s == [("2026-10-15", "Bimestrielle", -10000), ("2026-10-31", "Mensuelle", -12000), ("2026-11-04", "Mensuelle", 20000), ("2026-11-19", "Mensuelle", 30000)], (a, t, n, s)`,
         destination,
       ],
       { encoding: "utf8" },

@@ -81,7 +81,51 @@ describe("Money reader", () => {
       const result = readMoneySchedules([bill], [template], [], [{ hacct: 2 }], [], () => "Divers");
       expect(result.schedules).toHaveLength(0);
       expect(result.skippedSchedules).toHaveLength(1);
-      expect(result.skippedSchedules[0]).toContain("en charge");
+      expect(result.skippedSchedules[0]).toContain("Échéance Money 1");
+    }
+  });
+  it("accepts consistent finite limits with month-end and leap-year anchors", () => {
+    const template = {
+      htrn: 1,
+      hacct: 2,
+      amt: "-12.00",
+      frq: 3,
+      hsec: null,
+      act: -1,
+      hacctLink: null,
+      grftt: 2097152,
+    };
+    const base = {
+      hbill: 1,
+      hbillHead: 1,
+      st: 3,
+      frq: 3,
+      cFrqInst: 1,
+      iinst: 0,
+      iinstNextUnpaid: 0,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 1,
+    };
+    for (const [start, end, count, interval, valid] of [
+      ["2024-01-31", "2024-03-31", 3, 1, true],
+      ["2024-01-31", "2024-02-29", 2, 1, true],
+      ["2023-12-31", "2024-04-30", 3, 2, true],
+      ["2026-11-19", "2027-03-20", 5, 1, true],
+      ["2024-01-31", "2024-03-31", 2, 1, false],
+      ["2024-01-31", "2024-01-30", 1, 1, false],
+      ["2024-01-31", "2024-03-31", -1, 1, false],
+    ] as const) {
+      const bill = {
+        ...base,
+        cFrqInst: interval,
+        dt: new Date(start + "T00:00:00Z"),
+        dtMax: new Date(end + "T00:00:00Z"),
+        cInstMax: count,
+      };
+      const result = readMoneySchedules([bill], [template], [], [{ hacct: 2 }], [], () => "Divers");
+      if (valid) expect(result.schedules[0]?.endDate).toBe(end);
+      else expect(result.skippedSchedules).toHaveLength(1);
     }
   });
   it("imports only the observed cheque signature and warns about unknown payment flags", () => {
@@ -176,10 +220,23 @@ describe("Money reader", () => {
         ]),
       );
       expect(preview.warnings.length).toBeGreaterThan(0);
-      expect(preview.skippedSchedules).toHaveLength(3);
-      expect(preview.skippedSchedules.join("\n")).toContain("Groupe Orange");
-      expect(preview.skippedSchedules.join("\n")).toContain("04/11/2026");
-      expect(preview.skippedSchedules.join("\n")).toContain("durée limitée");
+      expect(preview.skippedSchedules).toHaveLength(1);
+      expect(preview.schedules).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 3,
+            nextDue: "2026-11-04",
+            amount: 20000,
+            endDate: "2027-08-04",
+          }),
+          expect.objectContaining({
+            id: 4,
+            nextDue: "2026-11-19",
+            amount: 30000,
+            endDate: "2027-03-19",
+          }),
+        ]),
+      );
       expect(preview.skippedSchedules.join("\n")).toContain("périodicité");
     },
   );

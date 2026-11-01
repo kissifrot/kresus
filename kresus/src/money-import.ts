@@ -27,6 +27,7 @@ type MoneySchedule = {
   frequency: string;
   amount: number;
   paymentMethod: "cheque" | null;
+  endDate: string | null;
 };
 type MoneyPreview = {
   schedules: MoneySchedule[];
@@ -58,7 +59,7 @@ export async function openMoneyImport() {
       )
       .join(
         "",
-      )}</ul>${preview.operations.length > 100 ? "<p>Les 100 premières opérations sont affichées.</p>" : ""}</details><details><summary>Voir les échéances (${preview.schedules.length})</summary><ul>${preview.schedules.map((item) => `<li>${escapeHtml(item.nextDue)} · ${escapeHtml(item.label)} · ${euro(item.amount)} · ${escapeHtml(item.frequency)}${item.destinationAccountId != null ? " · Virement" : ""} · ${item.paymentMethod === "cheque" ? "Par chèque" : "Méthode à vérifier"}</li>`).join("")}</ul></details><p>Pour importer un virement, enregistré ou récurrent, sélectionnez ses deux comptes. Les références Money sont conservées dans les commentaires. Les placements et ventilations ne sont pas importés.</p><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button cancel-money">Annuler</button><button type="submit" class="primary-button" ${preview.accounts.length ? "" : "disabled"}>Créer la base et importer</button></div></form>`;
+      )}</ul>${preview.operations.length > 100 ? "<p>Les 100 premières opérations sont affichées.</p>" : ""}</details><details><summary>Voir les échéances (${preview.schedules.length})</summary><ul>${preview.schedules.map((item) => `<li>${escapeHtml(item.nextDue)} · ${escapeHtml(item.label)} · ${euro(item.amount)} · ${escapeHtml(item.frequency)}${item.endDate ? ` · Jusqu’au ${escapeHtml(item.endDate.split("-").reverse().join("/"))}` : ""}${item.destinationAccountId != null ? " · Virement" : ""} · ${item.paymentMethod === "cheque" ? "Par chèque" : "Méthode à vérifier"}</li>`).join("")}</ul></details><p>Pour importer un virement, enregistré ou récurrent, sélectionnez ses deux comptes. Les références Money sont conservées dans les commentaires. Les placements et ventilations ne sont pas importés.</p><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button cancel-money">Annuler</button><button type="submit" class="primary-button" ${preview.accounts.length ? "" : "disabled"}>Créer la base et importer</button></div></form>`;
     document.body.append(dialog);
     const close = () => {
       dialog.close();

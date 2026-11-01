@@ -547,7 +547,9 @@ n=c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetch
 s=c.execute("SELECT next_due,frequency,amount_cents FROM schedules ORDER BY next_due").fetchall()
 pair = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-9-10'").fetchone()
 assert pair == (-10000,1,10000,0), pair
-assert a == [('Compte courant',100000),('Livret A',200000)] and t == [(-10000,),(-10000,),(-2500,),(10000,)] and n == 138 and s == [('2026-10-15','Bimestrielle',-10000),('2026-10-31','Mensuelle',-12000)], (a,t,n,s)`,
+limits=c.execute("SELECT schedule_id,end_date,remaining_count FROM schedule_limits WHERE end_date IS NOT NULL ORDER BY schedule_id").fetchall()
+assert limits == [('money-schedule-3','2027-08-04',None),('money-schedule-4','2027-03-19',None)], limits
+assert a == [('Compte courant',100000),('Livret A',200000)] and t == [(-10000,),(-10000,),(-2500,),(10000,)] and n == 138 and s == [('2026-10-15','Bimestrielle',-10000),('2026-10-31','Mensuelle',-12000),('2026-11-04','Mensuelle',20000),('2026-11-19','Mensuelle',30000)], (a,t,n,s)`,
         destination,
       ],
       { encoding: "utf8" },

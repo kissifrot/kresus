@@ -145,6 +145,48 @@ export function readPostedTransfers(
   return result;
 }
 
+// Preserve a Money end date only when its count yields the same last occurrence.
+function verifiedScheduleLimit(
+  due: unknown,
+  maximum: unknown,
+  count: unknown,
+  interval: number,
+): string | null | undefined {
+  if (
+    !(due instanceof Date) ||
+    Number.isNaN(due.getTime()) ||
+    !(maximum instanceof Date) ||
+    Number.isNaN(maximum.getTime())
+  )
+    return undefined;
+  const end = maximum.toISOString().slice(0, 10);
+  if (count === -1 && end === "2200-12-31") return null;
+  if (
+    !Number.isInteger(count) ||
+    (count as number) < 1 ||
+    (count as number) > 100_000 ||
+    end === "2200-12-31" ||
+    !Number.isInteger(interval) ||
+    interval < 1
+  )
+    return undefined;
+  // Reuse the original day as the anchor, including after short months and leap years.
+  const occurrence = (offset: number) => {
+    const monthIndex = due.getUTCFullYear() * 12 + due.getUTCMonth() + offset * interval;
+    const year = Math.floor(monthIndex / 12);
+    if (year < 1 || year > 9999) return "";
+    const month = monthIndex % 12;
+    const first = new Date(0);
+    first.setUTCHours(0, 0, 0, 0);
+    first.setUTCFullYear(year, month + 1, 0);
+    const day = Math.min(due.getUTCDate(), first.getUTCDate());
+    return `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  };
+  const last = occurrence((count as number) - 1);
+  const next = occurrence(count as number);
+  return last && next && last <= end && end < next ? end : undefined;
+}
+
 // Import only series whose Money representation has been verified against the sample.
 export function readMoneySchedules(
   bills: Row[],
@@ -165,6 +207,7 @@ export function readMoneySchedules(
     amount: number;
     kind: string;
     paymentMethod: "cheque" | null;
+    endDate: string | null;
   }[] = [];
   const warnings: string[] = [];
   const skippedSchedules: string[] = [];
@@ -188,16 +231,15 @@ export function readMoneySchedules(
       bill.frq === 3
         ? ({ 1: "Mensuelle", 2: "Bimestrielle" } as Record<number, string>)[interval]
         : undefined;
-    // Limit, skipped occurrence, automatic entry and advanced recurrence semantics are not verified yet.
-    const end = bill.dtMax instanceof Date ? bill.dtMax.toISOString().slice(0, 10) : "";
+    // A limited series is accepted only when its two Money limits are consistent.
+    const endDate = verifiedScheduleLimit(bill.dt, bill.dtMax, bill.cInstMax, interval);
     if (
       !source ||
       bill.st !== 3 ||
       bill.hbill !== bill.hbillHead ||
       bill.iinst !== 0 ||
       bill.iinstNextUnpaid !== 0 ||
-      bill.cInstMax !== -1 ||
-      end !== "2200-12-31" ||
+      endDate === undefined ||
       bill.iinstLastSkipped !== -1 ||
       bill.cDaysAutoEnter !== -1 ||
       !frequency ||
@@ -206,8 +248,7 @@ export function readMoneySchedules(
       !(bill.dt instanceof Date)
     ) {
       const reasons = [];
-      if (bill.cInstMax !== -1 || end !== "2200-12-31")
-        reasons.push("durée limitée non prise en charge");
+      if (endDate === undefined) reasons.push("limite de durée absente, invalide ou incohérente");
       if (!frequency) reasons.push("périodicité non prise en charge");
       if (!reasons.length) reasons.push("autres paramètres non pris en charge");
       skippedSchedules.push(`${description} : ${reasons.join(" ; ")}.`);
@@ -268,6 +309,7 @@ export function readMoneySchedules(
       amount,
       kind: destinationAccountId != null ? "transfer" : amount > 0 ? "credit" : "debit",
       paymentMethod,
+      endDate,
     });
   }
   if (schedules.length) warnings.push("Les notes des échéances Money ne sont pas importées.");
