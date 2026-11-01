@@ -7,7 +7,7 @@ import {
   decodeMoney,
   inspect,
   rc4,
-  hasPostedTransfers,
+  readPostedTransfers,
   readMoneySchedules,
 } from "../src/money-reader";
 
@@ -22,18 +22,30 @@ describe("Money reader", () => {
       "bbf316e8d940af0ad3",
     );
   });
-  it("distinguishes recurring transfer templates from posted and unresolved transfers", () => {
-    const link = [{ htrnFrom: 1, htrnLink: 2 }];
+  it("resolves posted pairs and rejects broken or ambiguous Money transfers", () => {
+    const accounts = [{ hacct: 10 }, { hacct: 20 }];
+    const debit = { htrn: 1, frq: -1, hacct: 10, hacctLink: 20, amt: "-10.00", grftt: 2 };
+    const credit = { htrn: 2, frq: -1, hacct: 20, hacctLink: 10, amt: "10.00", grftt: 6 };
+    const link = { htrnFrom: 2, htrnLink: 1 };
+    expect(readPostedTransfers([link], [debit, credit], [], accounts)).toEqual([
+      { debitId: 1, creditId: 2 },
+    ]);
+    for (const [links, entries, available] of [
+      [[link], [debit], accounts],
+      [[link], [debit, { ...credit, amt: "9.00" }], accounts],
+      [[link], [debit, { ...credit, hacctLink: 30 }], accounts],
+      [[link, link], [debit, credit], accounts],
+      [[], [debit, credit], accounts],
+      [[link], [debit, credit], accounts.slice(0, 1)],
+      [[link], [debit, { ...credit, grftt: 0 }], accounts],
+    ] as const)
+      expect(() => readPostedTransfers([...links], [...entries], [], [...available])).toThrow();
     const templates = [
-      { htrn: 1, frq: 3, hacct: 10, hacctLink: 20 },
-      { htrn: 2, frq: 3, hacct: 20, hacctLink: 10 },
+      { ...debit, frq: 3 },
+      { ...credit, frq: 3 },
     ];
-    expect(hasPostedTransfers(link, templates, [{ lHtrn: 1 }])).toBe(false);
-    expect(hasPostedTransfers(link, templates, [])).toBe(true);
-    expect(
-      hasPostedTransfers(link, [{ ...templates[0], frq: -1 }, templates[1]], [{ lHtrn: 1 }]),
-    ).toBe(true);
-    expect(hasPostedTransfers(link, templates.slice(0, 1), [{ lHtrn: 1 }])).toBe(true);
+    expect(readPostedTransfers([link], templates, [{ lHtrn: 1 }], accounts)).toEqual([]);
+    expect(() => readPostedTransfers([link], templates, [], accounts)).toThrow();
   });
   it("reports unsupported recurrence and limited series instead of guessing", () => {
     const template = {
@@ -68,7 +80,8 @@ describe("Money reader", () => {
     ]) {
       const result = readMoneySchedules([bill], [template], [], [{ hacct: 2 }], [], () => "Divers");
       expect(result.schedules).toHaveLength(0);
-      expect(result.warnings[0]).toContain("non importée");
+      expect(result.skippedSchedules).toHaveLength(1);
+      expect(result.skippedSchedules[0]).toContain("en charge");
     }
   });
   it("imports only the observed cheque signature and warns about unknown payment flags", () => {
@@ -120,7 +133,7 @@ describe("Money reader", () => {
       expect(preview.accounts).toHaveLength(2);
       expect(preview.categories).toHaveLength(138);
       expect(preview.operations.map((operation) => operation.amount).sort((a, b) => a - b)).toEqual(
-        [-10000, -2500],
+        [-10000, -10000, -2500, 10000],
       );
       const current = preview.accounts.find((account) => account.name === "Compte courant")!;
       const saving = preview.accounts.find((account) => account.name === "Livret A")!;
@@ -129,7 +142,18 @@ describe("Money reader", () => {
         current.balance,
         saving.openingBalance,
         saving.balance,
-      ]).toEqual([100000, 87500, 200000, 200000]);
+      ]).toEqual([100000, 77500, 200000, 210000]);
+      expect(preview.transfers).toEqual([{ debitId: 9, creditId: 10 }]);
+      expect(preview.operations.find((operation) => operation.id === 9)).toMatchObject({
+        accountId: current.id,
+        amount: -10000,
+        reconciled: true,
+      });
+      expect(preview.operations.find((operation) => operation.id === 10)).toMatchObject({
+        accountId: saving.id,
+        amount: 10000,
+        reconciled: false,
+      });
       expect(preview.schedules).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -152,6 +176,11 @@ describe("Money reader", () => {
         ]),
       );
       expect(preview.warnings.length).toBeGreaterThan(0);
+      expect(preview.skippedSchedules).toHaveLength(3);
+      expect(preview.skippedSchedules.join("\n")).toContain("Groupe Orange");
+      expect(preview.skippedSchedules.join("\n")).toContain("04/11/2026");
+      expect(preview.skippedSchedules.join("\n")).toContain("durée limitée");
+      expect(preview.skippedSchedules.join("\n")).toContain("périodicité");
     },
   );
 });

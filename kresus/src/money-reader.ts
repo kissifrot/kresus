@@ -81,22 +81,68 @@ export function cents(value: unknown): number {
 }
 
 // A transfer between schedule templates must not be mistaken for a posted transfer.
-export function hasPostedTransfers(transfers: Row[], transactions: Row[], bills: Row[]): boolean {
+// Resolve posted pairs by Money IDs, keeping each side's own reconciliation status.
+export function readPostedTransfers(
+  transfers: Row[],
+  transactions: Row[],
+  bills: Row[],
+  accounts: Row[],
+) {
   const byId = new Map(transactions.map((transaction) => [transaction.htrn, transaction]));
-  return transfers.some((transfer) => {
-    const source = byId.get(transfer.htrnFrom),
-      destination = byId.get(transfer.htrnLink);
-    return (
-      !source ||
-      !destination ||
-      !Number.isInteger(source.frq) ||
-      source.frq < 0 ||
-      source.frq !== destination.frq ||
-      source.hacctLink !== destination.hacct ||
-      destination.hacctLink !== source.hacct ||
-      !bills.some((bill) => bill.lHtrn === source.htrn || bill.lHtrn === destination.htrn)
-    );
-  });
+  const paired = new Set<number>();
+  const result: { debitId: number; creditId: number }[] = [];
+  for (const link of transfers) {
+    const first = byId.get(link.htrnFrom);
+    const second = byId.get(link.htrnLink);
+    if (
+      !first ||
+      !second ||
+      first.htrn === second.htrn ||
+      paired.has(first.htrn) ||
+      paired.has(second.htrn) ||
+      first.hacctLink !== second.hacct ||
+      second.hacctLink !== first.hacct ||
+      first.hacct === second.hacct
+    )
+      throw new Error("Virement Money incomplet ou incohérent.");
+    paired.add(first.htrn);
+    paired.add(second.htrn);
+    if (first.frq !== -1 || second.frq !== -1) {
+      if (
+        !Number.isInteger(first.frq) ||
+        first.frq < 0 ||
+        first.frq !== second.frq ||
+        !bills.some((bill) => bill.lHtrn === first.htrn || bill.lHtrn === second.htrn)
+      )
+        throw new Error("Virement Money incomplet ou incohérent.");
+      continue;
+    }
+    if (
+      !accounts.some((account) => account.hacct === first.hacct) ||
+      !accounts.some((account) => account.hacct === second.hacct)
+    )
+      throw new Error("Virement Money vers un compte non pris en charge.");
+    const firstAmount = cents(first.amt);
+    const secondAmount = cents(second.amt);
+    if (!firstAmount || firstAmount !== -secondAmount)
+      throw new Error("Virement Money incohérent : montants différents.");
+    const [debit, credit] = firstAmount < 0 ? [first, second] : [second, first];
+    if (debit.grftt !== 2 || credit.grftt !== 6)
+      throw new Error("Virement Money non pris en charge.");
+    result.push({ debitId: debit.htrn, creditId: credit.htrn });
+  }
+  // Refuse an unpaired transfer rather than silently importing one side as an ordinary operation.
+  if (
+    transactions.some(
+      (t) =>
+        t.frq === -1 &&
+        accounts.some((a) => a.hacct === t.hacct) &&
+        t.hacctLink != null &&
+        !paired.has(t.htrn),
+    )
+  )
+    throw new Error("Virement Money incomplet.");
+  return result;
 }
 
 // Import only series whose Money representation has been verified against the sample.
@@ -121,8 +167,22 @@ export function readMoneySchedules(
     paymentMethod: "cheque" | null;
   }[] = [];
   const warnings: string[] = [];
+  const skippedSchedules: string[] = [];
   for (const bill of bills) {
     const source = transactions.find((item) => item.htrn === bill.lHtrn);
+    // Keep enough context to locate a skipped series in Money, even if its model is missing.
+    const payee = payees.find((p) => p.hpay === (source?.lHpay ?? source?.hpay));
+    const account = accounts.find((a) => a.hacct === source?.hacct);
+    const date =
+      bill.dt instanceof Date && !Number.isNaN(bill.dt.getTime())
+        ? new Intl.DateTimeFormat("fr-FR", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            timeZone: "UTC",
+          }).format(bill.dt)
+        : "date inconnue";
+    const description = `Échéance Money ${bill.hbill} · ${String(payee?.szFull ?? "Destinataire inconnu").trim()} · ${String(account?.szFull ?? "Compte inconnu").trim()} · ${date}`;
     const interval = Number(bill.cFrqInst);
     const frequency =
       bill.frq === 3
@@ -145,7 +205,12 @@ export function readMoneySchedules(
       !accounts.some((a) => a.hacct === source.hacct) ||
       !(bill.dt instanceof Date)
     ) {
-      warnings.push(`Échéance Money ${bill.hbill} non importée : paramètres non pris en charge.`);
+      const reasons = [];
+      if (bill.cInstMax !== -1 || end !== "2200-12-31")
+        reasons.push("durée limitée non prise en charge");
+      if (!frequency) reasons.push("périodicité non prise en charge");
+      if (!reasons.length) reasons.push("autres paramètres non pris en charge");
+      skippedSchedules.push(`${description} : ${reasons.join(" ; ")}.`);
       continue;
     }
     const amount = cents(source.amt);
@@ -155,7 +220,7 @@ export function readMoneySchedules(
       source.act !== -1 ||
       ![2097152, 2097154].includes(source.grftt)
     ) {
-      warnings.push(`Échéance Money ${bill.hbill} non importée : opération non prise en charge.`);
+      skippedSchedules.push(`${description} : opération non prise en charge.`);
       continue;
     }
     let destinationAccountId: number | null = null;
@@ -174,9 +239,7 @@ export function readMoneySchedules(
         cents(other.amt) !== -amount ||
         !accounts.some((a) => a.hacct === source.hacctLink)
       ) {
-        warnings.push(
-          `Échéance Money ${bill.hbill} non importée : virement incomplet ou compte indisponible.`,
-        );
+        skippedSchedules.push(`${description} : virement incomplet ou compte indisponible.`);
         continue;
       }
       destinationAccountId = source.hacctLink;
@@ -194,7 +257,6 @@ export function readMoneySchedules(
       warnings.push(
         `Échéance Money ${bill.hbill} : méthode de paiement non reconnue ; à vérifier après import.`,
       );
-    const payee = payees.find((p) => p.hpay === (source.lHpay ?? source.hpay));
     schedules.push({
       id: bill.hbill,
       accountId: source.hacct,
@@ -209,7 +271,7 @@ export function readMoneySchedules(
     });
   }
   if (schedules.length) warnings.push("Les notes des échéances Money ne sont pas importées.");
-  return { schedules, warnings };
+  return { schedules, warnings, skippedSchedules };
 }
 
 export function inspect(buffer: Buffer) {
@@ -224,8 +286,9 @@ export function inspect(buffer: Buffer) {
     (a) =>
       a.at === 0 && !a.fClosed && currencies.find((c) => c.hcrnc === a.hcrnc)?.szIsoCode === "EUR",
   );
-  if (rows("TRN_SPLIT").length || hasPostedTransfers(rows("TRN_XFER"), tx, rows("BILL")))
-    throw new Error("Virements ou ventilations non pris en charge.");
+  if (rows("TRN_SPLIT").length) throw new Error("Ventilations non prises en charge.");
+  const transfers = readPostedTransfers(rows("TRN_XFER"), tx, rows("BILL"), bank);
+  const transferIds = new Set(transfers.flatMap((pair) => [pair.debitId, pair.creditId]));
   // Reject category trees that cannot be represented without losing information.
   const seen = new Set<string>();
   for (const category of categories.filter((c) => c.hct === 0 && c.nLevel > 0)) {
@@ -261,8 +324,9 @@ export function inspect(buffer: Buffer) {
       if (
         t.hsec !== null ||
         t.act !== -1 ||
-        t.hacctLink !== null ||
-        t.grftt !== 0 ||
+        (transferIds.has(t.htrn)
+          ? ![2, 6].includes(t.grftt)
+          : t.hacctLink !== null || t.grftt !== 0) ||
         ![0, 1, 2].includes(t.cs)
       )
         throw new Error("Opération non prise en charge.");
@@ -293,6 +357,8 @@ export function inspect(buffer: Buffer) {
   );
   return {
     schedules: scheduleResult.schedules,
+    skippedSchedules: scheduleResult.skippedSchedules,
+    transfers,
     warnings: [
       ...(accounts.length > bank.length
         ? [

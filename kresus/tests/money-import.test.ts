@@ -32,6 +32,10 @@ it("reviews accounts and warnings before importing selected types", async () => 
   vi.doMock("../src/money-reader", () => ({
     inspect: () => ({
       schedules: [],
+      skippedSchedules: [
+        "Échéance Money 3 · <Orange> · Compte · 2026-11-04 : durée limitée non prise en charge.",
+      ],
+      transfers: [],
       accounts: [
         { id: 1, name: "Compte <test>", openingBalance: 100000, balance: 87500, count: 1 },
       ],
@@ -45,6 +49,13 @@ it("reviews accounts and warnings before importing selected types", async () => 
   const { openMoneyImport } = await import("../src/money-import");
   await openMoneyImport();
   expect(document.querySelector("dialog")?.textContent).toContain("Placement exclu");
+  expect(document.querySelector("dialog")?.textContent).toContain(
+    "1 échéance ne sera pas importée",
+  );
+  expect(document.querySelector<HTMLTextAreaElement>(".money-skipped-details")?.value).toContain(
+    "<Orange>",
+  );
+  expect(document.querySelector("dialog orange")).toBeNull();
   expect(document.querySelector("dialog")?.textContent).toContain("875,00");
   expect(document.querySelector("dialog test")).toBeNull();
   expect(invoke).not.toHaveBeenCalledWith("import_money", expect.anything());

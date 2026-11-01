@@ -1084,22 +1084,44 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
     const preview = await text(".money-import-dialog");
     if (
       !preview.includes("138 catégories") ||
-      !preview.includes("875,00") ||
-      !preview.includes("2 opérations") ||
+      !preview.includes("775,00") ||
+      !preview.includes("3 opérations") ||
       !preview.includes("2 échéances") ||
-      !preview.includes("exclus")
+      !preview.includes("1 virement enregistré") ||
+      !preview.includes("3 échéances ne seront pas importées")
     )
       throw new Error("Aperçu Money incomplet.");
+    await click(".money-warning details summary");
+    const skipped = await execute("return document.querySelector('.money-skipped-details').value");
+    if (
+      !skipped.includes("Groupe Orange") ||
+      !skipped.includes("durée limitée") ||
+      !skipped.includes("périodicité")
+    )
+      throw new Error("Détail des échéances non importées incomplet.");
     if (existsSync(destination)) throw new Error("La base de destination existe avant l’import.");
+    // Importing only one side must fail without leaving a new database behind.
+    await execute(
+      "document.querySelectorAll('.money-import-dialog input[name=account]')[1].click()",
+    );
     await click('.money-import-dialog button[type="submit"]');
     await waitFor(
-      async () => existsSync(destination) && (await text(".balance-card")).includes("875,00"),
+      async () => (await text(".money-import-dialog .editor-error")).includes("deux comptes"),
+      "Refus d’un virement incomplet",
+    );
+    if (existsSync(destination)) throw new Error("Une base partielle a été conservée.");
+    await execute(
+      "document.querySelectorAll('.money-import-dialog input[name=account]')[1].click()",
+    );
+    await click('.money-import-dialog button[type="submit"]');
+    await waitFor(
+      async () => existsSync(destination) && (await text(".balance-card")).includes("775,00"),
       "Import Money et affichage du compte",
     );
     await waitFor(
       async () =>
-        (await text(".table-footer")).includes("2 opérations") ||
-        (await text(".table-footer")).includes("sur 2"),
+        (await text(".table-footer")).includes("3 opérations") ||
+        (await text(".table-footer")).includes("sur 3"),
       "Opérations importées",
     );
     const verification = spawnSync(
@@ -1112,7 +1134,9 @@ a = c.execute("SELECT name, opening_balance_cents FROM accounts ORDER BY name").
 t = c.execute("SELECT amount_cents FROM transactions ORDER BY amount_cents").fetchall()
 n = c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetchone()[0]
 s = c.execute("SELECT next_due, frequency, amount_cents FROM schedules ORDER BY next_due").fetchall()
-assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-10000,), (-2500,)] and n == 138 and s == [("2026-10-15", "Bimestrielle", -10000), ("2026-10-31", "Mensuelle", -12000)], (a, t, n, s)`,
+pair = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-9-10'").fetchone()
+assert pair == (-10000,1,10000,0), pair
+assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-10000,), (-10000,), (-2500,), (10000,)] and n == 138 and s == [("2026-10-15", "Bimestrielle", -10000), ("2026-10-31", "Mensuelle", -12000)], (a, t, n, s)`,
         destination,
       ],
       { encoding: "utf8" },
@@ -1144,7 +1168,7 @@ assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-10000
         `import sqlite3, sys
 c=sqlite3.connect(sys.argv[1])
 assert c.execute("SELECT next_due FROM schedules WHERE id='money-schedule-2'").fetchone() == ('2026-12-15',)
-assert c.execute("SELECT count(*) FROM transfers").fetchone() == (1,)
+assert c.execute("SELECT count(*) FROM transfers").fetchone() == (2,)
 assert c.execute("SELECT amount_cents FROM transactions WHERE id LIKE 'schedule-%' ORDER BY amount_cents").fetchall() == [(-10000,), (10000,)]`,
         destination,
       ],

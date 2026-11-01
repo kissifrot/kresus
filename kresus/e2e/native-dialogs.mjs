@@ -508,7 +508,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
     }, "Aperçu du fichier Money sélectionné");
     if (
       !preview.includes("Compte courant") ||
-      !preview.includes("875,00") ||
+      !preview.includes("775,00") ||
       !preview.includes("138 catégories")
     )
       throw new Error("Aperçu Money inattendu après sélection native.");
@@ -532,7 +532,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
     await click('.money-import-dialog button[type="submit"]');
     await selectPath(await dialog(), destination);
     await waitFor(
-      async () => existsSync(destination) && (await text(".balance-card")).includes("875,00"),
+      async () => existsSync(destination) && (await text(".balance-card")).includes("775,00"),
       "Import Money natif",
     );
     const verified = spawnSync(
@@ -545,7 +545,9 @@ a=c.execute("SELECT name, opening_balance_cents FROM accounts ORDER BY name").fe
 t=c.execute("SELECT amount_cents FROM transactions ORDER BY amount_cents").fetchall()
 n=c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetchone()[0]
 s=c.execute("SELECT next_due,frequency,amount_cents FROM schedules ORDER BY next_due").fetchall()
-assert a == [('Compte courant',100000),('Livret A',200000)] and t == [(-10000,),(-2500,)] and n == 138 and s == [('2026-10-15','Bimestrielle',-10000),('2026-10-31','Mensuelle',-12000)], (a,t,n,s)`,
+pair = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-9-10'").fetchone()
+assert pair == (-10000,1,10000,0), pair
+assert a == [('Compte courant',100000),('Livret A',200000)] and t == [(-10000,),(-10000,),(-2500,),(10000,)] and n == 138 and s == [('2026-10-15','Bimestrielle',-10000),('2026-10-31','Mensuelle',-12000)], (a,t,n,s)`,
         destination,
       ],
       { encoding: "utf8" },

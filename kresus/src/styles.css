@@ -1821,6 +1821,18 @@ tr[data-transaction].editing {
 .money-warning {
   color: #a45827;
 }
+.money-skipped-details {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #dfcabb;
+  border-radius: 6px;
+  color: #344037;
+  background: #fff;
+  font: inherit;
+}
 
 .schedule-view-switch {
   display: flex;
