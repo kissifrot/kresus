@@ -6,7 +6,8 @@ Cette liste regroupe les exemples utiles pour poursuivre l’import Money sans m
 
 - Un virement enregistré de 100 € du compte courant vers le livret A : seul le côté compte courant est pointé. Il est importé et testé.
 - Deux échéances mensuelles non commencées à durée limitée : 200 € jusqu’au 4 août 2027 (10 occurrences) et 300 € jusqu’au 19 mars 2027 (5 occurrences). Elles sont importées après vérification de la cohérence des limites.
-- Une autre échéance dont la périodicité est encodée par `cFrqInst = 0,5` ; son libellé exact dans Money reste à relever.
+- L’échéance EDF encodée par `cFrqInst = 0,5` est affichée « Bimestrielle » sur la capture du 6 novembre ; le virement encodé par `2` est affiché « Bimensuelle ». Ces libellés et leurs prochaines dates restent à confronter avant toute prise en charge supplémentaire.
+- Un second virement de 100 € daté du 6 novembre, avec le seul côté livret pointé. Money et le fichier montrent un débit du compte courant et un crédit du livret, malgré le sens inverse choisi lors de la saisie ; les deux variantes de codage observées sont importées.
 
 Il n’est pas nécessaire de recréer ces exemples. Les conserver facilite la comparaison avant/après.
 
@@ -20,13 +21,13 @@ Pour chaque échéance, relever son destinataire et le libellé exact de la mét
 
 ### 2. Identifier les périodicités
 
-Relever d’abord le libellé exact de la périodicité de l’échéance EDF à 200 € commençant le 19 novembre 2026, celle dont la valeur brute est `0,5`. Prendre une capture si elle est ambiguë.
+La capture montre « Bimestrielle » pour l’échéance EDF à 200 € commençant le 19 novembre 2026 (`0,5`) et « Bimensuelle » pour le virement (`2`). Relever les deux ou trois dates suivantes affichées pour ces deux séries afin d’établir leur comportement exact, indépendamment des libellés.
 
 Créer ensuite une échéance pour chaque périodicité supplémentaire proposée par Money et pertinente pour le foyer. Conserver les autres paramètres identiques et utiliser des destinataires distincts, par exemple `Test périodicité trimestrielle`. Pour chacune, relever le libellé exact, la première date et les deux ou trois dates suivantes affichées par Money. Les périodicités mensuelle et bimestrielle de base sont déjà couvertes.
 
 ### 3. Vérifier une série à durée limitée déjà commencée
 
-Créer **une nouvelle** série mensuelle limitée, avec un libellé distinct, une première date passée, un nombre d’occurrences connu et un montant fictif. Enregistrer une ou deux occurrences dans Money sans supprimer la série. Relever :
+La série « Série mensuelle limit. 3 déj com » a été créée avec 3 occurrences à partir du 6 octobre 2026, mais aucune ne semble encore enregistrée ; cela a été confirmé par l’utilisateur. Enregistrer une ou deux de ses occurrences dans Money sans supprimer la série. Relever :
 
 - la première date et le nombre d’occurrences choisis à la création ;
 - le nombre et les dates des occurrences effectivement enregistrées ;
@@ -37,7 +38,7 @@ Cet exemple est distinct des deux séries limitées déjà présentes : celles-c
 
 ### 4. Ajouter un virement enregistré dans l’autre sens
 
-Créer un virement fictif du **livret A vers le compte courant**, avec une date et un montant différents du virement existant. Si Money le permet, pointer uniquement un côté et noter lequel. Relever la date, le montant, les deux comptes et les soldes affichés après les virements. Cela permettra de vérifier les deux sens et les deux états de pointage indépendamment.
+Le second virement a été saisi dans le sens inverse, mais les captures et le fichier montrent un débit du compte courant et un crédit du livret ; ce rendu a été confirmé après réouverture. Les deux états de pointage sont désormais représentés. Créer si possible un virement fictif dont le registre affiche effectivement un **débit du livret A et un crédit du compte courant**. Relever la date, le montant, les deux comptes, le pointage et les soldes affichés.
 
 ## Si c’est facile à préparer
 

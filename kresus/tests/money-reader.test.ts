@@ -30,6 +30,17 @@ describe("Money reader", () => {
     expect(readPostedTransfers([link], [debit, credit], [], accounts)).toEqual([
       { debitId: 1, creditId: 2 },
     ]);
+    expect(
+      readPostedTransfers(
+        [link],
+        [
+          { ...debit, grftt: 6 },
+          { ...credit, grftt: 2 },
+        ],
+        [],
+        accounts,
+      ),
+    ).toEqual([{ debitId: 1, creditId: 2 }]);
     for (const [links, entries, available] of [
       [[link], [debit], accounts],
       [[link], [debit, { ...credit, amt: "9.00" }], accounts],
@@ -38,6 +49,7 @@ describe("Money reader", () => {
       [[], [debit, credit], accounts],
       [[link], [debit, credit], accounts.slice(0, 1)],
       [[link], [debit, { ...credit, grftt: 0 }], accounts],
+      [[link], [debit, { ...credit, grftt: 2 }], accounts],
     ] as const)
       expect(() => readPostedTransfers([...links], [...entries], [], [...available])).toThrow();
     const templates = [
@@ -159,6 +171,7 @@ describe("Money reader", () => {
     };
     for (const [template, expected] of [
       [source, "cheque"],
+      [{ ...source, amt: "12.00" }, null],
       [{ ...source, grfstem: 2051 }, null],
       [{ ...source, fPrint: true }, null],
     ] as const) {
@@ -177,7 +190,7 @@ describe("Money reader", () => {
       expect(preview.accounts).toHaveLength(2);
       expect(preview.categories).toHaveLength(138);
       expect(preview.operations.map((operation) => operation.amount).sort((a, b) => a - b)).toEqual(
-        [-10000, -10000, -2500, 10000],
+        [-10000, -10000, -10000, -2500, 10000, 10000],
       );
       const current = preview.accounts.find((account) => account.name === "Compte courant")!;
       const saving = preview.accounts.find((account) => account.name === "Livret A")!;
@@ -186,8 +199,11 @@ describe("Money reader", () => {
         current.balance,
         saving.openingBalance,
         saving.balance,
-      ]).toEqual([100000, 77500, 200000, 210000]);
-      expect(preview.transfers).toEqual([{ debitId: 9, creditId: 10 }]);
+      ]).toEqual([100000, 67500, 200000, 220000]);
+      expect(preview.transfers).toEqual([
+        { debitId: 9, creditId: 10 },
+        { debitId: 17, creditId: 16 },
+      ]);
       expect(preview.operations.find((operation) => operation.id === 9)).toMatchObject({
         accountId: current.id,
         amount: -10000,
@@ -197,6 +213,16 @@ describe("Money reader", () => {
         accountId: saving.id,
         amount: 10000,
         reconciled: false,
+      });
+      expect(preview.operations.find((operation) => operation.id === 17)).toMatchObject({
+        accountId: current.id,
+        amount: -10000,
+        reconciled: false,
+      });
+      expect(preview.operations.find((operation) => operation.id === 16)).toMatchObject({
+        accountId: saving.id,
+        amount: 10000,
+        reconciled: true,
       });
       expect(preview.schedules).toEqual(
         expect.arrayContaining([
@@ -220,7 +246,7 @@ describe("Money reader", () => {
         ]),
       );
       expect(preview.warnings.length).toBeGreaterThan(0);
-      expect(preview.skippedSchedules).toHaveLength(1);
+      expect(preview.skippedSchedules).toHaveLength(2);
       expect(preview.schedules).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -228,6 +254,7 @@ describe("Money reader", () => {
             nextDue: "2026-11-04",
             amount: 20000,
             endDate: "2027-08-04",
+            paymentMethod: null,
           }),
           expect.objectContaining({
             id: 4,

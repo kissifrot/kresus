@@ -508,7 +508,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
     }, "Aperçu du fichier Money sélectionné");
     if (
       !preview.includes("Compte courant") ||
-      !preview.includes("775,00") ||
+      !preview.includes("675,00") ||
       !preview.includes("138 catégories")
     )
       throw new Error("Aperçu Money inattendu après sélection native.");
@@ -532,7 +532,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
     await click('.money-import-dialog button[type="submit"]');
     await selectPath(await dialog(), destination);
     await waitFor(
-      async () => existsSync(destination) && (await text(".balance-card")).includes("775,00"),
+      async () => existsSync(destination) && (await text(".balance-card")).includes("675,00"),
       "Import Money natif",
     );
     const verified = spawnSync(
@@ -547,9 +547,12 @@ n=c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetch
 s=c.execute("SELECT next_due,frequency,amount_cents FROM schedules ORDER BY next_due").fetchall()
 pair = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-9-10'").fetchone()
 assert pair == (-10000,1,10000,0), pair
+pair2 = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-17-16'").fetchone()
+assert pair2 == (-10000,0,10000,1), pair2
+assert c.execute("SELECT payment_method FROM schedules WHERE id='money-schedule-3'").fetchone() == (None,)
 limits=c.execute("SELECT schedule_id,end_date,remaining_count FROM schedule_limits WHERE end_date IS NOT NULL ORDER BY schedule_id").fetchall()
-assert limits == [('money-schedule-3','2027-08-04',None),('money-schedule-4','2027-03-19',None)], limits
-assert a == [('Compte courant',100000),('Livret A',200000)] and t == [(-10000,),(-10000,),(-2500,),(10000,)] and n == 138 and s == [('2026-10-15','Bimestrielle',-10000),('2026-10-31','Mensuelle',-12000),('2026-11-04','Mensuelle',20000),('2026-11-19','Mensuelle',30000)], (a,t,n,s)`,
+assert limits == [('money-schedule-3','2027-08-04',None),('money-schedule-4','2027-03-19',None),('money-schedule-7','2026-12-06',None)], limits
+assert a == [('Compte courant',100000),('Livret A',200000)] and t == [(-10000,),(-10000,),(-10000,),(-2500,),(10000,),(10000,)] and n == 138 and s == [('2026-10-06','Mensuelle',-20000),('2026-10-15','Bimestrielle',-10000),('2026-10-31','Mensuelle',-12000),('2026-11-04','Mensuelle',20000),('2026-11-19','Mensuelle',30000)], (a,t,n,s)`,
         destination,
       ],
       { encoding: "utf8" },

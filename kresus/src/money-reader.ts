@@ -127,7 +127,8 @@ export function readPostedTransfers(
     if (!firstAmount || firstAmount !== -secondAmount)
       throw new Error("Virement Money incohérent : montants différents.");
     const [debit, credit] = firstAmount < 0 ? [first, second] : [second, first];
-    if (debit.grftt !== 2 || credit.grftt !== 6)
+    // Money can mark either side as the initiating entry, independently of its sign.
+    if (!((debit.grftt === 2 && credit.grftt === 6) || (debit.grftt === 6 && credit.grftt === 2)))
       throw new Error("Virement Money non pris en charge.");
     result.push({ debitId: debit.htrn, creditId: credit.htrn });
   }
@@ -289,6 +290,7 @@ export function readMoneySchedules(
     // Unrecognised flags must not be guessed: Money has other payment methods.
     const paymentMethod =
       destinationAccountId == null &&
+      amount < 0 &&
       source.grfstem === 2050 &&
       source.grfEntryMethods === 1 &&
       source.fPrint === false
