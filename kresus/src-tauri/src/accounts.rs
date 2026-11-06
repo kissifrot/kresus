@@ -63,6 +63,8 @@ pub(crate) fn create_account_in_db(
 ) -> Result<(), String> {
     let name = account.name.trim();
     let bank = account.bank.trim();
+    crate::text_limits::validate_name_length(name, false)?;
+    crate::text_limits::validate_name_length(bank, false)?;
     if name.is_empty()
         || !matches!(
             account.kind.as_str(),

@@ -21,6 +21,9 @@ for transfer_id, expected in [
         (transfer_id,),
     ).fetchone()
     assert pair == expected, (transfer_id, pair)
+assert connection.execute("SELECT reference,note,cheque FROM transactions WHERE id='money-transaction-21'").fetchone() == ('0      200001', '', None)
+assert connection.execute("SELECT reference,note,cheque FROM transactions WHERE id='money-transaction-22'").fetchone() == ('0      200002', 'Une note', None)
+assert connection.execute("SELECT reference FROM transactions WHERE id='money-transaction-19'").fetchone() == ('0   100000001',)
 assert connection.execute("SELECT count(*) FROM transactions WHERE id IN ('money-transaction-18','money-transaction-23')").fetchone() == (2,)
 assert connection.execute("SELECT anchor_day FROM schedule_anchors WHERE schedule_id='money-schedule-7'").fetchone() == (6,)
 assert connection.execute("SELECT payment_method FROM schedules WHERE id='money-schedule-3'").fetchone() == (None,)

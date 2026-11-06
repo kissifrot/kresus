@@ -8,6 +8,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[path = "schedules_tests.rs"]
 mod tests;
 
+// Preserve long labels from existing series and their exceptions when editing.
+fn validate_schedule_label(db: &Connection, schedule: &Schedule) -> Result<(), String> {
+    let unchanged: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schedules WHERE id=?1 AND label=?2 UNION ALL SELECT 1 FROM schedule_overrides WHERE schedule_id=?1 AND label=?2 UNION ALL SELECT 1 FROM schedule_future_overrides WHERE schedule_id=?1 AND label=?2)",
+        params![schedule.id, schedule.label.trim()],
+        |row| row.get(0),
+    ).map_err(database_error)?;
+    crate::text_limits::validate_name_length(&schedule.label, unchanged)
+}
+
 // Occurrence and series amounts use integer cents throughout the API.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +40,8 @@ pub struct Schedule {
     pub(crate) payment_method: Option<String>,
     #[serde(default)]
     pub(crate) cheque: Option<String>,
+    #[serde(default)]
+    pub(crate) note: Option<String>,
     #[serde(default, skip_deserializing)]
     pub(crate) series: Option<ScheduleSeries>,
     #[serde(default, skip_deserializing)]
@@ -39,6 +51,7 @@ pub struct Schedule {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FutureOverride {
+    note: Option<String>,
     payment_method: Option<String>,
     cheque: Option<String>,
     original_due: String,
@@ -54,6 +67,7 @@ pub(crate) struct FutureOverride {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ScheduleSeries {
+    note: Option<String>,
     payment_method: Option<String>,
     pub(crate) account_id: String,
     label: String,
@@ -114,7 +128,8 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
                          ELSE st.destination_account_id END,
                     st.destination_account_id, lim.remaining_count, lim.end_date,
                     CASE WHEN o.schedule_id IS NOT NULL THEN o.payment_method ELSE s.payment_method END,
-                    CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END, s.payment_method
+                    CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END, s.payment_method,
+                    CASE WHEN o.schedule_id IS NOT NULL THEN o.note ELSE s.note END, s.note
              FROM schedules s
              LEFT JOIN schedule_limits lim ON lim.schedule_id = s.id
              LEFT JOIN schedule_overrides o ON o.schedule_id = s.id
@@ -140,8 +155,10 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
                 end_date: row.get(18)?,
                 payment_method: row.get(19)?,
                 cheque: row.get(20)?,
+                note: row.get(22)?,
                 future_overrides: Vec::new(),
                 series: Some(ScheduleSeries {
+                    note: row.get(23)?,
                     payment_method: row.get(21)?,
                     account_id: row.get(8)?,
                     label: row.get(9)?,
@@ -158,7 +175,7 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
     let mut schedules = rows
         .collect::<Result<Vec<_>, _>>()
         .map_err(database_error)?;
-    let mut future = connection.prepare("SELECT original_due, account_id, label, category, due_date, amount_cents, CASE WHEN destination_account_id IS NOT NULL THEN 'transfer' ELSE kind END, destination_account_id, payment_method, cheque FROM schedule_future_overrides WHERE schedule_id=?1 ORDER BY original_due").map_err(database_error)?;
+    let mut future = connection.prepare("SELECT original_due, account_id, label, category, due_date, amount_cents, CASE WHEN destination_account_id IS NOT NULL THEN 'transfer' ELSE kind END, destination_account_id, payment_method, cheque, note FROM schedule_future_overrides WHERE schedule_id=?1 ORDER BY original_due").map_err(database_error)?;
     for schedule in &mut schedules {
         schedule.future_overrides = future
             .query_map([&schedule.id], |r| {
@@ -173,6 +190,7 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
                     destination_account_id: r.get(7)?,
                     payment_method: r.get(8)?,
                     cheque: r.get(9)?,
+                    note: r.get(10)?,
                 })
             })
             .map_err(database_error)?
@@ -210,6 +228,7 @@ fn update_future_in_db(
     schedule: Schedule,
     original: &str,
 ) -> Result<(), String> {
+    validate_schedule_label(db, &schedule)?;
     validate_payment(&schedule)?;
     if schedule.label.trim().is_empty()
         || schedule.category.trim().is_empty()
@@ -264,7 +283,7 @@ fn update_future_in_db(
     } else {
         None
     };
-    db.execute("INSERT INTO schedule_future_overrides (schedule_id,original_due,account_id,label,category,due_date,amount_cents,kind,destination_account_id,payment_method,cheque) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULLIF(TRIM(?11),'')) ON CONFLICT(schedule_id,original_due) DO UPDATE SET account_id=excluded.account_id,label=excluded.label,category=excluded.category,due_date=excluded.due_date,amount_cents=excluded.amount_cents,kind=excluded.kind,destination_account_id=excluded.destination_account_id,payment_method=excluded.payment_method,cheque=excluded.cheque", params![schedule.id,original,schedule.account_id,schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.amount,kind,destination,schedule.payment_method,schedule.cheque.as_deref().map(str::trim)]).map_err(database_error)?;
+    db.execute("INSERT INTO schedule_future_overrides (schedule_id,original_due,account_id,label,category,due_date,amount_cents,kind,destination_account_id,payment_method,cheque,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULLIF(TRIM(?11),''),NULLIF(TRIM(?12),'')) ON CONFLICT(schedule_id,original_due) DO UPDATE SET account_id=excluded.account_id,label=excluded.label,category=excluded.category,due_date=excluded.due_date,amount_cents=excluded.amount_cents,kind=excluded.kind,destination_account_id=excluded.destination_account_id,payment_method=excluded.payment_method,cheque=excluded.cheque,note=excluded.note", params![schedule.id,original,schedule.account_id,schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.amount,kind,destination,schedule.payment_method,schedule.cheque.as_deref().map(str::trim),schedule.note.as_deref().map(str::trim)]).map_err(database_error)?;
     Ok(())
 }
 
@@ -328,6 +347,7 @@ pub(crate) fn save_schedule_in_db(
     schedule: Schedule,
     scope: Option<&str>,
 ) -> Result<(), String> {
+    validate_schedule_label(connection, &schedule)?;
     validate_payment(&schedule)?;
     if schedule.id.trim().is_empty()
         || schedule.label.trim().is_empty()
@@ -424,7 +444,7 @@ pub(crate) fn save_schedule_in_db(
         } else {
             &schedule.kind
         };
-        tx.execute("INSERT INTO schedule_overrides (schedule_id, account_id, label, category, due_date, amount_cents, kind, payment_method, cheque) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULLIF(TRIM(?9),'')) ON CONFLICT(schedule_id) DO UPDATE SET account_id=excluded.account_id, label=excluded.label, category=excluded.category, due_date=excluded.due_date, amount_cents=excluded.amount_cents, kind=excluded.kind,payment_method=excluded.payment_method,cheque=excluded.cheque", params![schedule.id, schedule.account_id, schedule.label.trim(), schedule.category.trim(), schedule.next_due, schedule.amount, stored_kind, schedule.payment_method, schedule.cheque.as_deref().map(str::trim)]).map_err(database_error)?;
+        tx.execute("INSERT INTO schedule_overrides (schedule_id, account_id, label, category, due_date, amount_cents, kind, payment_method, cheque, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULLIF(TRIM(?9),''), NULLIF(TRIM(?10),'')) ON CONFLICT(schedule_id) DO UPDATE SET account_id=excluded.account_id, label=excluded.label, category=excluded.category, due_date=excluded.due_date, amount_cents=excluded.amount_cents, kind=excluded.kind,payment_method=excluded.payment_method,cheque=excluded.cheque,note=excluded.note", params![schedule.id, schedule.account_id, schedule.label.trim(), schedule.category.trim(), schedule.next_due, schedule.amount, stored_kind, schedule.payment_method, schedule.cheque.as_deref().map(str::trim), schedule.note.as_deref().map(str::trim)]).map_err(database_error)?;
         tx.execute(
             "DELETE FROM schedule_transfer_overrides WHERE schedule_id=?1",
             [&schedule.id],
@@ -450,9 +470,9 @@ pub(crate) fn save_schedule_in_db(
         None
     };
     let sql = if scope.is_some() {
-        "UPDATE schedules SET account_id = ?2, label = ?3, category = ?4, next_due = ?5, frequency = ?6, amount_cents = ?7, kind = ?8, payment_method = ?9, cheque = NULLIF(TRIM(?10),'') WHERE id = ?1"
+        "UPDATE schedules SET account_id = ?2, label = ?3, category = ?4, next_due = ?5, frequency = ?6, amount_cents = ?7, kind = ?8, payment_method = ?9, cheque = NULLIF(TRIM(?10),''), note = NULLIF(TRIM(?11),'') WHERE id = ?1"
     } else {
-        "INSERT INTO schedules (id, account_id, label, category, next_due, frequency, amount_cents, kind, payment_method, cheque) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULLIF(TRIM(?10),''))"
+        "INSERT INTO schedules (id, account_id, label, category, next_due, frequency, amount_cents, kind, payment_method, cheque, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULLIF(TRIM(?10),''), NULLIF(TRIM(?11),''))"
     };
     let stored_kind = if schedule.kind == "transfer" {
         "debit"
@@ -472,7 +492,8 @@ pub(crate) fn save_schedule_in_db(
                 schedule.amount,
                 stored_kind,
                 schedule.payment_method,
-                schedule.cheque.as_deref().map(str::trim)
+                schedule.cheque.as_deref().map(str::trim),
+                schedule.note.as_deref().map(str::trim)
             ],
         )
         .map_err(database_error)?;
@@ -539,6 +560,8 @@ pub(crate) fn record_schedule_in_db(
     // Old databases may contain an invalid number; ask for correction without changing data.
     let cheque: Option<String> = tx.query_row("SELECT CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id WHERE s.id=?1", [id], |row| row.get(0)).map_err(database_error)?;
     validate_cheque(cheque.as_deref())?;
+    // An occurrence override can clear the series comment independently.
+    let note: Option<String> = tx.query_row("SELECT CASE WHEN o.schedule_id IS NOT NULL THEN o.note ELSE s.note END FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id WHERE s.id=?1", [id], |row| row.get(0)).map_err(database_error)?;
     if let Some(destination) = destination {
         if source == destination || cents >= 0 {
             return Err("Virement récurrent invalide.".into());
@@ -550,15 +573,19 @@ pub(crate) fn record_schedule_in_db(
             date,
             amount: -cents,
             category,
-            note: format!("Créée depuis une échéance : {label}"),
+            debit_reference: None,
+            credit_reference: None,
+            note: note
+                .clone()
+                .unwrap_or_else(|| format!("Créée depuis une échéance : {label}")),
         };
         insert_transfer_in_tx(&tx, &transfer)?;
     } else {
         tx.execute(
         "INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, reconciled, note)
-         SELECT ?1, COALESCE(o.account_id,s.account_id), COALESCE(o.due_date,s.next_due), COALESCE(o.label,s.label), COALESCE(o.category,s.category), CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END, COALESCE(o.amount_cents,s.amount_cents), 0, 'Créée depuis une échéance'
+         SELECT ?1, COALESCE(o.account_id,s.account_id), COALESCE(o.due_date,s.next_due), COALESCE(o.label,s.label), COALESCE(o.category,s.category), CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END, COALESCE(o.amount_cents,s.amount_cents), 0, COALESCE(?3, 'Créée depuis une échéance')
          FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id = s.id WHERE s.id = ?2",
-        params![transaction_id, id],
+        params![transaction_id, id, note],
     ).map_err(database_error)?;
     }
     tx.execute(
@@ -582,7 +609,7 @@ pub(crate) fn record_schedule_in_db(
     )
     .map_err(database_error)?;
     // Promote an exception when its original occurrence becomes the next pending one.
-    tx.execute("INSERT INTO schedule_overrides (schedule_id,account_id,label,category,due_date,amount_cents,kind,payment_method,cheque) SELECT f.schedule_id,f.account_id,f.label,f.category,f.due_date,f.amount_cents,f.kind,f.payment_method,f.cheque FROM schedule_future_overrides f JOIN schedules s ON s.id=f.schedule_id AND s.next_due=f.original_due WHERE s.id=?1", [id]).map_err(database_error)?;
+    tx.execute("INSERT INTO schedule_overrides (schedule_id,account_id,label,category,due_date,amount_cents,kind,payment_method,cheque,note) SELECT f.schedule_id,f.account_id,f.label,f.category,f.due_date,f.amount_cents,f.kind,f.payment_method,f.cheque,f.note FROM schedule_future_overrides f JOIN schedules s ON s.id=f.schedule_id AND s.next_due=f.original_due WHERE s.id=?1", [id]).map_err(database_error)?;
     tx.execute("INSERT INTO schedule_transfer_overrides (schedule_id,destination_account_id) SELECT f.schedule_id,f.destination_account_id FROM schedule_future_overrides f JOIN schedules s ON s.id=f.schedule_id AND s.next_due=f.original_due WHERE s.id=?1 AND f.destination_account_id IS NOT NULL", [id]).map_err(database_error)?;
     tx.execute("DELETE FROM schedule_future_overrides WHERE schedule_id=?1 AND original_due=(SELECT next_due FROM schedules WHERE id=?1)", [id]).map_err(database_error)?;
     tx.commit().map_err(database_error)

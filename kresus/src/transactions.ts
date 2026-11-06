@@ -1,3 +1,4 @@
+import { TEXT_NAME_LIMIT } from "./text-limits";
 import { invoke } from "@tauri-apps/api/core";
 import { transactions, accounts, selectedAccount, setTransactions, setAccounts } from "./state";
 import type { Account, Transaction } from "./types";
@@ -161,8 +162,9 @@ export function bindTransactionActions() {
         <h2>Modifier l’opération</h2>
         <form class="transaction-editor">
           <label>Date<input name="date" type="date" required value="${escapeHtml(item.date)}"></label>
-          <label>Destinataire<input name="label" list="edit-payee-suggestions" required maxlength="80" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
+          <label>Destinataire<input name="label" list="edit-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
           <label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label>
+          <label>Référence<input name="reference" value="${escapeHtml(item.reference ?? "")}"></label>
           <label>N° chèque<input name="cheque" pattern="[0-9]{7}" maxlength="7" value="${escapeHtml(item.cheque ?? "")}"></label>
           <label>Type<select name="type">
             <option value="debit" ${item.amount < 0 ? "selected" : ""}>Débit</option>
@@ -199,6 +201,7 @@ export function bindTransactionActions() {
               category: String(values.get("category")).trim(),
               cheque: String(values.get("cheque")).trim() || null,
               note: String(values.get("note") ?? "").trim(),
+              reference: String(values.get("reference") ?? "").trim(),
               amount: values.get("type") === "credit" ? amount : -amount,
             },
           });

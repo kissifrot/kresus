@@ -334,6 +334,17 @@ describe("Money reader", () => {
     expect(preview.operations.map((operation) => operation.amount).sort((a, b) => a - b)).toEqual([
       -364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -2500, 10000, 10000, 10000,
     ]);
+    expect(preview.operations.find((operation) => operation.id === 21)).toMatchObject({
+      reference: "0      200001",
+      note: "",
+    });
+    expect(preview.operations.find((operation) => operation.id === 22)).toMatchObject({
+      reference: "0      200002",
+      note: "Une note",
+    });
+    expect(preview.operations.find((operation) => operation.id === 19)).toMatchObject({
+      reference: "0   100000001",
+    });
     const current = preview.accounts.find((account) => account.name === "Compte courant")!;
     const saving = preview.accounts.find((account) => account.name === "Livret A")!;
     expect([

@@ -327,6 +327,24 @@ describe("schedule calendar", () => {
     );
   });
 
+  it("edits a schedule comment and trims its outer whitespace", async () => {
+    vi.setSystemTime(new Date(2028, 0, 1, 12));
+    const item = recurring("2028-01-15", 15, "Mensuelle");
+    const invoke = await openCalendar([item]);
+    (document.querySelector("[data-edit-schedule]") as HTMLButtonElement).click();
+    const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
+    (form.elements.namedItem("note") as HTMLTextAreaElement).value = "  Note familiale  ";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "update_schedule",
+        expect.objectContaining({
+          schedule: expect.objectContaining({ note: "Note familiale" }),
+        }),
+      ),
+    );
+  });
+
   it("exposes the full calendar label in a native tooltip", async () => {
     vi.setSystemTime(new Date(2027, 0, 1, 12));
     const entry = recurring("2027-01-15", 15, "Mensuelle");

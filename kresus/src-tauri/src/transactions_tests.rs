@@ -10,9 +10,38 @@ fn operation(id: &str, account_id: &str, amount: f64) -> NewTransaction {
         label: "Groceries".into(),
         category: "Food".into(),
         cheque: Some("0012345".into()),
+        reference: None,
         amount: (amount * 100.0).round() as i64,
         note: None,
     }
+}
+
+#[test]
+fn payee_length_is_limited_but_an_existing_long_payee_can_be_kept() {
+    let db = database();
+    let mut item = operation("length", "ccp", -10.0);
+    item.label = "😀".repeat(100);
+    create_transaction_in_db(&db, item).unwrap();
+    let long = "é".repeat(201);
+    db.execute(
+        "UPDATE transactions SET label=?1 WHERE id='length'",
+        [&long],
+    )
+    .unwrap();
+    let mut edited = operation("length", "ccp", -12.0);
+    edited.label = long.clone();
+    update_transaction_in_db(&db, edited).unwrap();
+    let mut invalid = operation("length", "ccp", -12.0);
+    invalid.label = format!("{long}x");
+    assert!(update_transaction_in_db(&db, invalid).is_err());
+    let saved: (String, i64) = db
+        .query_row(
+            "SELECT label,amount_cents FROM transactions WHERE id='length'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(saved, (long, -1200));
 }
 
 #[test]
@@ -56,6 +85,8 @@ fn payee_suggestions_are_distinct_shared_across_accounts_and_exclude_transfers()
 
 fn transfer() -> NewTransfer {
     NewTransfer {
+        debit_reference: None,
+        credit_reference: None,
         id: "transfer".into(),
         source_id: "ccp".into(),
         destination_id: "sylvie".into(),
@@ -585,4 +616,47 @@ fn balance_history_includes_each_side_of_a_transfer_in_its_account() {
         .current_balance;
     assert_eq!(source.last().unwrap().balance, source_balance);
     assert_eq!(destination.last().unwrap().balance, destination_balance);
+}
+
+#[test]
+fn references_can_be_edited_and_searched_without_affecting_cheques_or_notes() {
+    let db = database();
+    let mut item = operation("reference-test", "ccp", -12.0);
+    item.note = Some("Mémo".into());
+    create_transaction_in_db(&db, item).unwrap();
+    let mut update = operation("reference-test", "ccp", -12.0);
+    update.reference = Some("  Réf-B  ".into());
+    update.note = None;
+    update_transaction_in_db(&db, update).unwrap();
+    let entry = list_transactions_in_db(&db, "ccp")
+        .unwrap()
+        .into_iter()
+        .find(|item| item.id == "reference-test")
+        .unwrap();
+    assert_eq!(entry.reference.as_deref(), Some("Réf-B"));
+    assert_eq!(entry.note.as_deref(), Some("Mémo"));
+    assert_eq!(entry.cheque.as_deref(), Some("0012345"));
+    let page = list_register_in_db(&db, "ccp", "all", 1, "2027-01", "réf-b").unwrap();
+    assert_eq!(serde_json::to_value(page).unwrap()["filteredCount"], 1);
+}
+
+#[test]
+fn transfer_references_remain_independent_when_editing_or_reversing_accounts() {
+    let mut db = database();
+    create_transfer_in_db(&mut db, transfer()).unwrap();
+    db.execute(
+        "UPDATE transactions SET reference='Initiale' WHERE id='transfer-debit'",
+        [],
+    )
+    .unwrap();
+    let mut edited = get_transfer_in_db(&db, "transfer").unwrap();
+    assert_eq!(edited.debit_reference.as_deref(), Some("Initiale"));
+    assert_eq!(edited.credit_reference, None);
+    edited.source_id = "sylvie".into();
+    edited.destination_id = "ccp".into();
+    edited.debit_reference = Some("Débit modifié".into());
+    edited.credit_reference = Some("Crédit distinct".into());
+    update_transfer_in_db(&mut db, edited).unwrap();
+    let pair: (String, String) = db.query_row("SELECT d.reference,c.reference FROM transfers t JOIN transactions d ON d.id=t.debit_id JOIN transactions c ON c.id=t.credit_id WHERE t.id='transfer'", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+    assert_eq!(pair, ("Débit modifié".into(), "Crédit distinct".into()));
 }

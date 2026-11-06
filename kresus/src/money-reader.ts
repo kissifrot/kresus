@@ -423,9 +423,9 @@ export function inspect(buffer: Buffer) {
       if (!t.amt || cents(t.amt) === 0)
         throw new Error("Une opération de montant nul ne peut pas être importée.");
       const payee = payees.find((p) => p.hpay === (t.lHpay ?? t.hpay));
-      let note = String(t.mMemo ?? "").trim();
-      const reference = String(t.szId ?? "").trim();
-      if (reference) note += `${note ? "\n" : ""}Référence Money : ${reference}`;
+      const note = String(t.mMemo ?? "").trim();
+      // Preserve the full Money reference without inferring a cheque number.
+      const reference = String(t.szId ?? "").trim() || null;
       return {
         id: t.htrn,
         accountId: t.hacct,
@@ -435,6 +435,7 @@ export function inspect(buffer: Buffer) {
         amount: cents(t.amt),
         reconciled: t.cs !== 0,
         note,
+        reference,
       };
     });
   const scheduleResult = readMoneySchedules(

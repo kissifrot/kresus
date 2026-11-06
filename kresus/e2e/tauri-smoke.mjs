@@ -822,6 +822,7 @@ try {
   await click("#new-schedule");
   await fill("#schedule-form", {
     label: "Échéance recette",
+    note: "Commentaire échéance",
     amount: "9.99",
     frequency: "Mensuelle",
   });
@@ -876,6 +877,17 @@ try {
     async () => !(await visible(`[data-record-schedule="${scheduleId}"]`)),
     "Enregistrement d’échéance",
   );
+  const recordedComment = spawnSync(
+    "python3",
+    [
+      "-c",
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); row=c.execute(\"SELECT note FROM transactions WHERE label='Échéance recette'\").fetchone(); assert row == ('Commentaire échéance',), row",
+      join(appData, "comptes.kresus"),
+    ],
+    { encoding: "utf8" },
+  );
+  if (recordedComment.status !== 0)
+    throw new Error(`Commentaire de l’échéance absent : ${recordedComment.stderr}`);
   await click("#next-month");
   await waitFor(
     async () => await visible(`[data-edit-schedule="${scheduleId}"]`),

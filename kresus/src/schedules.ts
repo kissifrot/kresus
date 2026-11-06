@@ -1,3 +1,4 @@
+import { TEXT_NAME_LIMIT } from "./text-limits";
 import { invoke } from "@tauri-apps/api/core";
 import { confirmAction } from "./confirmation";
 import type { Account, Schedule, CalendarOccurrence } from "./types";
@@ -169,7 +170,7 @@ function renderScheduleView(showOverdue: boolean) {
                       direct_debit: "Prélèvement",
                     }[schedule.paymentMethod]
                   : "";
-                return `<div class="schedule-row"><time><strong>${new Date(`${schedule.nextDue}T12:00:00`).getDate()}</strong><small>${new Intl.DateTimeFormat("fr-FR", { month: "short", ...(showOverdue ? { year: "numeric" } : {}) }).format(new Date(`${schedule.nextDue}T12:00:00`))}</small></time><span class="schedule-row-copy"><strong>${escapeHtml(schedule.label)}</strong><small>${escapeHtml(schedule.category)} · ${escapeHtml(account?.name ?? "Compte")}${schedule.kind === "transfer" ? ` → ${escapeHtml(destination?.name ?? "Compte")}` : ""}${payment ? ` · ${payment}${schedule.cheque ? ` n° ${escapeHtml(schedule.cheque)}` : ""}` : ""}</small></span><span class="schedule-amount ${schedule.kind}">${schedule.kind === "credit" ? "+ " : schedule.kind === "transfer" ? "↔ " : "− "}${euro(Math.abs(schedule.amount))}<small>${escapeHtml(schedule.frequency)}</small></span><div class="schedule-row-actions">${schedule.projected ? `<span class="schedule-projected">Prévision</span><button class="schedule-record" data-edit-future="${escapeHtml(schedule.id)}" data-original-due="${escapeHtml(schedule.originalDue!)}">Modifier</button>` : `<button class="schedule-record" data-edit-schedule="${escapeHtml(schedule.id)}">Modifier</button><button class="schedule-record" data-record-schedule="${escapeHtml(schedule.id)}">Enregistrer</button>`}<button class="secondary-button schedule-delete" data-delete-schedule="${escapeHtml(schedule.id)}">Supprimer</button></div></div>`;
+                return `<div class="schedule-row"><time><strong>${new Date(`${schedule.nextDue}T12:00:00`).getDate()}</strong><small>${new Intl.DateTimeFormat("fr-FR", { month: "short", ...(showOverdue ? { year: "numeric" } : {}) }).format(new Date(`${schedule.nextDue}T12:00:00`))}</small></time><span class="schedule-row-copy"><strong>${escapeHtml(schedule.label)}</strong><small>${escapeHtml(schedule.category)} · ${escapeHtml(account?.name ?? "Compte")}${schedule.kind === "transfer" ? ` → ${escapeHtml(destination?.name ?? "Compte")}` : ""}${payment ? ` · ${payment}${schedule.cheque ? ` n° ${escapeHtml(schedule.cheque)}` : ""}` : ""}</small>${schedule.note ? `<small>${escapeHtml(schedule.note)}</small>` : ""}</span><span class="schedule-amount ${schedule.kind}">${schedule.kind === "credit" ? "+ " : schedule.kind === "transfer" ? "↔ " : "− "}${euro(Math.abs(schedule.amount))}<small>${escapeHtml(schedule.frequency)}</small></span><div class="schedule-row-actions">${schedule.projected ? `<span class="schedule-projected">Prévision</span><button class="schedule-record" data-edit-future="${escapeHtml(schedule.id)}" data-original-due="${escapeHtml(schedule.originalDue!)}">Modifier</button>` : `<button class="schedule-record" data-edit-schedule="${escapeHtml(schedule.id)}">Modifier</button><button class="schedule-record" data-record-schedule="${escapeHtml(schedule.id)}">Enregistrer</button>`}<button class="secondary-button schedule-delete" data-delete-schedule="${escapeHtml(schedule.id)}">Supprimer</button></div></div>`;
               })
               .join("") ||
             `<p class="empty-row">${showOverdue ? "Aucune échéance en retard." : "Aucune échéance pour ce mois."}</p>`
@@ -180,11 +181,12 @@ function renderScheduleView(showOverdue: boolean) {
         <label class="schedule-scope" hidden>Appliquer la modification<select name="scope"><option value="occurrence">Cette occurrence uniquement</option><option value="series">Cette occurrence et les suivantes</option></select></label><p class="schedule-exceptions-warning" hidden>Modifier la série supprimera les modifications individuelles des occurrences futures.</p>
         <label><span class="schedule-account-label">Compte</span><select name="accountId" required>${accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === selectedAccount.id ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}</select></label>
         <label class="schedule-destination" hidden>Compte crédité<select name="destinationAccountId">${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label>
-        <label>Destinataire / libellé<input name="label" list="schedule-payee-suggestions" required maxlength="80"><datalist id="schedule-payee-suggestions"></datalist></label>
+        <label>Destinataire / libellé<input name="label" list="schedule-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}"><datalist id="schedule-payee-suggestions"></datalist></label>
         <label>Catégorie<select name="category" required>${categoryOptions()}</select></label>
         <div class="form-row"><label>Type<select name="kind"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer">Virement</option></select></label>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label></div>
         <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label></div>
+        <label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label>
         <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" required></label>
         <label>Périodicité<select name="frequency"><option>Mensuelle</option><option value="Bimensuelle">Bimensuelle (15 et fin de mois)</option><option>Bimestrielle</option><option>Trimestrielle</option><option>Semestrielle</option><option>Annuelle</option></select></label></div>
         <div class="schedule-limit"><label>Fin de la série<select name="limitType"><option value="none">Sans limite</option><option value="count">Nombre d’occurrences</option><option value="date">Date de fin</option></select></label>
@@ -290,6 +292,7 @@ function renderScheduleView(showOverdue: boolean) {
       setValue("kind", schedule.kind);
       setValue("paymentMethod", schedule.paymentMethod ?? "");
       setValue("cheque", schedule.cheque ?? "");
+      (scheduleForm.elements.namedItem("note") as HTMLTextAreaElement).value = schedule.note ?? "";
       setValue("amount", centsInput(Math.abs(schedule.amount)));
       setValue("frequency", schedule.frequency);
       setValue(
@@ -403,6 +406,7 @@ function renderScheduleView(showOverdue: boolean) {
             kind,
             paymentMethod: String(values.get("paymentMethod") ?? "") || null,
             cheque: cheque || null,
+            note: String(values.get("note") ?? "").trim() || null,
             remainingCount: values.get("remainingCount")
               ? Number(values.get("remainingCount"))
               : null,

@@ -17,9 +17,39 @@ fn schedule(date: &str, frequency: &str) -> Schedule {
         end_date: None,
         payment_method: None,
         cheque: None,
+        note: None,
         series: None,
         future_overrides: vec![],
     }
+}
+
+#[test]
+fn schedule_limits_new_labels_and_preserves_existing_long_labels_on_edits() {
+    let mut db = database();
+    let mut item = schedule("2028-01-15", "Mensuelle");
+    item.label = "😀".repeat(101);
+    assert!(save_schedule_in_db(&mut db, item, None).is_err());
+    save_schedule_in_db(&mut db, schedule("2028-01-15", "Mensuelle"), None).unwrap();
+    let long = "é".repeat(201);
+    db.execute(
+        "UPDATE schedules SET label=?1 WHERE id='test-schedule'",
+        [&long],
+    )
+    .unwrap();
+    let mut edit = schedule("2028-01-15", "Mensuelle");
+    edit.label = long.clone();
+    save_schedule_in_db(&mut db, edit, Some("occurrence")).unwrap();
+    let mut future = schedule("2028-02-15", "Mensuelle");
+    future.label = long.clone();
+    update_future_in_db(&mut db, future, "2028-02-15").unwrap();
+    let saved: String = db
+        .query_row(
+            "SELECT label FROM schedule_future_overrides WHERE schedule_id='test-schedule'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(saved, long);
 }
 
 fn next_date(db: &Connection) -> String {
@@ -814,4 +844,99 @@ fn twice_monthly_validates_dates_and_future_overrides_with_limits() {
         )
         .unwrap();
     assert_eq!(due, "2028-02-28");
+}
+
+#[test]
+fn schedule_comments_follow_overrides_and_recorded_operations() {
+    let mut db = database();
+    let mut series = schedule("2028-01-15", "Mensuelle");
+    series.note = Some("  Note de série  \n suite  ".into());
+    save_schedule_in_db(&mut db, series, None).unwrap();
+    let mut future = schedule("2028-02-15", "Mensuelle");
+    future.note = Some("  Note ponctuelle  ".into());
+    update_future_in_db(&mut db, future, "2028-02-15").unwrap();
+    let loaded = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(loaded.note.as_deref(), Some("Note de série  \n suite"));
+    assert_eq!(
+        loaded.future_overrides[0].note.as_deref(),
+        Some("Note ponctuelle")
+    );
+    record_schedule_in_db(&mut db, "test-schedule", "comment-first").unwrap();
+    let loaded = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(loaded.note.as_deref(), Some("Note ponctuelle"));
+    assert_eq!(
+        loaded.series.unwrap().note.as_deref(),
+        Some("Note de série  \n suite")
+    );
+    record_schedule_in_db(&mut db, "test-schedule", "comment-second").unwrap();
+    let notes: Vec<String> = db
+        .prepare("SELECT note FROM transactions WHERE id LIKE 'comment-%' ORDER BY operation_date")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(notes, ["Note de série  \n suite", "Note ponctuelle"]);
+    let loaded = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(loaded.note.as_deref(), Some("Note de série  \n suite"));
+}
+
+#[test]
+fn recurring_transfer_comment_is_preserved_on_both_entries() {
+    let mut db = database();
+    let mut item = recurring_transfer();
+    item.note = Some("  Virement familial  ".into());
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "transfer-note").unwrap();
+    let notes: Vec<String> = db
+        .prepare("SELECT note FROM transactions WHERE id LIKE 'transfer-note-%' ORDER BY id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(notes, ["Virement familial", "Virement familial"]);
+}
+
+#[test]
+fn clearing_one_occurrence_comment_keeps_the_series_comment() {
+    let mut db = database();
+    let mut item = schedule("2028-01-15", "Mensuelle");
+    item.note = Some("Commentaire récurrent".into());
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    let mut exception = schedule("2028-01-15", "Mensuelle");
+    exception.note = None;
+    save_schedule_in_db(&mut db, exception, Some("occurrence")).unwrap();
+    let loaded = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(loaded.note, None);
+    assert_eq!(
+        loaded.series.unwrap().note.as_deref(),
+        Some("Commentaire récurrent")
+    );
+    record_schedule_in_db(&mut db, "test-schedule", "cleared-note").unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "series-note").unwrap();
+    let second: String = db
+        .query_row(
+            "SELECT note FROM transactions WHERE id='series-note'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(second, "Commentaire récurrent");
 }

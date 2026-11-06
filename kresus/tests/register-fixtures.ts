@@ -13,6 +13,7 @@ type Transaction = {
   reconciled: boolean;
   transferId?: string;
   note?: string;
+  reference?: string | null;
 };
 
 export async function openRegister(
@@ -102,7 +103,7 @@ export async function openRegister(
         const filtered = withBalance.filter(
           (item) =>
             (!args?.search ||
-              [item.label, item.category, item.cheque, item.note].some((value) =>
+              [item.label, item.category, item.cheque, item.note, item.reference].some((value) =>
                 value?.toLowerCase().includes(args.search.toLowerCase()),
               )) &&
             (args?.filter === "all" ||
@@ -195,6 +196,8 @@ export async function openRegister(
           amount: -debit.amount,
           category: debit.category,
           note: debit.note ?? "",
+          debitReference: debit.reference ?? null,
+          creditReference: credit.reference ?? null,
         };
       }
       case "update_transfer": {
@@ -215,6 +218,7 @@ export async function openRegister(
                 date: transfer.date,
                 category: transfer.category,
                 note: transfer.note,
+                reference: item.amount < 0 ? transfer.debitReference : transfer.creditReference,
               },
         );
         return;

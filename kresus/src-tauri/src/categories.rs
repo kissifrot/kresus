@@ -54,8 +54,8 @@ pub(crate) fn migrate_categories(db: &Connection) -> rusqlite::Result<()> {
 
 fn validate_name(name: &str) -> Result<&str, String> {
     let name = name.trim();
-    if name.is_empty() || name.chars().count() > 80 || name.contains('·') {
-        return Err("Le nom doit contenir de 1 à 80 caractères, sans le signe ·.".into());
+    if name.is_empty() || name.contains('·') {
+        return Err("Le nom est obligatoire et ne doit pas contenir le signe ·.".into());
     }
     Ok(name)
 }
@@ -115,6 +115,7 @@ pub fn create_category(
 
 fn create_in_db(db: &Connection, category: Category) -> Result<(), String> {
     let name = validate_name(&category.name)?;
+    crate::text_limits::validate_name_length(name, false)?;
     if category.id.trim().is_empty() {
         return Err("Identifiant invalide.".into());
     }
@@ -147,6 +148,12 @@ pub fn rename_category(
 fn rename_in_db(db: &mut Connection, id: String, name: String) -> Result<(), String> {
     let name = validate_name(&name)?;
     let tx = db.transaction().map_err(database_error)?;
+    let previous: String = tx
+        .query_row("SELECT name FROM categories WHERE id=?1", [&id], |row| {
+            row.get(0)
+        })
+        .map_err(database_error)?;
+    crate::text_limits::validate_name_length(name, name == previous)?;
     let (old, parent) = path(&tx, &id)?;
     let new = match &parent {
         Some(p) => format!("{} · {}", path(&tx, p)?.0, name),

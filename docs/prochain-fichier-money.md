@@ -63,11 +63,15 @@ Capturer la fiche après création et, pour chaque date visible, le détail du j
 | --- | --- | --- | --- | --- |
 | | | | | |
 
+### 4. Commentaires des échéances
+
+Le fichier actuel ne contient aucune note sur les échéances. Pour identifier leur champ Money, créer une échéance fictive avec une note reconnaissable, par exemple `Note échéance fictive A`, et si possible un virement récurrent avec une autre note distincte. Capturer le formulaire complet avant validation et la fiche après création et réouverture, avec le libellé, le compte, le montant, la prochaine date et le texte exact de la note. Si une occurrence est enregistrée, capturer également l’opération créée et son commentaire ; pour un virement, capturer les deux comptes. Noter les valeurs et indiquer si la note est recopiée sur une ou deux écritures. Ne pas modifier le fichier de test figé dans `kresus/tests/fixtures/`.
+
 ## Compléments utiles si le temps le permet
 
 ### Numéros et méthodes des opérations
 
-L’opération avec une référence de chèque et celle avec commentaire existent déjà. Pour identifier précisément les champs sans assimiler toute référence à un numéro de chèque :
+La capture du registre montre les valeurs 100000, 100001, 200001, 200002 et 200003 correspondant aux références numériques du fichier. Un virement possède aussi une référence numérique : la seule présence d’un numéro ne prouve donc pas un paiement par chèque. Pour distinguer précisément les méthodes :
 
 - Capturer la fiche de l’opération existante et sa ligne dans le registre, en montrant la méthode, le numéro tel qu’affiché, le destinataire, le montant, la date et le commentaire lorsqu’ils sont visibles. Noter le numéro exactement, y compris les zéros éventuels, et préciser s’il s’agit d’un numéro de chèque ou d’une autre référence selon Money.
 - Si possible, ajouter un deuxième chèque fictif avec un numéro différent, puis une opération non payée par chèque comportant une référence si Money le permet. Capturer pour chacune la saisie et la ligne enregistrée, et noter le type et le numéro exacts. Ne pas compléter artificiellement les numéros avec des zéros.

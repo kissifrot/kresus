@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS transactions (
   cheque TEXT,
   amount_cents INTEGER NOT NULL,
   reconciled INTEGER NOT NULL DEFAULT 0 CHECK(reconciled IN (0, 1)),
-  note TEXT
+  note TEXT,
+  reference TEXT
 );
 CREATE INDEX IF NOT EXISTS transactions_by_account_date
   ON transactions(account_id, operation_date, id);

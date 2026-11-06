@@ -319,6 +319,20 @@ fn legacy_schedules_are_migrated_without_losing_data() {
         .unwrap();
     assert_eq!(label, "Loyer");
     assert_eq!((method, cheque), (None, None));
+    for table in [
+        "schedules",
+        "schedule_overrides",
+        "schedule_future_overrides",
+    ] {
+        let count: i64 = db
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info(?1) WHERE name='note'",
+                [table],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "{table}");
+    }
 }
 
 #[test]
@@ -329,4 +343,25 @@ fn file_extension_rejects_other_sqlite_documents() {
     assert!(validate_kresus_extension(Path::new("famille.KRESUS")).is_ok());
     assert!(validate_kresus_extension(Path::new("autre.sqlite3")).is_err());
     assert!(validate_kresus_extension(Path::new("sans-extension")).is_err());
+}
+
+#[test]
+fn existing_database_without_reference_column_is_upgraded_without_losing_notes() {
+    let path = temporary_database_path();
+    let db = Connection::open(&path.0).unwrap();
+    initialize_database(&db).unwrap();
+    db.execute("UPDATE transactions SET note='Note conservée' WHERE id=(SELECT id FROM transactions LIMIT 1)", []).unwrap();
+    db.execute_batch("ALTER TABLE transactions DROP COLUMN reference")
+        .unwrap();
+    drop(db);
+    let opened = super::open_existing_database(&path.0).unwrap();
+    let count: i64 = opened
+        .query_row(
+            "SELECT count(*) FROM transactions WHERE note='Note conservée' AND reference IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    initialize_database(&opened).unwrap();
 }

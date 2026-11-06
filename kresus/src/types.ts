@@ -20,8 +20,10 @@ export type Transaction = {
   reconciled: boolean;
   note?: string | null;
   transferId?: string | null;
+  reference?: string | null;
 };
 export type ScheduleSeries = {
+  note?: string | null;
   accountId: string;
   label: string;
   category: string;

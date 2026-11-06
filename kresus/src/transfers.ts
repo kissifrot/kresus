@@ -11,6 +11,8 @@ type Transfer = {
   amount: number;
   category: string;
   note: string;
+  debitReference?: string | null;
+  creditReference?: string | null;
 };
 
 // Load both sides before filling the same fixed editor used by ordinary operations.
@@ -42,6 +44,8 @@ export async function openTransferEditor(
         <label>Compte crédité<select name="destinationId" required>${options(transfer.destinationId)}</select></label>
         <label>Catégorie<select name="category" required>${categoryOptions(transfer.category)}</select></label>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required value="${centsInput(transfer.amount)}"></label>
+        <label>Référence du débit<input name="debitReference" value="${escapeHtml(transfer.debitReference ?? "")}"></label>
+        <label>Référence du crédit<input name="creditReference" value="${escapeHtml(transfer.creditReference ?? "")}"></label>
         <label class="editor-note">Commentaire<textarea name="note" rows="2" placeholder="Ajouter un commentaire (facultatif)">${escapeHtml(transfer.note)}</textarea></label>
         <div class="editor-actions"><button type="submit" class="primary-button">Enregistrer</button><button type="button" class="secondary-button cancel-editor">Annuler</button></div>
         <p class="editor-error" role="alert"></p>
@@ -71,6 +75,8 @@ export async function openTransferEditor(
             amount: parsePositiveCents(String(values.get("amount"))),
             category: String(values.get("category")),
             note: String(values.get("note") ?? "").trim(),
+            debitReference: String(values.get("debitReference") ?? "").trim(),
+            creditReference: String(values.get("creditReference") ?? "").trim(),
           },
         });
         await saved();

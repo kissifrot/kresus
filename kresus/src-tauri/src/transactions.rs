@@ -20,6 +20,7 @@ pub struct Transaction {
     pub(crate) reconciled: bool,
     pub(crate) note: Option<String>,
     pub(crate) transfer_id: Option<String>,
+    pub(crate) reference: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -32,6 +33,10 @@ pub struct NewTransfer {
     pub(crate) amount: i64,
     pub(crate) category: String,
     pub(crate) note: String,
+    #[serde(default)]
+    pub(crate) debit_reference: Option<String>,
+    #[serde(default)]
+    pub(crate) credit_reference: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -47,6 +52,8 @@ pub struct NewTransaction {
     // Missing notes preserve existing data on updates from older clients.
     #[serde(default)]
     pub(crate) note: Option<String>,
+    #[serde(default)]
+    pub(crate) reference: Option<String>,
 }
 
 #[tauri::command]
@@ -66,7 +73,7 @@ pub(crate) fn list_transactions_in_db(
     connection: &Connection,
     account_id: &str,
 ) -> Result<Vec<Transaction>, String> {
-    let mut statement = connection.prepare("SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque, t.amount_cents, t.reconciled, t.note, x.id FROM transactions t LEFT JOIN transfers x ON x.debit_id=t.id OR x.credit_id=t.id WHERE t.account_id = ?1 ORDER BY t.operation_date, t.id").map_err(database_error)?;
+    let mut statement = connection.prepare("SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque, t.amount_cents, t.reconciled, t.note, x.id, t.reference FROM transactions t LEFT JOIN transfers x ON x.debit_id=t.id OR x.credit_id=t.id WHERE t.account_id = ?1 ORDER BY t.operation_date, t.id").map_err(database_error)?;
     let rows = statement
         .query_map([account_id], |row| {
             Ok(Transaction {
@@ -80,6 +87,7 @@ pub(crate) fn list_transactions_in_db(
                 reconciled: row.get::<_, i64>(7)? != 0,
                 note: row.get(8)?,
                 transfer_id: row.get(9)?,
+                reference: row.get(10)?,
             })
         })
         .map_err(database_error)?;
@@ -249,7 +257,7 @@ pub(crate) fn list_register_in_db(
     .map_err(database_error)?;
     let search = search.trim().to_lowercase();
     let predicate = format!(
-        "({predicate}) AND (?3 = '' OR text_contains(label,?3) OR text_contains(category,?3) OR text_contains(cheque,?3) OR text_contains(note,?3))"
+        "({predicate}) AND (?3 = '' OR text_contains(label,?3) OR text_contains(category,?3) OR text_contains(cheque,?3) OR text_contains(note,?3) OR text_contains(reference,?3))"
     );
     let sql = format!(
         "SELECT COUNT(*),
@@ -297,7 +305,7 @@ pub(crate) fn list_register_in_db(
            WHERE t.account_id = ?1
          )
          SELECT h.id, h.account_id, h.operation_date, h.label, h.category, h.cheque,
-                h.amount_cents, h.reconciled, h.note, x.id, h.running_balance
+                h.amount_cents, h.reconciled, h.note, x.id, h.running_balance, h.reference
          FROM history h
          LEFT JOIN transfers x ON x.debit_id = h.id OR x.credit_id = h.id
          WHERE {predicate}
@@ -321,6 +329,7 @@ pub(crate) fn list_register_in_db(
                         reconciled: row.get::<_, i64>(7)? != 0,
                         note: row.get(8)?,
                         transfer_id: row.get(9)?,
+                        reference: row.get(11)?,
                     },
                     running_balance: row.get(10)?,
                 })
@@ -447,7 +456,7 @@ pub fn get_transfer(id: String, state: tauri::State<'_, AppState>) -> Result<New
 }
 
 fn get_transfer_in_db(db: &Connection, id: &str) -> Result<NewTransfer, String> {
-    db.query_row("SELECT x.id, d.account_id, c.account_id, d.operation_date, -d.amount_cents, d.category, COALESCE(d.note,'') FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions c ON c.id=x.credit_id WHERE x.id=?1", [id], |r| Ok(NewTransfer { id:r.get(0)?, source_id:r.get(1)?, destination_id:r.get(2)?, date:r.get(3)?, amount:r.get(4)?, category:r.get(5)?, note:r.get(6)? })).optional().map_err(database_error)?.ok_or_else(|| "Virement introuvable.".into())
+    db.query_row("SELECT x.id, d.account_id, c.account_id, d.operation_date, -d.amount_cents, d.category, COALESCE(d.note,''), d.reference, c.reference FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions c ON c.id=x.credit_id WHERE x.id=?1", [id], |r| Ok(NewTransfer { id:r.get(0)?, source_id:r.get(1)?, destination_id:r.get(2)?, date:r.get(3)?, amount:r.get(4)?, category:r.get(5)?, note:r.get(6)?, debit_reference:r.get(7)?, credit_reference:r.get(8)? })).optional().map_err(database_error)?.ok_or_else(|| "Virement introuvable.".into())
 }
 
 #[tauri::command]
@@ -485,21 +494,23 @@ pub(crate) fn update_transfer_in_db(
     let source = name(&transfer.source_id)?;
     let destination = name(&transfer.destination_id)?;
     let cents = transfer.amount;
-    for (id, account, label, amount) in [
+    for (id, account, label, amount, reference) in [
         (
             debit,
             &transfer.source_id,
             format!("Virement vers {destination}"),
             -cents,
+            &transfer.debit_reference,
         ),
         (
             credit,
             &transfer.destination_id,
             format!("Virement depuis {source}"),
             cents,
+            &transfer.credit_reference,
         ),
     ] {
-        let changed = tx.execute("UPDATE transactions SET account_id=?1, operation_date=?2, label=?3, category=?4, amount_cents=?5, note=?6 WHERE id=?7", params![account,transfer.date,label,transfer.category.trim(),amount,transfer.note.trim(),id]).map_err(database_error)?;
+        let changed = tx.execute("UPDATE transactions SET account_id=?1, operation_date=?2, label=?3, category=?4, amount_cents=?5, note=?6, reference=CASE WHEN ?8 IS NULL THEN reference ELSE NULLIF(TRIM(?8),'') END WHERE id=?7", params![account,transfer.date,label,transfer.category.trim(),amount,transfer.note.trim(),id,reference]).map_err(database_error)?;
         if changed != 1 {
             return Err("Opération liée introuvable.".into());
         }
@@ -526,8 +537,9 @@ pub(crate) fn create_transaction_in_db(
 ) -> Result<(), String> {
     validate_transaction_amount(transaction.amount)?;
     validate_cheque(transaction.cheque.as_deref())?;
+    crate::text_limits::validate_name_length(&transaction.label, false)?;
     let cents = transaction.amount;
-    connection.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''))", params![transaction.id, transaction.account_id, transaction.date, transaction.label.trim(), transaction.category.trim(), transaction.cheque.as_deref().map(str::trim), cents, transaction.note.as_deref().map(str::trim)]).map_err(database_error)?;
+    connection.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, note, reference) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''), NULLIF(?9, ''))", params![transaction.id, transaction.account_id, transaction.date, transaction.label.trim(), transaction.category.trim(), transaction.cheque.as_deref().map(str::trim), cents, transaction.note.as_deref().map(str::trim), transaction.reference.as_deref().map(str::trim)]).map_err(database_error)?;
     Ok(())
 }
 
@@ -573,6 +585,18 @@ pub(crate) fn update_transaction_in_db(
 ) -> Result<(), String> {
     validate_transaction_amount(transaction.amount)?;
     validate_cheque(transaction.cheque.as_deref())?;
+    let unchanged: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM transactions WHERE id=?1 AND account_id=?2 AND label=?3)",
+            params![
+                transaction.id,
+                transaction.account_id,
+                transaction.label.trim()
+            ],
+            |row| row.get(0),
+        )
+        .map_err(database_error)?;
+    crate::text_limits::validate_name_length(&transaction.label, unchanged)?;
     let linked: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM transfers WHERE debit_id=?1 OR credit_id=?1)",
@@ -583,7 +607,7 @@ pub(crate) fn update_transaction_in_db(
     if linked {
         return Err("La modification d’un virement lié n’est pas encore disponible.".into());
     }
-    let changed = connection.execute("UPDATE transactions SET operation_date = ?1, label = ?2, category = ?3, cheque = ?4, amount_cents = ?5, note = CASE WHEN ?8 IS NULL THEN note ELSE NULLIF(?8, '') END WHERE id = ?6 AND account_id = ?7", params![transaction.date, transaction.label.trim(), transaction.category.trim(), transaction.cheque.as_deref().map(str::trim), transaction.amount, transaction.id, transaction.account_id, transaction.note.as_deref().map(str::trim)]).map_err(database_error)?;
+    let changed = connection.execute("UPDATE transactions SET operation_date = ?1, label = ?2, category = ?3, cheque = ?4, amount_cents = ?5, note = CASE WHEN ?8 IS NULL THEN note ELSE NULLIF(?8, '') END, reference = CASE WHEN ?9 IS NULL THEN reference ELSE NULLIF(TRIM(?9), '') END WHERE id = ?6 AND account_id = ?7", params![transaction.date, transaction.label.trim(), transaction.category.trim(), transaction.cheque.as_deref().map(str::trim), transaction.amount, transaction.id, transaction.account_id, transaction.note.as_deref().map(str::trim), transaction.reference.as_deref().map(str::trim)]).map_err(database_error)?;
     if changed == 0 {
         return Err("Opération introuvable.".to_string());
     }

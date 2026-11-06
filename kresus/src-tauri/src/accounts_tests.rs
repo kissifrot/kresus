@@ -2,6 +2,18 @@ use super::*;
 use crate::test_support::{account, database};
 
 #[test]
+fn account_names_and_banks_obey_the_html_length_limit() {
+    let db = database();
+    let mut valid = account("length-ok", "Épargne", 0.0);
+    valid.name = "é".repeat(200);
+    valid.bank = "😀".repeat(100);
+    create_account_in_db(&db, valid).unwrap();
+    let mut invalid = account("length-bad", "Épargne", 0.0);
+    invalid.bank = "😀".repeat(101);
+    assert!(create_account_in_db(&db, invalid).is_err());
+}
+
+#[test]
 fn current_balances_include_all_operations_for_each_account() {
     let db = database();
     create_account_in_db(&db, account("with-operations", "Compte courant", 100.0)).unwrap();

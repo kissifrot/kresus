@@ -21,6 +21,39 @@ describe("transaction register", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("keeps an imported long payee when editing another field", async () => {
+    const label = "é".repeat(201);
+    const invoke = await openRegister({
+      transactions: [
+        {
+          id: "long",
+          accountId: "one",
+          date: "2027-01-01",
+          label,
+          category: "Divers",
+          amount: -100,
+        },
+      ],
+    });
+    expect(
+      document.querySelector<HTMLInputElement>('#transaction-form input[name="label"]')!.maxLength,
+    ).toBe(200);
+    click('tr[data-transaction="long"]');
+    const form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    expect(field(form, "label").value).toBe(label);
+    expect(field(form, "label").maxLength).toBe(200);
+    field(form, "note").value = "Complément";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "update_transaction",
+        expect.objectContaining({
+          transaction: expect.objectContaining({ label, note: "Complément" }),
+        }),
+      ),
+    );
+  });
+
   it("opens an operation with Enter and restores row focus after cancel and save", async () => {
     const invoke = await openRegister();
     let row = document.querySelector<HTMLTableRowElement>('tr[data-transaction="debit"]')!;
@@ -51,6 +84,48 @@ describe("transaction register", () => {
       .querySelector<HTMLButtonElement>("[data-reconcile]")!
       .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(document.querySelector(".transaction-editor")).toBeNull();
+  });
+
+  it("displays, searches and edits a reference separately from the cheque and comment", async () => {
+    const invoke = await openRegister({
+      transactions: [
+        {
+          id: "ref",
+          accountId: "one",
+          date: "2027-01-01",
+          label: "Libellé",
+          category: "Divers",
+          amount: -10,
+          cheque: "0012345",
+          note: "Commentaire",
+          reference: "0      200001",
+        },
+      ],
+    });
+    expect(document.querySelector(".transaction-reference")?.textContent).toContain("200001");
+    const search = document.querySelector<HTMLInputElement>("#transaction-search")!;
+    search.value = "200001";
+    submit(document.querySelector<HTMLFormElement>("#transaction-search-form")!);
+    await vi.waitFor(() =>
+      expect(document.querySelector('tr[data-transaction="ref"]')).not.toBeNull(),
+    );
+    click('tr[data-transaction="ref"]');
+    const form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    expect(field(form, "reference").value).toBe("0      200001");
+    field(form, "reference").value = "  REF-42  ";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "update_transaction",
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            reference: "REF-42",
+            cheque: "0012345",
+            note: "Commentaire",
+          }),
+        }),
+      ),
+    );
   });
 
   it("requires confirmation before deleting an ordinary operation", async () => {
@@ -685,6 +760,8 @@ describe("transaction register", () => {
     expect(field(form, "sourceId").value).toBe("one");
     expect(field(form, "destinationId").value).toBe("two");
     field(form, "amount").value = "40";
+    field(form, "debitReference").value = "Réf débit";
+    field(form, "creditReference").value = "Réf crédit";
     field(form, "date").value = "2027-02-01";
     submit(form);
     await vi.waitFor(() =>
@@ -701,13 +778,17 @@ describe("transaction register", () => {
         destinationId: "two",
         amount: 4000,
         date: "2027-02-01",
+        debitReference: "Réf débit",
+        creditReference: "Réf crédit",
       }),
     });
+    expect(document.querySelector("tbody")?.textContent).toContain("Réf crédit");
     click('[data-account="one"]');
     await vi.waitFor(() =>
       expect(document.querySelector(".page-heading h1")?.textContent).toBe("Principal"),
     );
     await vi.waitFor(() => expect(document.querySelector("tbody")?.textContent).toContain("40,00"));
+    expect(document.querySelector("tbody")?.textContent).toContain("Réf débit");
     click("tbody tr[data-transaction] .date-cell");
     await vi.waitFor(() => expect(document.querySelector(".transfer-editor")).not.toBeNull());
     expect(

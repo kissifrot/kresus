@@ -31,6 +31,21 @@ fn category(id: &str, name: &str, parent: Option<&str>) -> Category {
 }
 
 #[test]
+fn category_length_is_limited_without_breaking_existing_names() {
+    let mut db = database();
+    create_in_db(&db, category("limit", &"é".repeat(200), None)).unwrap();
+    assert!(create_in_db(&db, category("over", &"😀".repeat(101), None)).is_err());
+    let long = "x".repeat(201);
+    db.execute(
+        "INSERT INTO categories (id,name) VALUES ('old-long',?1)",
+        [&long],
+    )
+    .unwrap();
+    rename_in_db(&mut db, "old-long".into(), long.clone()).unwrap();
+    assert!(rename_in_db(&mut db, "old-long".into(), format!("{long}x")).is_err());
+}
+
+#[test]
 fn creates_and_deletes_only_unused_categories_with_one_level_of_children() {
     let mut db = database();
     create_in_db(&db, category("root", "Maison", None)).unwrap();

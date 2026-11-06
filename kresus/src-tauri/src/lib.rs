@@ -7,6 +7,7 @@ mod money_import;
 mod schedules;
 #[cfg(test)]
 mod test_support;
+mod text_limits;
 mod transactions;
 
 use database::{AppState, initialize_database};

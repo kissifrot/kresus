@@ -1,3 +1,4 @@
+import { TEXT_NAME_LIMIT } from "./text-limits";
 import { invoke } from "@tauri-apps/api/core";
 import type { Category, Schedule, Transaction } from "./types";
 import { categories, selectedAccount, setCategories, setSchedules, setTransactions } from "./state";
@@ -47,7 +48,7 @@ export function renderCategories() {
               .join("")}`,
         )
         .join("") || '<p class="category-empty">Aucune catégorie.</p>'
-    }</section><p class="category-message" role="alert"></p><dialog id="category-dialog"><form id="category-form"><div class="dialog-heading"><h2></h2><button type="button" class="dialog-close category-close" aria-label="Fermer">×</button></div><label class="category-name-label">Nom<input name="name" maxlength="80"></label><label class="category-parent-label">Catégorie principale<select name="parent"><option value="">Aucune — catégorie principale</option>${roots.map((root) => `<option value="${escapeHtml(root.id)}">${escapeHtml(root.name)}</option>`).join("")}</select></label><label class="category-target-label">Fusionner vers<select name="target"></select></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button category-close">Annuler</button><button type="submit" class="primary-button">Enregistrer</button></div></form></dialog>`;
+    }</section><p class="category-message" role="alert"></p><dialog id="category-dialog"><form id="category-form"><div class="dialog-heading"><h2></h2><button type="button" class="dialog-close category-close" aria-label="Fermer">×</button></div><label class="category-name-label">Nom<input name="name" maxlength="${TEXT_NAME_LIMIT}"></label><label class="category-parent-label">Catégorie principale<select name="parent"><option value="">Aucune — catégorie principale</option>${roots.map((root) => `<option value="${escapeHtml(root.id)}">${escapeHtml(root.name)}</option>`).join("")}</select></label><label class="category-target-label">Fusionner vers<select name="target"></select></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button category-close">Annuler</button><button type="submit" class="primary-button">Enregistrer</button></div></form></dialog>`;
   const dialog = document.querySelector<HTMLDialogElement>("#category-dialog")!;
   const form = document.querySelector<HTMLFormElement>("#category-form")!;
   let mode: "create" | "rename" | "merge" = "create";

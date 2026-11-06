@@ -47,6 +47,8 @@ struct MoneySchedule {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MoneyOperation {
+    #[serde(default)]
+    reference: Option<String>,
     id: i64,
     account_id: i64,
     date: String,
@@ -306,7 +308,7 @@ fn import_into_database(
     }
     for op in &preview.operations {
         if selected.contains_key(&op.account_id) {
-            tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![format!("money-transaction-{}",op.id),format!("money-account-{}",op.account_id),op.date,op.label.trim(),op.category.trim(),op.amount,op.reconciled,op.note.trim()]).map_err(database_error)?;
+            tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note,reference) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![format!("money-transaction-{}",op.id),format!("money-account-{}",op.account_id),op.date,op.label.trim(),op.category.trim(),op.amount,op.reconciled,op.note.trim(),op.reference.as_deref().map(str::trim)]).map_err(database_error)?;
         }
     }
     for transfer in &preview.transfers {
@@ -450,6 +452,44 @@ mod tests {
 
     fn fixture() -> MoneyPreview {
         serde_json::from_str(r#"{"accounts":[{"id":1,"name":"Compte","openingBalance":100000,"balance":87500,"count":2}],"categories":[{"id":3,"name":"Maison","parentId":null},{"id":4,"name":"Charges","parentId":3}],"operations":[{"id":1,"accountId":1,"date":"2026-01-01","label":"Loyer","category":"Maison · Charges","amount":-10000,"reconciled":false,"note":""},{"id":2,"accountId":1,"date":"2026-01-02","label":"Achat","category":"Divers","amount":-2500,"reconciled":true,"note":"Référence Money : 1Carte"}],"warnings":[]}"#).unwrap()
+    }
+
+    #[test]
+    fn import_keeps_names_and_payees_longer_than_the_manual_entry_limit() {
+        let mut preview = fixture();
+        let long = "é".repeat(201);
+        preview.accounts[0].name = long.clone();
+        preview.categories[0].name = long.clone();
+        preview.operations[0].label = long.clone();
+        let mut db = Connection::open_in_memory().unwrap();
+        import_into_database(
+            &mut db,
+            &preview,
+            &[MoneySelection {
+                id: 1,
+                kind: "Épargne".into(),
+            }],
+        )
+        .unwrap();
+        for (table, id) in [
+            ("accounts", "money-account-1"),
+            ("categories", "money-cat-3"),
+            ("transactions", "money-transaction-1"),
+        ] {
+            let column = if table == "transactions" {
+                "label"
+            } else {
+                "name"
+            };
+            let stored: String = db
+                .query_row(
+                    &format!("SELECT {column} FROM {table} WHERE id=?1"),
+                    [id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(stored, long);
+        }
     }
 
     #[test]
@@ -613,6 +653,7 @@ mod tests {
         });
         preview.operations.extend([
             MoneyOperation {
+                reference: None,
                 id: 10,
                 account_id: 1,
                 date: "2026-02-01".into(),
@@ -623,6 +664,7 @@ mod tests {
                 note: "Débit".into(),
             },
             MoneyOperation {
+                reference: None,
                 id: 11,
                 account_id: 2,
                 date: "2026-02-01".into(),
@@ -633,6 +675,7 @@ mod tests {
                 note: "Crédit".into(),
             },
             MoneyOperation {
+                reference: None,
                 id: 12,
                 account_id: 2,
                 date: "2026-03-01".into(),
@@ -643,6 +686,7 @@ mod tests {
                 note: "".into(),
             },
             MoneyOperation {
+                reference: None,
                 id: 13,
                 account_id: 1,
                 date: "2026-03-01".into(),
@@ -680,6 +724,34 @@ mod tests {
     }
 
     #[test]
+    fn imports_references_independently_of_notes_cheques_and_transfer_sides() {
+        let mut preview = posted_transfer_fixture();
+        preview.operations[0].reference = Some("0      200001".into());
+        preview.operations[0].note = "Une note".into();
+        preview
+            .operations
+            .iter_mut()
+            .find(|op| op.id == 10)
+            .unwrap()
+            .reference = Some("0   100000001".into());
+        let mut db = Connection::open_in_memory().unwrap();
+        import_into_database(&mut db, &preview, &both_accounts()).unwrap();
+        let values: (Option<String>, Option<String>, Option<String>) = db
+            .query_row(
+                "SELECT reference,note,cheque FROM transactions WHERE id='money-transaction-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            values,
+            (Some("0      200001".into()), Some("Une note".into()), None)
+        );
+        let pair: (Option<String>, Option<String>) = db.query_row("SELECT d.reference,c.reference FROM transfers t JOIN transactions d ON d.id=t.debit_id JOIN transactions c ON c.id=t.credit_id WHERE t.id='money-transfer-10-11'", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(pair, (Some("0   100000001".into()), None));
+    }
+
+    #[test]
     fn synthetic_posted_transfers_preserve_both_operations_and_balances() {
         let mut db = Connection::open_in_memory().unwrap();
         import_into_database(&mut db, &posted_transfer_fixture(), &both_accounts()).unwrap();
@@ -705,6 +777,8 @@ mod tests {
         crate::transactions::update_transfer_in_db(
             &mut db,
             crate::transactions::NewTransfer {
+                debit_reference: None,
+                credit_reference: None,
                 id: "money-transfer-10-11".into(),
                 source_id: "money-account-1".into(),
                 destination_id: "money-account-2".into(),
