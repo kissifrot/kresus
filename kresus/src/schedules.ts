@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { confirmAction } from "./confirmation";
 import type { Account, Schedule, CalendarOccurrence } from "./types";
 import { accounts, schedules, selectedAccount, setAccounts, setSchedules } from "./state";
-import { euro, escapeHtml, parsePositiveCents, centsInput } from "./format";
+import { euro, amountWithoutCurrency, escapeHtml, parsePositiveCents, centsInput } from "./format";
 import { render } from "./accounts";
 import { categoryOptions } from "./categories";
 import { loadPayeeSuggestions } from "./payees";
@@ -135,7 +135,7 @@ function renderScheduleView(showOverdue: boolean) {
         const credit = items
           .filter((item) => item.kind === "credit")
           .reduce((sum, item) => sum + item.amount, 0);
-        return `<tr><th scope="row"><button type="button" class="annual-month" data-annual-month="${index}">${label}</button></th><td>${items.length}</td><td>${euro(debit)}</td><td>${euro(credit)}</td><td>${items.map((item) => `<button type="button" class="annual-occurrence" ${item.projected ? `data-edit-future="${escapeHtml(item.id)}" data-original-due="${escapeHtml(item.originalDue!)}"` : `data-edit-schedule="${escapeHtml(item.id)}"`} title="${escapeHtml(item.label)}">${escapeHtml(item.nextDue.slice(-2))} · ${escapeHtml(item.label)}${item.projected ? " (prévision)" : ""}</button>`).join("<br>") || "—"}</td></tr>`;
+        return `<tr><th scope="row"><button type="button" class="annual-month" data-annual-month="${index}">${label}</button></th><td>${items.length}</td><td>${amountWithoutCurrency(debit)}</td><td>${amountWithoutCurrency(credit)}</td><td>${items.map((item) => `<button type="button" class="annual-occurrence" ${item.projected ? `data-edit-future="${escapeHtml(item.id)}" data-original-due="${escapeHtml(item.originalDue!)}"` : `data-edit-schedule="${escapeHtml(item.id)}"`} title="${escapeHtml(item.label)}">${escapeHtml(item.nextDue.slice(-2))} · ${escapeHtml(item.label)}${item.projected ? " (prévision)" : ""}</button>`).join("<br>") || "—"}</td></tr>`;
       }).join("")
     : "";
   const totalDue = monthSchedules
@@ -147,7 +147,7 @@ function renderScheduleView(showOverdue: boolean) {
     <div class="schedule-view-switch"><button type="button" class="secondary-button" id="schedule-month-view" aria-pressed="${!annualView}">Mois</button><button type="button" class="secondary-button" id="schedule-year-view" aria-pressed="${annualView}">Année</button></div>
     ${
       annualView
-        ? `<section class="annual-schedules"><div class="annual-toolbar"><button id="previous-year" class="secondary-button" aria-label="Année précédente">‹</button><h2>${year}</h2><button id="next-year" class="secondary-button" aria-label="Année suivante">›</button></div><div class="table-wrap"><table><thead><tr><th>Mois</th><th>Échéances</th><th>Débits</th><th>Crédits</th><th>Détail</th></tr></thead><tbody>${annualRows}</tbody></table></div><p>Les virements sont comptés dans les échéances et exclus des totaux de débits et crédits. Cliquez sur un mois pour le consulter.</p></section>`
+        ? `<section class="annual-schedules"><div class="annual-toolbar"><button id="previous-year" class="secondary-button" aria-label="Année précédente">‹</button><h2>${year}</h2><button id="next-year" class="secondary-button" aria-label="Année suivante">›</button></div><div class="table-wrap"><table><thead><tr><th>Mois</th><th>Échéances</th><th>Débits (€)</th><th>Crédits (€)</th><th>Détail</th></tr></thead><tbody>${annualRows}</tbody></table></div><p>Les virements sont comptés dans les échéances et exclus des totaux de débits et crédits. Cliquez sur un mois pour le consulter.</p></section>`
         : `<section class="schedules-workspace"><div class="calendar-panel"><div class="calendar-toolbar"><button id="previous-month" aria-label="Mois précédent">‹</button><h2>${monthLabel}</h2><button id="current-month">Aujourd’hui</button><button id="next-month" aria-label="Mois suivant">›</button></div><div class="calendar-weekdays">${days.map((day) => `<span>${day}</span>`).join("")}</div><div class="calendar-grid">${cells}</div></div><div class="schedule-list-panel"><div class="schedule-list-heading"><div><h2>${showOverdue ? "Échéances en retard" : "Échéances du mois"}</h2><p>${displayedSchedules.length} échéance${displayedSchedules.length === 1 ? "" : "s"} ${showOverdue ? "en retard" : "planifiées"}</p></div>${showOverdue ? '<button id="back-to-month" class="secondary-button">Retour au mois</button>' : ""}</div><div class="schedule-list">${
             displayedSchedules
               .map((schedule) => {

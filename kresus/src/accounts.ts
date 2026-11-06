@@ -9,7 +9,7 @@ import {
   setSchedules,
   setCategories,
 } from "./state";
-import { euro, registerAmount, dateLabel, escapeHtml, parseCents, localDate } from "./format";
+import { euro, amountWithoutCurrency, dateLabel, escapeHtml, parseCents, localDate } from "./format";
 import {
   transactionFilter,
   transactionFilters,
@@ -101,7 +101,7 @@ export function render() {
             rows
               .map(
                 (transaction) => `
-            <tr data-transaction="${escapeHtml(transaction.id)}" tabindex="0" title="Appuyez sur Entrée pour modifier l’opération"><td class="date-cell">${dateLabel(transaction.date)}</td><td class="cheque-cell">${transaction.cheque ?? "—"}</td><td><strong class="transaction-label">${escapeHtml(transaction.label)}</strong>${transaction.note ? `<small class="transaction-note">${escapeHtml(transaction.note)}</small>` : ""}</td><td><span class="category-pill">${escapeHtml(transaction.category)}</span></td><td class="center"><button class="reconcile ${transaction.reconciled ? "done" : "pending"}" data-reconcile="${transaction.id}" title="${transaction.reconciled ? "Marquer comme non pointée" : "Pointer l’opération"}">${transaction.reconciled ? "P" : "·"}</button></td><td class="amount debit">${transaction.amount < 0 ? registerAmount(Math.abs(transaction.amount)) : "—"}</td><td class="amount credit">${transaction.amount > 0 ? registerAmount(transaction.amount) : "—"}</td><td class="amount running-balance">${registerAmount(transaction.runningBalance)}</td><td><button type="button" class="row-delete" data-delete="${escapeHtml(transaction.id)}" title="Supprimer l’opération" aria-label="Supprimer ${escapeHtml(transaction.label)}">Supprimer</button></td></tr>`,
+            <tr data-transaction="${escapeHtml(transaction.id)}" tabindex="0" title="Appuyez sur Entrée pour modifier l’opération"><td class="date-cell">${dateLabel(transaction.date)}</td><td class="cheque-cell">${transaction.cheque ?? "—"}</td><td><strong class="transaction-label">${escapeHtml(transaction.label)}</strong>${transaction.note ? `<small class="transaction-note">${escapeHtml(transaction.note)}</small>` : ""}</td><td><span class="category-pill">${escapeHtml(transaction.category)}</span></td><td class="center"><button class="reconcile ${transaction.reconciled ? "done" : "pending"}" data-reconcile="${transaction.id}" title="${transaction.reconciled ? "Marquer comme non pointée" : "Pointer l’opération"}">${transaction.reconciled ? "P" : "·"}</button></td><td class="amount debit">${transaction.amount < 0 ? amountWithoutCurrency(Math.abs(transaction.amount)) : "—"}</td><td class="amount credit">${transaction.amount > 0 ? amountWithoutCurrency(transaction.amount) : "—"}</td><td class="amount running-balance">${amountWithoutCurrency(transaction.runningBalance)}</td><td><button type="button" class="row-delete" data-delete="${escapeHtml(transaction.id)}" title="Supprimer l’opération" aria-label="Supprimer ${escapeHtml(transaction.label)}">Supprimer</button></td></tr>`,
               )
               .join("") ||
             `<tr><td colspan="9" class="empty-row">Aucune opération ne correspond à ce filtre.</td></tr>`
