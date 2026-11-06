@@ -238,7 +238,19 @@ fn update_future_in_db(
         return Err("Date d’échéance invalide.".into());
     }
     // Validate the original date against the recurrence and its remaining limit.
-    let eligible: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM schedules s JOIN schedule_anchors a ON a.schedule_id=s.id LEFT JOIN schedule_limits l ON l.schedule_id=s.id WHERE s.id=?1 AND length(?2)=10 AND date(?2,'+0 days')=?2 AND ?2>s.next_due AND (l.end_date IS NULL OR ?2<=l.end_date) AND ((CAST(strftime('%Y',?2) AS INTEGER)-CAST(strftime('%Y',s.next_due) AS INTEGER))*12 + CAST(strftime('%m',?2) AS INTEGER)-CAST(strftime('%m',s.next_due) AS INTEGER)) % CASE s.frequency WHEN 'Mensuelle' THEN 1 WHEN 'Bimestrielle' THEN 2 WHEN 'Trimestrielle' THEN 3 WHEN 'Semestrielle' THEN 6 WHEN 'Annuelle' THEN 12 END = 0 AND (l.remaining_count IS NULL OR ((CAST(strftime('%Y',?2) AS INTEGER)-CAST(strftime('%Y',s.next_due) AS INTEGER))*12 + CAST(strftime('%m',?2) AS INTEGER)-CAST(strftime('%m',s.next_due) AS INTEGER)) / CASE s.frequency WHEN 'Mensuelle' THEN 1 WHEN 'Bimestrielle' THEN 2 WHEN 'Trimestrielle' THEN 3 WHEN 'Semestrielle' THEN 6 WHEN 'Annuelle' THEN 12 END < l.remaining_count) AND CAST(strftime('%d',?2) AS INTEGER)=MIN(a.anchor_day,CAST(strftime('%d',date(?2,'start of month','+1 month','-1 day')) AS INTEGER)))", params![schedule.id,original], |r|r.get(0)).map_err(database_error)?;
+    let bimonthly: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM schedules WHERE id=?1 AND frequency='Bimensuelle')",
+            [&schedule.id],
+            |row| row.get(0),
+        )
+        .map_err(database_error)?;
+    let eligible: bool = if bimonthly {
+        // Count each half-month separately so limits and moved occurrences stay consistent.
+        db.query_row("SELECT EXISTS(SELECT 1 FROM schedules s LEFT JOIN schedule_limits l ON l.schedule_id=s.id WHERE s.id=?1 AND length(?2)=10 AND date(?2,'+0 days')=?2 AND ?2>s.next_due AND (l.end_date IS NULL OR ?2<=l.end_date) AND (strftime('%d',?2)='15' OR ?2=date(?2,'start of month','+1 month','-1 day')) AND (l.remaining_count IS NULL OR 2*((CAST(strftime('%Y',?2) AS INTEGER)-CAST(strftime('%Y',s.next_due) AS INTEGER))*12+CAST(strftime('%m',?2) AS INTEGER)-CAST(strftime('%m',s.next_due) AS INTEGER)) + CASE WHEN strftime('%d',?2)='15' THEN 0 ELSE 1 END - CASE WHEN strftime('%d',s.next_due)='15' THEN 0 ELSE 1 END < l.remaining_count))", params![schedule.id,original], |r|r.get(0)).map_err(database_error)?
+    } else {
+        db.query_row("SELECT EXISTS(SELECT 1 FROM schedules s JOIN schedule_anchors a ON a.schedule_id=s.id LEFT JOIN schedule_limits l ON l.schedule_id=s.id WHERE s.id=?1 AND length(?2)=10 AND date(?2,'+0 days')=?2 AND ?2>s.next_due AND (l.end_date IS NULL OR ?2<=l.end_date) AND ((CAST(strftime('%Y',?2) AS INTEGER)-CAST(strftime('%Y',s.next_due) AS INTEGER))*12 + CAST(strftime('%m',?2) AS INTEGER)-CAST(strftime('%m',s.next_due) AS INTEGER)) % CASE s.frequency WHEN 'Mensuelle' THEN 1 WHEN 'Bimestrielle' THEN 2 WHEN 'Trimestrielle' THEN 3 WHEN 'Semestrielle' THEN 6 WHEN 'Annuelle' THEN 12 END = 0 AND (l.remaining_count IS NULL OR ((CAST(strftime('%Y',?2) AS INTEGER)-CAST(strftime('%Y',s.next_due) AS INTEGER))*12 + CAST(strftime('%m',?2) AS INTEGER)-CAST(strftime('%m',s.next_due) AS INTEGER)) / CASE s.frequency WHEN 'Mensuelle' THEN 1 WHEN 'Bimestrielle' THEN 2 WHEN 'Trimestrielle' THEN 3 WHEN 'Semestrielle' THEN 6 WHEN 'Annuelle' THEN 12 END < l.remaining_count) AND CAST(strftime('%d',?2) AS INTEGER)=MIN(a.anchor_day,CAST(strftime('%d',date(?2,'start of month','+1 month','-1 day')) AS INTEGER)))", params![schedule.id,original], |r|r.get(0)).map_err(database_error)?
+    };
     if !eligible {
         return Err("Cette occurrence future n’appartient pas à la série.".into());
     }
@@ -325,7 +337,12 @@ pub(crate) fn save_schedule_in_db(
     }
     if !matches!(
         schedule.frequency.as_str(),
-        "Mensuelle" | "Bimestrielle" | "Trimestrielle" | "Semestrielle" | "Annuelle"
+        "Mensuelle"
+            | "Bimensuelle"
+            | "Bimestrielle"
+            | "Trimestrielle"
+            | "Semestrielle"
+            | "Annuelle"
     ) {
         return Err("Périodicité invalide.".into());
     }
@@ -357,6 +374,18 @@ pub(crate) fn save_schedule_in_db(
         return Err("Date d’échéance invalide.".into());
     }
     if scope != Some("occurrence") {
+        // This cadence uses the two dates verified against Money.
+        if schedule.frequency == "Bimensuelle" {
+            let valid_day: bool = connection.query_row(
+                "SELECT strftime('%d',?1)='15' OR ?1=date(?1,'start of month','+1 month','-1 day')",
+                [&schedule.next_due], |row| row.get(0),
+            ).map_err(database_error)?;
+            if !valid_day {
+                return Err(
+                    "Une échéance bimensuelle commence le 15 ou le dernier jour du mois.".into(),
+                );
+            }
+        }
         if schedule
             .remaining_count
             .is_some_and(|count| count <= 0 || count > 100_000)
@@ -533,10 +562,12 @@ pub(crate) fn record_schedule_in_db(
     ).map_err(database_error)?;
     }
     tx.execute(
-        "UPDATE schedules SET next_due = (
+        "UPDATE schedules SET next_due = CASE WHEN frequency='Bimensuelle' THEN
+          CASE WHEN strftime('%d',next_due)='15' THEN date(next_due,'start of month','+1 month','-1 day') ELSE date(next_due,'start of month','+1 month','+14 days') END
+        ELSE (
           SELECT date(target_month, printf('+%d days', MIN(anchor_day, CAST(strftime('%d', date(target_month, '+1 month', '-1 day')) AS INTEGER)) - 1))
           FROM (SELECT date(schedules.next_due, 'start of month', CASE schedules.frequency WHEN 'Mensuelle' THEN '+1 month' WHEN 'Bimestrielle' THEN '+2 months' WHEN 'Trimestrielle' THEN '+3 months' WHEN 'Semestrielle' THEN '+6 months' WHEN 'Annuelle' THEN '+12 months' END) AS target_month), schedule_anchors WHERE schedule_id = schedules.id
-        ) WHERE id = ?1",
+        ) END WHERE id = ?1",
         [id],
     ).map_err(database_error)?;
     // Never reuse a cheque number on the next occurrence.

@@ -493,7 +493,8 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
     throw new Error("La restauration invalide a modifié la base active.");
   console.log("Restauration invalide : erreur affichée, fichiers et données préservés.");
   // Copy the fixture into the disposable directory and never alter the original.
-  const sample = process.env.KRESUS_MONEY_SAMPLE ?? resolve(root, "../references/Money.mny");
+  const sample =
+    process.env.KRESUS_MONEY_SAMPLE ?? resolve(root, "tests/fixtures/money-reference.mny");
   if (existsSync(sample)) {
     const moneyPath = join(temp, "money-sample.mny");
     copyFileSync(sample, moneyPath);
@@ -537,36 +538,13 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
         (await text(".balance-card")).replace(/\s/g, "").includes("3491,55"),
       "Import Money natif",
     );
-    const verified = spawnSync(
-      "python3",
-      [
-        "-c",
-        `import sqlite3,sys
-c=sqlite3.connect(sys.argv[1])
-a=c.execute("SELECT name, opening_balance_cents FROM accounts ORDER BY name").fetchall()
-t=c.execute("SELECT amount_cents FROM transactions ORDER BY amount_cents").fetchall()
-n=c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetchone()[0]
-s=c.execute("SELECT next_due,frequency,amount_cents FROM schedules ORDER BY next_due,id").fetchall()
-pair = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-9-10'").fetchone()
-assert pair == (-10000,1,10000,0), pair
-pair2 = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-17-16'").fetchone()
-assert pair2 == (-10000,0,10000,1), pair2
-pair3 = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-19-20'").fetchone()
-assert pair3 == (-10000,0,10000,1), pair3
-assert c.execute("SELECT count(*) FROM transactions WHERE id IN ('money-transaction-18','money-transaction-23')").fetchone() == (2,)
-assert c.execute("SELECT anchor_day FROM schedule_anchors WHERE schedule_id='money-schedule-7'").fetchone() == (6,)
-assert c.execute("SELECT payment_method FROM schedules WHERE id='money-schedule-3'").fetchone() == (None,)
-limits=c.execute("SELECT schedule_id,end_date,remaining_count FROM schedule_limits WHERE end_date IS NOT NULL ORDER BY schedule_id").fetchall()
-assert limits == [('money-schedule-3','2027-08-04',None),('money-schedule-4','2027-03-19',None),('money-schedule-7','2026-12-06',None)], limits
-assert a == [('Compte courant',100000),('Livret A',200000)] and t == [(-364155,),(-22500,),(-20000,),(-20000,),(-10000,),(-10000,),(-10000,),(-10000,),(-2500,),(10000,),(10000,),(10000,)] and n == 138 and s == [('2026-10-31','Mensuelle',-12000),('2026-11-04','Mensuelle',20000),('2026-11-19','Mensuelle',30000),('2026-11-19','Bimestrielle',-20000),('2026-12-06','Mensuelle',-20000)], (a,t,n,s)`,
-        destination,
-      ],
-      { encoding: "utf8" },
-    );
+    const verified = spawnSync("python3", [join(root, "e2e/check_money_import.py"), destination], {
+      encoding: "utf8",
+    });
     if (verified.status !== 0) throw new Error(`Base Money native incorrecte : ${verified.stderr}`);
     console.log("Import Money natif : annulation, création et contenu SQLite vérifiés.");
   } else {
-    console.log("Sélection native Money ignorée : fichier de référence absent.");
+    throw new Error("Fichier Money de test introuvable.");
   }
 } finally {
   if (session)

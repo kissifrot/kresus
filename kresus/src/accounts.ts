@@ -9,7 +9,14 @@ import {
   setSchedules,
   setCategories,
 } from "./state";
-import { euro, amountWithoutCurrency, dateLabel, escapeHtml, parseCents, localDate } from "./format";
+import {
+  euro,
+  amountWithoutCurrency,
+  dateLabel,
+  escapeHtml,
+  parseCents,
+  localDate,
+} from "./format";
 import {
   transactionFilter,
   transactionFilters,

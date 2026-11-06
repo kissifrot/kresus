@@ -764,3 +764,54 @@ fn invalid_cheque_numbers_are_rejected_for_new_future_and_legacy_occurrences() {
         0
     );
 }
+
+#[test]
+fn twice_monthly_advances_through_leap_february_and_limits() {
+    for (year, last) in [(2027, "28"), (2028, "29")] {
+        let mut db = database();
+        let mut item = schedule(&format!("{year}-01-31"), "Bimensuelle");
+        item.remaining_count = Some(3);
+        save_schedule_in_db(&mut db, item, None).unwrap();
+        for (i, expected) in [format!("{year}-02-15"), format!("{year}-02-{last}")]
+            .iter()
+            .enumerate()
+        {
+            record_schedule_in_db(&mut db, "test-schedule", &format!("semi-{i}")).unwrap();
+            assert_eq!(&next_date(&db), expected);
+        }
+        record_schedule_in_db(&mut db, "test-schedule", "semi-last").unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM schedules WHERE id='test-schedule'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn twice_monthly_validates_dates_and_future_overrides_with_limits() {
+    let mut db = database();
+    assert!(save_schedule_in_db(&mut db, schedule("2028-02-14", "Bimensuelle"), None).is_err());
+    let mut item = schedule("2028-02-15", "Bimensuelle");
+    item.remaining_count = Some(2);
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    assert!(
+        update_future_in_db(&mut db, schedule("2028-02-28", "Bimensuelle"), "2028-02-29").is_ok()
+    );
+    assert!(
+        update_future_in_db(&mut db, schedule("2028-03-15", "Bimensuelle"), "2028-03-15").is_err()
+    );
+    record_schedule_in_db(&mut db, "test-schedule", "first-half").unwrap();
+    let due: String = db
+        .query_row(
+            "SELECT due_date FROM schedule_overrides WHERE schedule_id='test-schedule'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(due, "2028-02-28");
+}

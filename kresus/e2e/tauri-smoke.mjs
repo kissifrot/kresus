@@ -33,10 +33,8 @@ const port = await freePort();
 let nativePort = await freePort();
 while (nativePort === port) nativePort = await freePort();
 const endpoint = `http://127.0.0.1:${port}`;
-const defaultMoneySample = resolve(root, "../references/Money.mny");
-const moneySample =
-  process.env.KRESUS_MONEY_SAMPLE ??
-  (existsSync(defaultMoneySample) ? defaultMoneySample : undefined);
+const defaultMoneySample = resolve(root, "tests/fixtures/money-reference.mny");
+const moneySample = process.env.KRESUS_MONEY_SAMPLE ?? defaultMoneySample;
 const moneyDestination = join(temp, "import.sqlite3");
 const executable = process.env.TAURI_DRIVER || "tauri-driver";
 const driver = spawn(executable, ["--port", String(port), "--native-port", String(nativePort)], {
@@ -1086,9 +1084,10 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
       !preview.includes("138 catégories") ||
       !preview.replace(/\s/g, "").includes("3491,55") ||
       !preview.includes("9 opérations") ||
-      !preview.includes("5 échéances") ||
+      !preview.includes("9 échéances") ||
       !preview.includes("3 virements enregistrés") ||
-      !preview.includes("2 échéances ne seront pas importées")
+      preview.includes("ne sera pas importée") ||
+      preview.includes("ne seront pas importées")
     )
       throw new Error(`Aperçu Money incomplet : ${preview}`);
     await execute(
@@ -1097,10 +1096,11 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
     const schedulePreview = await text(".money-import-dialog");
     if (!schedulePreview.includes("04/08/2027") || !schedulePreview.includes("19/03/2027"))
       throw new Error("Dates de fin absentes de l’aperçu.");
-    await click(".money-warning details summary");
-    const skipped = await execute("return document.querySelector('.money-skipped-details').value");
-    if (!skipped.includes("Test périodicité trimestrielle") || !skipped.includes("périodicité"))
-      throw new Error("Détail des échéances non importées incomplet.");
+    if (
+      !schedulePreview.includes("Test périodicité trimestrielle") ||
+      !schedulePreview.includes("Orange bimensuel")
+    )
+      throw new Error("Échéances trimestrielle ou bimensuelle absentes de l’aperçu.");
     if (existsSync(destination)) throw new Error("La base de destination existe avant l’import.");
     // Importing only one side must fail without leaving a new database behind.
     await execute(
@@ -1130,28 +1130,7 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
     );
     const verification = spawnSync(
       "python3",
-      [
-        "-c",
-        `import sqlite3, sys
-c = sqlite3.connect(sys.argv[1])
-a = c.execute("SELECT name, opening_balance_cents FROM accounts ORDER BY name").fetchall()
-t = c.execute("SELECT amount_cents FROM transactions ORDER BY amount_cents").fetchall()
-n = c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetchone()[0]
-s = c.execute("SELECT next_due, frequency, amount_cents FROM schedules ORDER BY next_due,id").fetchall()
-pair = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-9-10'").fetchone()
-assert pair == (-10000,1,10000,0), pair
-pair2 = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-17-16'").fetchone()
-assert pair2 == (-10000,0,10000,1), pair2
-pair3 = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-19-20'").fetchone()
-assert pair3 == (-10000,0,10000,1), pair3
-assert c.execute("SELECT count(*) FROM transactions WHERE id IN ('money-transaction-18','money-transaction-23')").fetchone() == (2,)
-assert c.execute("SELECT anchor_day FROM schedule_anchors WHERE schedule_id='money-schedule-7'").fetchone() == (6,)
-assert c.execute("SELECT payment_method FROM schedules WHERE id='money-schedule-3'").fetchone() == (None,)
-limits=c.execute("SELECT schedule_id,end_date,remaining_count FROM schedule_limits WHERE end_date IS NOT NULL ORDER BY schedule_id").fetchall()
-assert limits == [('money-schedule-3','2027-08-04',None),('money-schedule-4','2027-03-19',None),('money-schedule-7','2026-12-06',None)], limits
-assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-364155,), (-22500,), (-20000,), (-20000,), (-10000,), (-10000,), (-10000,), (-10000,), (-2500,), (10000,), (10000,), (10000,)] and n == 138 and s == [("2026-10-31", "Mensuelle", -12000), ("2026-11-04", "Mensuelle", 20000), ("2026-11-19", "Mensuelle", 30000), ("2026-11-19", "Bimestrielle", -20000), ("2026-12-06", "Mensuelle", -20000)], (a, t, n, s)`,
-        destination,
-      ],
+      [join(root, "e2e/check_money_import.py"), destination],
       { encoding: "utf8" },
     );
     if (verification.status !== 0)

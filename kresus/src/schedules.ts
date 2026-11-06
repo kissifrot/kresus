@@ -23,17 +23,24 @@ function occurrencesForMonth(schedule: Schedule, monthKey: string): CalendarOccu
     Annuelle: 12,
   };
   const step = months[schedule.frequency];
-  if (!step) return result;
+  if (!step && schedule.frequency !== "Bimensuelle") return result;
   const current = new Date(`${schedule.series.nextDue}T00:00:00Z`);
   const targetEnd = `${monthKey}-31`;
   let occurrenceIndex = 1;
   while (current.toISOString().slice(0, 10) <= targetEnd) {
-    current.setUTCDate(1);
-    current.setUTCMonth(current.getUTCMonth() + step);
+    // Money’s observed twice-monthly cadence alternates the 15th and month end.
+    if (schedule.frequency === "Bimensuelle") {
+      if (current.getUTCDate() === 15) current.setUTCMonth(current.getUTCMonth() + 1, 0);
+      else current.setUTCMonth(current.getUTCMonth() + 1, 15);
+    } else {
+      current.setUTCDate(1);
+      current.setUTCMonth(current.getUTCMonth() + step!);
+    }
     const lastDay = new Date(
       Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + 1, 0),
     ).getUTCDate();
-    current.setUTCDate(Math.min(schedule.series.anchorDay, lastDay));
+    if (schedule.frequency !== "Bimensuelle")
+      current.setUTCDate(Math.min(schedule.series.anchorDay, lastDay));
     const date = current.toISOString().slice(0, 10);
     occurrenceIndex++;
     // Limits refer to the original series dates, even if the pending occurrence was moved.
@@ -179,7 +186,7 @@ function renderScheduleView(showOverdue: boolean) {
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label></div>
         <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label></div>
         <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" required></label>
-        <label>Périodicité<select name="frequency"><option>Mensuelle</option><option>Bimestrielle</option><option>Trimestrielle</option><option>Semestrielle</option><option>Annuelle</option></select></label></div>
+        <label>Périodicité<select name="frequency"><option>Mensuelle</option><option value="Bimensuelle">Bimensuelle (15 et fin de mois)</option><option>Bimestrielle</option><option>Trimestrielle</option><option>Semestrielle</option><option>Annuelle</option></select></label></div>
         <div class="schedule-limit"><label>Fin de la série<select name="limitType"><option value="none">Sans limite</option><option value="count">Nombre d’occurrences</option><option value="date">Date de fin</option></select></label>
         <label class="schedule-count" hidden>Occurrences restantes (échéance actuelle comprise)<input name="remainingCount" type="number" min="1" max="100000" step="1"></label>
         <label class="schedule-end" hidden>Date de fin incluse<input name="endDate" type="date"></label></div>

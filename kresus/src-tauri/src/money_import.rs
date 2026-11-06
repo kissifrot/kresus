@@ -364,8 +364,21 @@ fn import_into_database(
         {
             return Err("Méthode de paiement Money invalide.".into());
         }
-        if !matches!(schedule.frequency.as_str(), "Mensuelle" | "Bimestrielle") {
+        if !matches!(
+            schedule.frequency.as_str(),
+            "Mensuelle" | "Bimensuelle" | "Bimestrielle" | "Trimestrielle"
+        ) {
             return Err("Périodicité Money non prise en charge.".into());
+        }
+        // Reject an invalid twice-monthly phase even if a preview was altered.
+        if schedule.frequency == "Bimensuelle" {
+            let valid: bool = tx.query_row(
+                "SELECT COALESCE(strftime('%d',?1)='15' OR ?1=date(?1,'start of month','+1 month','-1 day'),0)",
+                [&schedule.next_due], |r| r.get(0),
+            ).map_err(database_error)?;
+            if !valid {
+                return Err("Date d’échéance bimensuelle invalide.".into());
+            }
         }
         if schedule
             .remaining_count
@@ -836,6 +849,92 @@ mod tests {
             )
             .unwrap(),
             1
+        );
+    }
+
+    #[test]
+    fn imported_twice_monthly_transfer_creates_linked_entries_and_advances() {
+        let mut preview = fixture();
+        preview.accounts.push(MoneyAccount {
+            id: 2,
+            name: "Livret".into(),
+            opening_balance: 0,
+            balance: 0,
+            count: 0,
+        });
+        preview.schedules.push(MoneySchedule {
+            id: 9,
+            account_id: 1,
+            destination_account_id: Some(2),
+            label: "Orange bimensuel".into(),
+            category: "Divers".into(),
+            next_due: "2026-10-15".into(),
+            frequency: "Bimensuelle".into(),
+            amount: -10000,
+            kind: "transfer".into(),
+            payment_method: None,
+            anchor_day: Some(15),
+            remaining_count: None,
+            end_date: None,
+        });
+        let mut db = Connection::open_in_memory().unwrap();
+        import_into_database(&mut db, &preview, &both_accounts()).unwrap();
+        crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "semi-transfer")
+            .unwrap();
+        let result: (String, i64, i64, i64) = db.query_row("SELECT next_due, (SELECT amount_cents FROM transactions WHERE id='semi-transfer-debit'), (SELECT amount_cents FROM transactions WHERE id='semi-transfer-credit'), (SELECT count(*) FROM transfers WHERE id='semi-transfer') FROM schedules WHERE id='money-schedule-9'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+        assert_eq!(result, ("2026-10-31".into(), -10000, 10000, 1));
+        crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "semi-next").unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT next_due FROM schedules WHERE id='money-schedule-9'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "2026-11-15"
+        );
+        preview.schedules[0].next_due = "2026-10-16".into();
+        let mut invalid = Connection::open_in_memory().unwrap();
+        assert!(import_into_database(&mut invalid, &preview, &both_accounts()).is_err());
+    }
+
+    #[test]
+    fn imported_quarterly_debit_advances_by_three_months() {
+        let mut preview = fixture();
+        preview.schedules.push(MoneySchedule {
+            id: 9,
+            account_id: 1,
+            destination_account_id: None,
+            label: "Trimestrielle".into(),
+            category: "Divers".into(),
+            next_due: "2026-11-06".into(),
+            frequency: "Trimestrielle".into(),
+            amount: -10000,
+            kind: "debit".into(),
+            payment_method: Some("cheque".into()),
+            anchor_day: Some(6),
+            remaining_count: None,
+            end_date: None,
+        });
+        let mut db = Connection::open_in_memory().unwrap();
+        import_into_database(
+            &mut db,
+            &preview,
+            &[MoneySelection {
+                id: 1,
+                kind: "Compte courant".into(),
+            }],
+        )
+        .unwrap();
+        crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "quarterly-first")
+            .unwrap();
+        let result: (String, String, i64) = db.query_row(
+            "SELECT frequency, next_due, (SELECT amount_cents FROM transactions WHERE id='quarterly-first') FROM schedules WHERE id='money-schedule-9'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(
+            result,
+            ("Trimestrielle".into(), "2027-02-06".into(), -10000)
         );
     }
 

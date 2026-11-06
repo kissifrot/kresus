@@ -21,9 +21,9 @@ Cette checklist rassemble ce qu’il reste à observer dans Money pour poursuivr
 
 ### 1. Dates réelles des échéances Orange et EDF
 
-Les libellés Money « Bimensuelle » pour Orange et « Bimestrielle » pour EDF ont été observés. Une projection avait été confirmée, mais les deux occurrences Orange en retard observées ensuite ne concordent pas avec elle. L’import de cette fréquence Orange est donc suspendu. Il faut relever les dates effectivement attribuées à chaque série, sans supposer leur intervalle.
+Les captures du 6 novembre attribuent à Orange les 15 et 31 octobre, les 15 et 30 novembre et le 15 décembre 2026. Money indique deux occurrences en retard. Kresus gère désormais le 15 et la fin du mois et importe cette série de virement non commencée et sans limite. Ces dates sont acquises ; il reste surtout à comprendre les autres jours de départ et les fins de février. Les captures antérieures désignent EDF comme « Bimestrielle ».
 
-Pour **Orange**, relever les deux occurrences manquantes ou en retard et au moins une date suivante si Money les affiche. Pour **EDF**, relever la prochaine date et les deux suivantes si possible. Pour chaque série :
+Pour compléter ces observations, si l’occasion se présente, relever les dates d’une série bimensuelle démarrant un autre jour et celles autour de février ; pour **EDF**, relever les deux dates suivant la prochaine si elles sont visibles. Pour chaque série :
 
 1. Capturer sa fiche ou sa ligne de synthèse avec son libellé, son montant, son compte, sa périodicité exacte et sa prochaine date. Pour Orange, montrer également le compte de destination du virement s’il est visible.
 2. Capturer la vue des retards ou la liste détaillée montrant les dates des occurrences concernées. Sélectionner chaque date utile dans le calendrier et capturer la liste des échéances de ce jour, avec le nom et le montant de la série visibles.
@@ -34,12 +34,12 @@ Pour **Orange**, relever les deux occurrences manquantes ou en retard et au moin
 
 | Série | Périodicité affichée | Dates attribuées à la série et état de chacune | Capture(s) / remarque |
 | --- | --- | --- | --- |
-| Orange | À relever | Deux retards, puis date suivante si visible | |
+| Orange | Bimensuelle | 15 et 31 octobre, 15 et 30 novembre, 15 décembre 2026 | Captures du 6 novembre : acquis |
 | EDF | À relever | Prochaine date, puis deux suivantes si visibles | |
 
 ### 2. Méthodes de paiement des échéances
 
-Créer une échéance fictive pour **chaque méthode proposée par cette version de Money**, notamment chèque, virement automatique, prélèvement et « autre » si ces choix existent. Une capture de la liste déroulante ouverte permettra de connaître les choix réellement proposés.
+La capture du 6 novembre montre les choix « Autre », « Par chèque » et « Prélèvement auto. » pour un débit ; des exemples de chèque et de prélèvement ont été créés. La synthèse regroupe ce dernier sous « Prélèvt/Virement auto. » : il reste à déterminer si Money permet de distinguer un virement automatique d’un prélèvement dans le fichier. Pour les autres types d’échéances, capturer les choix éventuellement différents et créer des exemples seulement si cela aide à lever cette ambiguïté.
 
 Autant que Money le permet, utiliser le même compte, montant, date de début, périodicité et catégorie ; donner à chaque échéance un destinataire distinct et explicite, par exemple `Test méthode chèque` ou `Test méthode prélèvement`. Si une méthode impose d’autres paramètres ou un autre type d’échéance, noter la différence.
 
@@ -55,7 +55,7 @@ Pour chaque exemple :
 
 ### 3. Autres périodicités proposées
 
-Capturer la liste déroulante des périodicités. Pour chaque périodicité supplémentaire proposée et pertinente, notamment la **trimestrielle**, créer une série fictive distincte avec un destinataire explicite. Conserver les autres paramètres identiques lorsque c’est possible.
+La série trimestrielle créée démarre le 6 novembre 2026 et apparaît le 6 février 2027 : ces observations sont acquises. Capturer la liste déroulante des périodicités si possible. Pour chaque périodicité supplémentaire proposée et pertinente, créer une série fictive distincte avec un destinataire explicite. Conserver les autres paramètres identiques lorsque c’est possible.
 
 Capturer la fiche après création et, pour chaque date visible, le détail du jour sélectionné dans le calendrier comme indiqué plus haut. Noter le libellé exact, la date de départ saisie, la prochaine date affichée et les deux ou trois dates suivantes **réellement visibles**. Si Money ne les montre pas, l’indiquer sans les déduire.
 

@@ -1,0 +1,5 @@
+# Microsoft Money files are binary and must not be shown as text diffs.
+*.mny binary
+*.MNY binary
+*.mbf binary
+*.MBF binary

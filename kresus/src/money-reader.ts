@@ -232,10 +232,29 @@ export function readMoneySchedules(
     const interval = Number(bill.cFrqInst);
     const frequency =
       bill.frq === 3
-        ? ({ 0.5: "Bimestrielle", 1: "Mensuelle" } as Record<number, string>)[interval]
-        : undefined;
-    // A limited series is accepted only when its two Money limits are consistent.
-    const endDate = verifiedScheduleLimit(bill.dt, bill.dtMax, bill.cInstMax, interval);
+        ? ({ 0.5: "Bimestrielle", 1: "Mensuelle", 2: "Bimensuelle" } as Record<number, string>)[
+            interval
+          ]
+        : bill.frq === 4 && interval === 1
+          ? "Trimestrielle"
+          : undefined;
+    // Money uses a separate frequency code for quarters; only the unlimited form was observed.
+    const months = frequency === "Trimestrielle" ? 3 : interval;
+    const endDate = verifiedScheduleLimit(bill.dt, bill.dtMax, bill.cInstMax, months);
+    // Only the 15th/month-end, unstarted and unlimited transfer was observed.
+    const verifiedTwiceMonthly =
+      frequency !== "Bimensuelle" ||
+      (endDate === null &&
+        bill.dt instanceof Date &&
+        bill.dt.getUTCDate() === 15 &&
+        bill.iinstNextUnpaid === 0 &&
+        source?.hacctLink != null);
+    const verifiedQuarterly =
+      frequency !== "Trimestrielle" ||
+      (endDate === null &&
+        source?.hacctLink == null &&
+        source?.amt != null &&
+        cents(source.amt) < 0);
     // The observed started series stores its first date and the index of the next unpaid occurrence.
     const unpaid = bill.iinstNextUnpaid;
     const started = Number.isInteger(unpaid) && unpaid > 0;
@@ -250,7 +269,7 @@ export function readMoneySchedules(
         cents(source.amt) < 0);
     const nextDue =
       validPosition && bill.dt instanceof Date && !Number.isNaN(bill.dt.getTime())
-        ? scheduleOccurrence(bill.dt, interval, unpaid)
+        ? scheduleOccurrence(bill.dt, months, unpaid)
         : "";
     if (
       !source ||
@@ -263,6 +282,8 @@ export function readMoneySchedules(
       bill.iinstLastSkipped !== -1 ||
       bill.cDaysAutoEnter !== -1 ||
       !frequency ||
+      !verifiedQuarterly ||
+      !verifiedTwiceMonthly ||
       source.frq !== bill.frq ||
       !accounts.some((a) => a.hacct === source.hacct) ||
       !(bill.dt instanceof Date)

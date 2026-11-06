@@ -29,7 +29,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils webkitgtk-webdriver xvfb xauth
 
       - name: Install Node.js
         uses: actions/setup-node@v7.1.0
@@ -70,6 +70,21 @@ jobs:
 
       - name: Database generator tests
         run: python -m unittest discover -s scripts/tests
+
+      # Exercise the real Linux WebView with disposable application data.
+      - name: Install Tauri WebDriver
+        if: runner.os == 'Linux'
+        run: cargo install tauri-driver --version 2.1.0 --locked
+
+      - name: Build debug application for WebDriver
+        if: runner.os == 'Linux'
+        run: yarn tauri build --debug --no-bundle --features e2e
+
+      - name: Run Tauri WebDriver smoke test
+        if: runner.os == 'Linux'
+        run: xvfb-run -a yarn test:e2e
+        env:
+          GDK_BACKEND: x11
 
       # Build installers only after tests; keep them as workflow artifacts, not releases.
       - name: Build Debian package

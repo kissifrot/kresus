@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Buffer } from "buffer";
 import {
@@ -94,6 +94,109 @@ describe("Money reader", () => {
       expect(result.schedules).toHaveLength(0);
       expect(result.skippedSchedules).toHaveLength(1);
       expect(result.skippedSchedules[0]).toContain("Échéance Money 1");
+    }
+  });
+  it("imports the verified twice-monthly Money transfer and rejects unverified variants", () => {
+    // Synthetic records retain only the fields needed by the observed Money encoding.
+    const bill = {
+      hbill: 2,
+      hbillHead: 2,
+      st: 3,
+      frq: 3,
+      cFrqInst: 2,
+      dt: new Date("2026-10-15T00:00:00Z"),
+      dtMax: new Date("2200-12-31T00:00:00Z"),
+      cInstMax: -1,
+      iinst: 0,
+      iinstNextUnpaid: 0,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 7,
+    };
+    const debit = {
+      htrn: 7,
+      hacct: 2,
+      hacctLink: 3,
+      amt: "-100.00",
+      frq: 3,
+      hsec: null,
+      act: -1,
+      grftt: 2097154,
+    };
+    const credit = { htrn: 8, hacct: 3, hacctLink: 2, amt: "100.00" };
+    const read = (value: typeof bill, entries = [debit, credit]) =>
+      readMoneySchedules(
+        [value],
+        entries,
+        [{ htrnFrom: 7, htrnLink: 8 }],
+        [{ hacct: 2 }, { hacct: 3 }],
+        [],
+        () => "Divers",
+      );
+    expect(read(bill).schedules[0]).toMatchObject({
+      frequency: "Bimensuelle",
+      nextDue: "2026-10-15",
+      kind: "transfer",
+      destinationAccountId: 3,
+      amount: -10000,
+    });
+    for (const variant of [
+      { ...bill, dt: new Date("2026-10-16T00:00:00Z") },
+      { ...bill, cInstMax: 2, dtMax: new Date("2026-10-31T00:00:00Z") },
+      { ...bill, st: 1, iinstNextUnpaid: 1 },
+    ])
+      expect(read(variant).skippedSchedules).toHaveLength(1);
+    expect(read(bill, [debit]).skippedSchedules).toHaveLength(1);
+    expect(read(bill, [debit, { ...credit, amt: "99.00" }]).skippedSchedules).toHaveLength(1);
+  });
+  it("imports only the observed unlimited, unstarted quarterly debit", () => {
+    const source = {
+      htrn: 1,
+      hacct: 2,
+      amt: "-100.00",
+      frq: 4,
+      hsec: null,
+      act: -1,
+      hacctLink: null as number | null,
+      grftt: 2097152,
+      grfstem: 2050,
+      grfEntryMethods: 1,
+      fPrint: false,
+    };
+    const bill = {
+      hbill: 1,
+      hbillHead: 1,
+      st: 3,
+      frq: 4,
+      cFrqInst: 1,
+      dt: new Date("2026-11-06T00:00:00Z"),
+      dtMax: new Date("2200-12-31T00:00:00Z"),
+      cInstMax: -1,
+      iinst: 0,
+      iinstNextUnpaid: 0,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 1,
+    };
+    const read = (b: typeof bill, t: typeof source) =>
+      readMoneySchedules([b], [t], [], [{ hacct: 2 }], [], () => "Divers");
+    expect(read(bill, source).schedules[0]).toMatchObject({
+      frequency: "Trimestrielle",
+      nextDue: "2026-11-06",
+      anchorDay: 6,
+      amount: -10000,
+      endDate: null,
+      paymentMethod: "cheque",
+    });
+    for (const [b, t] of [
+      [{ ...bill, cFrqInst: 2 }, source],
+      [{ ...bill, cInstMax: 2, dtMax: new Date("2027-02-06T00:00:00Z") }, source],
+      [{ ...bill, st: 1, iinstNextUnpaid: 1 }, source],
+      [bill, { ...source, amt: "100.00" }],
+      [bill, { ...source, hacctLink: 3 }],
+    ] as const) {
+      expect(read(b, t).schedules).toHaveLength(0);
+      expect(read(b, t).skippedSchedules).toHaveLength(1);
     }
   });
   it("accepts consistent finite limits with month-end and leap-year anchors", () => {
@@ -223,102 +326,115 @@ describe("Money reader", () => {
       ).toBe(expected === null);
     }
   });
-  const sample = resolve("../references/Money.mny");
-  it.skipIf(!existsSync(sample))(
-    "reads the local Money sample and its exact account balance",
-    () => {
-      const preview = inspect(Buffer.from(readFileSync(sample)));
-      expect(preview.accounts).toHaveLength(2);
-      expect(preview.categories).toHaveLength(138);
-      expect(preview.operations.map((operation) => operation.amount).sort((a, b) => a - b)).toEqual(
-        [
-          -364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -2500, 10000, 10000,
-          10000,
-        ],
-      );
-      const current = preview.accounts.find((account) => account.name === "Compte courant")!;
-      const saving = preview.accounts.find((account) => account.name === "Livret A")!;
-      expect([
-        current.openingBalance,
-        current.balance,
-        saving.openingBalance,
-        saving.balance,
-      ]).toEqual([100000, -349155, 200000, 210000]);
-      expect(preview.transfers).toEqual([
-        { debitId: 9, creditId: 10 },
-        { debitId: 17, creditId: 16 },
-        { debitId: 19, creditId: 20 },
-      ]);
-      expect(preview.operations.find((operation) => operation.id === 9)).toMatchObject({
-        accountId: current.id,
-        amount: -10000,
-        reconciled: true,
-      });
-      expect(preview.operations.find((operation) => operation.id === 10)).toMatchObject({
-        accountId: saving.id,
-        amount: 10000,
-        reconciled: false,
-      });
-      expect(preview.operations.find((operation) => operation.id === 17)).toMatchObject({
-        accountId: current.id,
-        amount: -10000,
-        reconciled: false,
-      });
-      expect(preview.operations.find((operation) => operation.id === 16)).toMatchObject({
-        accountId: saving.id,
-        amount: 10000,
-        reconciled: true,
-      });
-      expect(preview.schedules).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            label: "Orange",
-            amount: -12000,
-            frequency: "Mensuelle",
-            nextDue: "2026-10-31",
-            kind: "debit",
-            paymentMethod: "cheque",
-          }),
-        ]),
-      );
-      expect(preview.operations.find((op) => op.id === 18)).toMatchObject({
-        date: "2026-10-06",
-        amount: -20000,
-      });
-      expect(preview.operations.find((op) => op.id === 23)).toMatchObject({
-        date: "2026-11-06",
-        amount: -20000,
-      });
-      expect(preview.schedules.find((schedule) => schedule.id === 7)).toMatchObject({
-        nextDue: "2026-12-06",
-        endDate: "2026-12-06",
-        anchorDay: 6,
-      });
-      expect(preview.warnings.length).toBeGreaterThan(0);
-      expect(preview.skippedSchedules).toHaveLength(2);
-      expect(preview.skippedSchedules.join("\n")).toContain("périodicité Money à vérifier");
-      expect(preview.schedules.find((schedule) => schedule.id === 5)).toMatchObject({
-        nextDue: "2026-11-19",
-        frequency: "Bimestrielle",
-      });
-      expect(preview.schedules).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: 3,
-            nextDue: "2026-11-04",
-            amount: 20000,
-            endDate: "2027-08-04",
-            paymentMethod: null,
-          }),
-          expect.objectContaining({
-            id: 4,
-            nextDue: "2026-11-19",
-            amount: 30000,
-            endDate: "2027-03-19",
-          }),
-        ]),
-      );
-      expect(preview.skippedSchedules.join("\n")).toContain("périodicité");
-    },
-  );
+  const sample = resolve("tests/fixtures/money-reference.mny");
+  it("reads the local Money sample and its exact account balance", () => {
+    const preview = inspect(Buffer.from(readFileSync(sample)));
+    expect(preview.accounts).toHaveLength(2);
+    expect(preview.categories).toHaveLength(138);
+    expect(preview.operations.map((operation) => operation.amount).sort((a, b) => a - b)).toEqual([
+      -364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -2500, 10000, 10000, 10000,
+    ]);
+    const current = preview.accounts.find((account) => account.name === "Compte courant")!;
+    const saving = preview.accounts.find((account) => account.name === "Livret A")!;
+    expect([
+      current.openingBalance,
+      current.balance,
+      saving.openingBalance,
+      saving.balance,
+    ]).toEqual([100000, -349155, 200000, 210000]);
+    expect(preview.transfers).toEqual([
+      { debitId: 9, creditId: 10 },
+      { debitId: 17, creditId: 16 },
+      { debitId: 19, creditId: 20 },
+    ]);
+    expect(preview.operations.find((operation) => operation.id === 9)).toMatchObject({
+      accountId: current.id,
+      amount: -10000,
+      reconciled: true,
+    });
+    expect(preview.operations.find((operation) => operation.id === 10)).toMatchObject({
+      accountId: saving.id,
+      amount: 10000,
+      reconciled: false,
+    });
+    expect(preview.operations.find((operation) => operation.id === 17)).toMatchObject({
+      accountId: current.id,
+      amount: -10000,
+      reconciled: false,
+    });
+    expect(preview.operations.find((operation) => operation.id === 16)).toMatchObject({
+      accountId: saving.id,
+      amount: 10000,
+      reconciled: true,
+    });
+    expect(preview.schedules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Orange mensuel",
+          amount: -12000,
+          frequency: "Mensuelle",
+          nextDue: "2026-10-31",
+          kind: "debit",
+          paymentMethod: "cheque",
+        }),
+      ]),
+    );
+    expect(preview.operations.find((op) => op.id === 18)).toMatchObject({
+      date: "2026-10-06",
+      amount: -20000,
+    });
+    expect(preview.operations.find((op) => op.id === 23)).toMatchObject({
+      date: "2026-11-06",
+      amount: -20000,
+    });
+    expect(preview.schedules.find((schedule) => schedule.id === 7)).toMatchObject({
+      nextDue: "2026-12-06",
+      endDate: "2026-12-06",
+      anchorDay: 6,
+    });
+    expect(preview.warnings.length).toBeGreaterThan(0);
+    expect(preview.skippedSchedules).toHaveLength(0);
+    expect(preview.schedules.find((schedule) => schedule.id === 2)).toMatchObject({
+      label: "Orange bimensuel",
+      frequency: "Bimensuelle",
+      nextDue: "2026-10-15",
+      amount: -10000,
+      kind: "transfer",
+      destinationAccountId: saving.id,
+    });
+    expect(preview.schedules.find((schedule) => schedule.id === 6)).toMatchObject({
+      label: "Test périodicité trimestrielle",
+      frequency: "Trimestrielle",
+      nextDue: "2026-11-06",
+      amount: -10000,
+      paymentMethod: "cheque",
+      endDate: null,
+    });
+    expect(preview.schedules.find((schedule) => schedule.id === 9)).toMatchObject({
+      label: "Test méthode prélèv",
+      amount: -12300,
+      paymentMethod: null,
+    });
+    expect(preview.schedules.find((schedule) => schedule.id === 5)).toMatchObject({
+      nextDue: "2026-11-19",
+      frequency: "Bimestrielle",
+    });
+    expect(preview.schedules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 3,
+          nextDue: "2026-11-04",
+          amount: 20000,
+          endDate: "2027-08-04",
+          paymentMethod: null,
+        }),
+        expect.objectContaining({
+          id: 4,
+          nextDue: "2026-11-19",
+          amount: 30000,
+          endDate: "2027-03-19",
+        }),
+      ]),
+    );
+  });
 });

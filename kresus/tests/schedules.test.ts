@@ -230,6 +230,12 @@ describe("schedule calendar", () => {
     expect(calendarEvents()[0]?.textContent).toContain("30");
   });
 
+  it("projects a two-month schedule to 19 January 2027", async () => {
+    vi.setSystemTime(new Date(2027, 0, 1, 12));
+    await openCalendar([recurring("2026-11-19", 19, "Bimestrielle")]);
+    expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["19Yolo"]);
+  });
+
   it.each([
     { frequency: "Mensuelle", months: 1, expectedDay: 28 },
     { frequency: "Bimestrielle", months: 2, expectedDay: 31 },
@@ -244,6 +250,45 @@ describe("schedule calendar", () => {
       if (i < months - 1) expect(calendarEvents()).toHaveLength(0);
     }
     expect(calendarEvents().map((cell) => cell.textContent)).toEqual([`${expectedDay}Yolo`]);
+  });
+
+  it.each([
+    { year: 2027, last: 28 },
+    { year: 2028, last: 29 },
+  ])("projects bimonthly on the 15th and month end in February $year", async ({ year, last }) => {
+    vi.setSystemTime(new Date(year, 1, 1, 12));
+    const item = recurring(`${year}-01-31`, 31, "Bimensuelle");
+    await openCalendar([item]);
+    expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["15Yolo", `${last}Yolo`]);
+    (document.querySelector("#next-month") as HTMLButtonElement).click();
+    expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["15Yolo", "31Yolo"]);
+  });
+
+  it("honors bimonthly occurrence limits and future edits", async () => {
+    vi.setSystemTime(new Date(2028, 1, 1, 12));
+    const item = recurring("2028-02-15", 15, "Bimensuelle");
+    item.remainingCount = 2;
+    const invoke = await openCalendar([item]);
+    expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["15Yolo", "29Yolo"]);
+    document.querySelector<HTMLButtonElement>('[data-original-due="2028-02-29"]')!.click();
+    const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
+    (form.elements.namedItem("nextDue") as HTMLInputElement).value = "2028-02-28";
+    (form.elements.namedItem("label") as HTMLInputElement).value = "Exception";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "update_future_occurrence",
+        expect.objectContaining({
+          originalDue: "2028-02-29",
+          schedule: expect.objectContaining({ nextDue: "2028-02-28", label: "Exception" }),
+        }),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(calendarEvents().map((cell) => cell.textContent)).toEqual(["15Yolo", "28Exception"]),
+    );
+    (document.querySelector("#next-month") as HTMLButtonElement).click();
+    expect(calendarEvents()).toHaveLength(0);
   });
 
   it("stops projections at the count and inclusive leap-day end date", async () => {

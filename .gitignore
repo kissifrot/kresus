@@ -21,3 +21,6 @@
 *.MNY
 *.mbf
 *.MBF
+
+# One reviewed fictional Money file is a versioned test fixture.
+!/kresus/tests/fixtures/money-reference.mny
