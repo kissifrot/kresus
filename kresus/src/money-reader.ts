@@ -1,4 +1,4 @@
-// Read-only prototype: decode MSISAM, then compare Money tables with Jackcess.
+// Decode Money MSISAM data locally without modifying the source file.
 // Key derivation follows the Apache-2.0 jackcess-encrypt 4.0.3
 // MSISAMCryptCodecHandler, Copyright (c) 2010 Vladimir Berezniker.
 import createHash from "create-hash";

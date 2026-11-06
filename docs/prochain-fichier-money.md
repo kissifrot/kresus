@@ -5,7 +5,7 @@ Cette checklist rassemble ce qu’il reste à observer dans Money pour poursuivr
 ## Avant de commencer
 
 - Utiliser le fichier fictif actuel, sans mot de passe ni données bancaires réelles. En conserver une copie intacte, puis travailler sur une copie distincte.
-- Garder les exemples existants : ils permettent de comparer le fichier et les captures avant et après les ajouts. Les fichiers `.mny` sont exclus de Git.
+- Garder les exemples existants : ils permettent de comparer le fichier et les captures avant et après les ajouts. Les fichiers `.mny` sont exclus de Git, sauf la référence fictive figée dans `kresus/tests/fixtures/money-reference.mny`.
 - Prendre les captures en laissant visibles le nom de l’échéance ou de l’opération, le compte, les dates et les valeurs utiles. Faire plusieurs captures si une fenêtre ne montre pas tout ; les nommer de façon à retrouver facilement l’exemple concerné.
 - Pour chaque exemple, noter les valeurs qui ne sont pas lisibles sur les captures et toute différence entre ce qui a été saisi et ce que Money affiche après enregistrement. Ne pas deviner une valeur que Money ne montre pas : noter simplement qu’elle n’est pas visible.
 - À la fin, enregistrer et fermer le fichier, le rouvrir une fois pour vérifier que les données et les prochaines dates sont conservées, puis le fermer avant d’en faire une copie.
@@ -35,7 +35,7 @@ Pour compléter ces observations, si l’occasion se présente, relever les date
 | Série | Périodicité affichée | Dates attribuées à la série et état de chacune | Capture(s) / remarque |
 | --- | --- | --- | --- |
 | Orange | Bimensuelle | 15 et 31 octobre, 15 et 30 novembre, 15 décembre 2026 | Captures du 6 novembre : acquis |
-| EDF | À relever | Prochaine date, puis deux suivantes si visibles | |
+| EDF | Bimestrielle | Prochaine date : 19 novembre 2026 ; dates suivantes à relever si visibles | Capture de synthèse du 6 novembre |
 
 ### 2. Méthodes de paiement des échéances
 

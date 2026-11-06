@@ -42,7 +42,7 @@ Le compte de placement comporte trois lignes `TRN` avec un titre `hsec`, une act
 
 ## Prototype sans Java
 
-Un prototype séparé utilise TypeScript et `mdb-reader` pour lire le fichier sans Java. Sur cet échantillon, les objets des comptes bancaires admissibles, des 138 catégories et des deux opérations concordent avec le lecteur Jackcess ; le solde du compte est de 875 €. Le prototype et la comparaison reproductible sont décrits dans [`kresus/scripts/money-prototype/README.md`](../kresus/scripts/money-prototype/README.md). Le lecteur est intégré à la WebView Tauri et fonctionne sans Java. La compatibilité Windows reste à vérifier.
+Un prototype TypeScript utilisant `mdb-reader` a permis de comparer les comptes, catégories et opérations du premier échantillon au lecteur Jackcess ; les résultats concordaient pour cet échantillon. Le lecteur sans Java est désormais intégré à la WebView Tauri et testé avec le fichier fictif versionné. La compatibilité Windows reste à vérifier. Le décodage MSISAM reprend la dérivation de clé de Jackcess Encrypt 4.0.3 (`MSISAMCryptCodecHandler`, Vladimir Berezniker, licence Apache 2.0).
 
 ## Première implémentation
 
