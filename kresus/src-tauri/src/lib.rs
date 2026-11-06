@@ -65,6 +65,7 @@ pub fn run() {
             transactions::list_transactions,
             transactions::list_register,
             transactions::balance_history,
+            transactions::forecast_transactions,
             transactions::list_payees,
             schedules::list_schedules,
             schedules::create_schedule,

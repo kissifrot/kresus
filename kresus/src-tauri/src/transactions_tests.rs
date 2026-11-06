@@ -2,6 +2,26 @@ use super::*;
 use crate::accounts::create_account_in_db;
 use crate::test_support::{account, database};
 
+#[test]
+fn forecast_separates_current_balance_from_future_transactions() {
+    let db = database();
+    db.execute("INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES ('forecast','Forecast','Épargne',10000,'')", []).unwrap();
+    db.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents) VALUES ('past','forecast','2027-01-01','Past','Divers',-1000),('today','forecast','2027-01-15','Today','Divers',200),('future','forecast','2027-02-01','Future','Divers',-500),('outside','forecast','2027-05-01','Outside','Divers',-100)", []).unwrap();
+    let forecast =
+        forecast_transactions_in_db(&db, "forecast", "2027-01-15", "2027-04-15").unwrap();
+    assert_eq!(forecast.balance, 9200);
+    assert_eq!(forecast.transactions.len(), 1);
+    assert_eq!(
+        (
+            forecast.transactions[0].date.as_str(),
+            forecast.transactions[0].amount
+        ),
+        ("2027-02-01", -500)
+    );
+    assert!(forecast_transactions_in_db(&db, "forecast", "2027-02-30", "2027-04-15").is_err());
+    assert!(forecast_transactions_in_db(&db, "missing", "2027-01-15", "2027-04-15").is_err());
+}
+
 fn operation(id: &str, account_id: &str, amount: f64) -> NewTransaction {
     NewTransaction {
         id: id.into(),

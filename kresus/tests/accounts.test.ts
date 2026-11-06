@@ -39,6 +39,40 @@ describe("accounts", () => {
     expect(document.querySelector<HTMLElement>("#balance-history")!.hidden).toBe(true);
   });
 
+  it("shows the forecast using the current balance and lets a chart point open its detail", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 0, 2, 12));
+    Element.prototype.scrollIntoView = vi.fn();
+    const invoke = await openRegister({
+      transactions: [
+        {
+          id: "later",
+          accountId: "one",
+          date: "2027-02-01",
+          label: "Facture",
+          category: "Divers",
+          amount: -120,
+          reconciled: false,
+        },
+      ],
+    });
+    click("#balance-forecast-toggle");
+    await vi.waitFor(() =>
+      expect(document.querySelector("#balance-forecast")?.textContent).toContain("Solde négatif"),
+    );
+    expect(invoke).toHaveBeenCalledWith("forecast_transactions", {
+      accountId: "one",
+      today: "2027-01-02",
+      end: "2027-04-02",
+    });
+    expect(document.querySelector("#balance-forecast strong")?.textContent).toContain("20,00");
+    document
+      .querySelector<SVGElement>(".forecast-point")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(document.querySelector<HTMLDetailsElement>(".forecast-days details")!.open).toBe(true);
+    expect(document.querySelector(".forecast-days")?.textContent).toContain("Facture");
+  });
+
   it("defaults a new operation to the local calendar date", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2027, 0, 2, 0, 30));

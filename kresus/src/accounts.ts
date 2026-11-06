@@ -34,6 +34,7 @@ import { renderSpendingReport } from "./spending-report";
 import { renderHousehold } from "./household";
 import { openMoneyImport } from "./money-import";
 import { bindBalanceHistory } from "./balance-history";
+import { bindBalanceForecast } from "./balance-forecast";
 import { confirmAction } from "./confirmation";
 import { showAbout } from "./about";
 
@@ -88,7 +89,7 @@ export function render() {
     <main class="main-area">
       <header class="topbar"><div class="breadcrumb"><button type="button" id="household-breadcrumb">Mon foyer</button> <span>/</span> <button type="button" id="accounts-breadcrumb">Comptes</button> <span>/</span> <strong>${escapeHtml(selectedAccount.name)}</strong></div></header>
       <div class="page-content">
-        <div class="page-heading account-heading"><div><div class="eyebrow">${escapeHtml(selectedAccount.kind)} <span>·</span> ${escapeHtml(selectedAccount.bank)}</div><h1>${escapeHtml(selectedAccount.name)}</h1><p>Suivez les mouvements et rapprochez vos opérations bancaires.</p></div><div class="page-actions"><button type="button" class="secondary-button" id="balance-history-toggle" aria-expanded="false" aria-controls="balance-history">Historique du solde</button><button class="primary-button" id="new-transaction"><span>+</span> Nouvelle opération</button></div></div>
+        <div class="page-heading account-heading"><div><div class="eyebrow">${escapeHtml(selectedAccount.kind)} <span>·</span> ${escapeHtml(selectedAccount.bank)}</div><h1>${escapeHtml(selectedAccount.name)}</h1><p>Suivez les mouvements et rapprochez vos opérations bancaires.</p></div><div class="page-actions"><button type="button" class="secondary-button" id="balance-history-toggle" aria-expanded="false" aria-controls="balance-history">Historique du solde</button><button type="button" class="secondary-button" id="balance-forecast-toggle" aria-expanded="false" aria-controls="balance-forecast">Prévision du solde</button><button class="primary-button" id="new-transaction"><span>+</span> Nouvelle opération</button></div></div>
         <section class="summary-grid">
           <article class="summary-card balance-card${balance < 0 ? " negative-balance" : ""}"><div class="card-label">Solde du compte <span class="help">i</span></div><strong>${euro(balance)}</strong><small>Solde initial · ${euro(selectedAccount.openingBalance)}</small><div class="balance-decoration">€</div></article>
           <article class="summary-card"><div class="card-label">Entrées ce mois <span class="metric-icon positive">↙</span></div><strong><button type="button" id="filter-month-credit" aria-label="Afficher les entrées de ce mois">${euro(income)}</button></strong><small class="positive-text">${creditCount} opération${creditCount === 1 ? "" : "s"} créditrice${creditCount === 1 ? "" : "s"}</small></article>
@@ -96,6 +97,7 @@ export function render() {
           <article class="summary-card reconciliation-card"><div class="card-label">À pointer</div><strong><button type="button" id="filter-unreconciled" aria-label="Afficher les ${unreconciledCount} opérations à pointer">${unreconciledCount} <em>opérations</em></button></strong><small><span class="status-dot"></span> Rapprochez vos relevés</small></article>
         </section>
         <section id="balance-history" class="balance-history" hidden></section>
+        <section id="balance-forecast" class="balance-history" hidden></section>
         <p class="register-error" role="alert"></p><section class="transactions-panel">
           <div class="panel-heading"><div><h2>Historique des opérations</h2><p>${totalCount} opérations · Solde calculé à partir des mouvements</p></div><div class="panel-actions"><form id="transaction-search-form" role="search"><label class="visually-hidden" for="transaction-search">Rechercher une opération</label><input class="filter-button" type="search" id="transaction-search" placeholder="Libellé, catégorie…" title="Rechercher dans le libellé, la catégorie, la référence, le numéro de chèque ou le commentaire" value="${escapeHtml(transactionSearch)}"><button type="submit" class="secondary-button">Rechercher</button></form><label class="filter-label"><span class="visually-hidden">Filtrer les opérations</span><select class="filter-button" id="transaction-filter">${Object.entries(
             transactionFilters,
@@ -172,6 +174,7 @@ export function render() {
       }
     });
   bindBalanceHistory();
+  bindBalanceForecast();
   bindTransactionActions();
 }
 

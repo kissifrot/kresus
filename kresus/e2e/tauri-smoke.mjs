@@ -258,6 +258,55 @@ try {
   await request("POST", `/session/${session}/window/rect`, { width: 1280, height: 820 });
   await click("#balance-history-toggle");
   console.log("Historique du solde : points quotidiens chargés depuis SQLite");
+  // Add a future movement temporarily so the forecast has a deterministic clickable point.
+  await execute(`const date = new Date(); date.setDate(date.getDate() + 5);
+    const local = [date.getFullYear(), String(date.getMonth()+1).padStart(2,'0'), String(date.getDate()).padStart(2,'0')].join('-');
+    return window.__TAURI__.core.invoke('create_transaction', {transaction: {id:'forecast-e2e', accountId:'test-courant', date:local, label:'Prévision fictive', category:'Divers', amount:-12345}});`);
+  await click("#balance-forecast-toggle");
+  await waitFor(
+    async () =>
+      (await execute("return document.querySelectorAll('#balance-forecast circle').length")) >= 2,
+    "Prévision du solde",
+  );
+  if ((await text("#balance-forecast")).includes("Impossible de charger"))
+    throw new Error("La prévision du solde n’a pas pu être chargée.");
+  for (const [width, height] of [
+    [900, 620],
+    [1100, 700],
+    [1280, 820],
+  ]) {
+    await request("POST", `/session/${session}/window/rect`, { width, height });
+    await execute("document.querySelector('#balance-forecast').scrollIntoView({block:'start'})");
+    const layout =
+      await execute(`const panel=document.querySelector('#balance-forecast').getBoundingClientRect();
+      const plot=document.querySelector('#balance-forecast svg').getBoundingClientRect();
+      const content=document.querySelector('.page-content').getBoundingClientRect();
+      return {panel:panel.width, plot:plot.width, content:content.width, left:panel.left-content.left, right:panel.right-content.right, plotTop:plot.top, plotBottom:plot.bottom, viewport:window.innerHeight};`);
+    if (
+      layout.panel <= 0 ||
+      layout.plot < 100 ||
+      layout.left < -1 ||
+      layout.right > 1 ||
+      layout.plotTop < 0 ||
+      layout.plotBottom > layout.viewport
+    )
+      throw new Error(
+        `Prévision mal dimensionnée à ${width} × ${height} : ${JSON.stringify(layout)}`,
+      );
+    await screenshot(`prevision-solde-${width}x${height}`);
+  }
+  await click("#balance-forecast .forecast-point");
+  await waitFor(
+    async () =>
+      await execute(
+        "return document.querySelector('#balance-forecast details[open]')?.textContent.includes('Prévision fictive')",
+      ),
+    "Détail de la prévision au clic",
+  );
+  await screenshot("prevision-solde-detail");
+  await click("#balance-forecast-toggle");
+  await execute("return window.__TAURI__.core.invoke('delete_transaction',{id:'forecast-e2e'})");
+  console.log("Prévision du solde : trois tailles et détail au clic vérifiés");
   // Check keyboard focus and activation without programmatically clicking the destination.
   await execute("document.querySelector('#household-nav').focus()");
   await key("\uE004"); // Tab

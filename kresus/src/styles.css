@@ -2020,3 +2020,31 @@ tr[data-transaction].editing {
 .about-content p {
   margin: 6px 0;
 }
+
+.forecast-point {
+  cursor: pointer;
+}
+.forecast-point:focus {
+  outline: 2px solid #28734f;
+}
+.forecast-negative {
+  margin-top: 14px;
+  color: #87503d;
+  font-size: 12px;
+}
+.forecast-days {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.forecast-days details {
+  padding: 7px 0;
+  border-top: 1px solid #e3e9e3;
+}
+.forecast-days summary {
+  cursor: pointer;
+}
+.forecast-days ul {
+  margin: 8px 0 0 18px;
+}

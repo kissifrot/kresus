@@ -115,6 +115,65 @@ pub fn balance_history(
     balance_history_in_db(&db, &account_id, &today)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ForecastTransaction {
+    date: String,
+    label: String,
+    amount: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ForecastTransactions {
+    balance: i64,
+    transactions: Vec<ForecastTransaction>,
+}
+
+#[tauri::command]
+pub fn forecast_transactions(
+    account_id: String,
+    today: String,
+    end: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<ForecastTransactions, String> {
+    let db = state
+        .database
+        .lock()
+        .map_err(|_| "La base de données est indisponible.".to_string())?;
+    forecast_transactions_in_db(&db, &account_id, &today, &end)
+}
+
+fn forecast_transactions_in_db(
+    db: &Connection,
+    account_id: &str,
+    today: &str,
+    end: &str,
+) -> Result<ForecastTransactions, String> {
+    let valid: bool = db.query_row("SELECT COALESCE(length(?1)=10 AND date(?1,'+0 days')=?1 AND length(?2)=10 AND date(?2,'+0 days')=?2 AND ?2>=?1,0)", params![today,end], |r| r.get(0)).map_err(database_error)?;
+    if !valid {
+        return Err("Période invalide.".into());
+    }
+    // Future-dated entries are kept out of the opening balance and returned separately.
+    let balance = db.query_row("SELECT opening_balance_cents + COALESCE((SELECT SUM(amount_cents) FROM transactions WHERE account_id=?1 AND operation_date<=?2),0) FROM accounts WHERE id=?1", params![account_id,today], |r| r.get(0)).optional().map_err(database_error)?.ok_or_else(|| "Compte introuvable.".to_string())?;
+    let mut statement = db.prepare("SELECT operation_date,label,amount_cents FROM transactions WHERE account_id=?1 AND operation_date>?2 AND operation_date<=?3 ORDER BY operation_date,id").map_err(database_error)?;
+    let transactions = statement
+        .query_map(params![account_id, today, end], |r| {
+            Ok(ForecastTransaction {
+                date: r.get(0)?,
+                label: r.get(1)?,
+                amount: r.get(2)?,
+            })
+        })
+        .map_err(database_error)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(database_error)?;
+    Ok(ForecastTransactions {
+        balance,
+        transactions,
+    })
+}
+
 fn balance_history_in_db(
     db: &Connection,
     account_id: &str,

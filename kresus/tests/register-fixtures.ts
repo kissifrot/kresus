@@ -141,6 +141,18 @@ export async function openRegister(
           date: `2027-${String(index + 1).padStart(2, "0")}-28`,
           balance: index * 1000 - 5000,
         }));
+      case "forecast_transactions": {
+        const account = accounts.find((item) => item.id === args?.accountId)!;
+        const entries = transactions.filter((item) => item.accountId === account.id);
+        return {
+          balance:
+            account.openingBalance +
+            entries
+              .filter((item) => item.date <= args!.today)
+              .reduce((sum, item) => sum + item.amount, 0),
+          transactions: entries.filter((item) => item.date > args!.today && item.date <= args!.end),
+        };
+      }
       case "list_payees":
         return [
           ...new Set(
