@@ -1,6 +1,11 @@
 // Amounts crossing the application boundary are integer cents.
 export const euro = (cents: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100);
+// The register headings already specify the currency.
+export const registerAmount = (cents: number) =>
+  new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+    cents / 100,
+  );
 // Accept either decimal key and French grouped amounts copied from other applications.
 export function parseCents(value: string): number {
   const input = value.trim().replace(/\s*€$/, "").trim();
