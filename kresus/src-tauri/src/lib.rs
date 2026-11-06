@@ -1,6 +1,7 @@
 mod accounts;
 mod categories;
 mod database;
+mod file_open;
 mod menu;
 mod money_import;
 mod schedules;
@@ -16,6 +17,8 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // The first plugin forwards file-open requests to the running instance.
+        .plugin(tauri_plugin_single_instance::init(file_open::receive))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -23,7 +26,14 @@ pub fn run() {
             // Keep the database in the platform-specific application data directory.
             let directory = app.path().app_data_dir()?;
             fs::create_dir_all(&directory)?;
-            let default_path = directory.join("kresus.sqlite3");
+            let default_path = directory.join("comptes.kresus");
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let args = std::env::args_os()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            app.manage(file_open::OpenRequests(Mutex::new(file_open::collect(
+                args, &cwd,
+            ))));
             let connection = Connection::open(&default_path)?;
             initialize_database(&connection)?;
             app.manage(AppState {
@@ -41,6 +51,8 @@ pub fn run() {
             database::choose_restore_file,
             database::restore_database,
             database::choose_database,
+            database::open_database_path,
+            file_open::take_file_requests,
             database::use_default_database,
             accounts::list_accounts,
             accounts::create_account,

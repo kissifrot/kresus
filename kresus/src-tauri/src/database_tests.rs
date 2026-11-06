@@ -320,3 +320,13 @@ fn legacy_schedules_are_migrated_without_losing_data() {
     assert_eq!(label, "Loyer");
     assert_eq!((method, cheque), (None, None));
 }
+
+#[test]
+fn file_extension_rejects_other_sqlite_documents() {
+    use super::validate_kresus_extension;
+    use std::path::Path;
+    assert!(validate_kresus_extension(Path::new("famille.kresus")).is_ok());
+    assert!(validate_kresus_extension(Path::new("famille.KRESUS")).is_ok());
+    assert!(validate_kresus_extension(Path::new("autre.sqlite3")).is_err());
+    assert!(validate_kresus_extension(Path::new("sans-extension")).is_err());
+}

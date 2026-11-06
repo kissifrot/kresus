@@ -16,6 +16,12 @@
 *.sqlite3-wal
 *.sqlite3-shm
 
+# Kresus databases and SQLite sidecars can contain private financial data.
+*.kresus
+*.kresus-journal
+*.kresus-wal
+*.kresus-shm
+
 # Microsoft Money source and backup files may contain private financial data.
 *.mny
 *.MNY

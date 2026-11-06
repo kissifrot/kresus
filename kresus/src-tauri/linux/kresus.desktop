@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Kresus
+Comment=Gestion familiale des finances personnelles
+Exec=kresus %f
+Icon=kresus
+Terminal=false
+Type=Application
+StartupWMClass=kresus
+MimeType=application/x-kresus;
+Categories=Office;Finance;

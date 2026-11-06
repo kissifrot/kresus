@@ -21,7 +21,7 @@ pub(crate) fn temporary_database_path() -> TestDatabasePath {
         let directory =
             std::env::temp_dir().join(format!("kresus-test-{}-{id}", std::process::id()));
         match fs::create_dir(&directory) {
-            Ok(()) => return TestDatabasePath(directory.join("test.sqlite3")),
+            Ok(()) => return TestDatabasePath(directory.join("test.kresus")),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => panic!("Cannot create test directory: {error}"),
         }

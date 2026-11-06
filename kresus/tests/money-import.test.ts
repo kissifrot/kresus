@@ -23,7 +23,7 @@ it("reviews accounts and warnings before importing selected types", async () => 
     command === "choose_money_file"
       ? [1, 2, 3]
       : command === "import_money"
-        ? "/tmp/import.sqlite3"
+        ? "/tmp/import.kresus"
         : undefined,
   );
   const reload = vi.fn();
@@ -63,6 +63,6 @@ it("reviews accounts and warnings before importing selected types", async () => 
   document
     .querySelector("dialog form")!
     .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  await vi.waitFor(() => expect(reload).toHaveBeenCalledWith("/tmp/import.sqlite3"));
+  await vi.waitFor(() => expect(reload).toHaveBeenCalledWith("/tmp/import.kresus"));
   expect(invoke).toHaveBeenCalledWith("import_money", { selection: [{ id: 1, kind: "Épargne" }] });
 });

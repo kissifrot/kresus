@@ -77,13 +77,36 @@ fn validate_database(db: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-fn switch_database(state: &AppState, path: &Path) -> Result<(), String> {
+pub(crate) fn switch_database(state: &AppState, path: &Path) -> Result<(), String> {
     let next = open_existing_database(path)?;
     let mut current = state
         .database
         .lock()
         .map_err(|_| "La base de données est indisponible.".to_string())?;
     *current = next;
+    Ok(())
+}
+
+pub(crate) fn validate_kresus_extension(path: &Path) -> Result<(), String> {
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("kresus"))
+    {
+        Ok(())
+    } else {
+        Err("Choisissez un fichier .kresus.".into())
+    }
+}
+
+// Open an explicitly requested file using the same validation as the native chooser.
+#[tauri::command]
+pub fn open_database_path(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    validate_kresus_extension(Path::new(&path))?;
+    switch_database(&state, Path::new(&path))?;
+    *state
+        .money_preview
+        .lock()
+        .map_err(|_| "Aperçu indisponible.".to_string())? = None;
     Ok(())
 }
 
@@ -95,12 +118,13 @@ pub async fn choose_database(
     let selected = app
         .dialog()
         .file()
-        .add_filter("Base SQLite", &["sqlite3", "sqlite", "db"])
+        .add_filter("Base Kresus", &["kresus"])
         .blocking_pick_file();
     let Some(file) = selected else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
+    validate_kresus_extension(&path)?;
     switch_database(&state, &path)?;
     Ok(Some(path.to_string_lossy().into_owned()))
 }
@@ -165,8 +189,8 @@ pub async fn backup_database(
         let Some(file) = app
             .dialog()
             .file()
-            .set_file_name("kresus-sauvegarde.sqlite3")
-            .add_filter("Base SQLite", &["sqlite3", "sqlite", "db"])
+            .set_file_name("kresus-sauvegarde.kresus")
+            .add_filter("Base Kresus", &["kresus"])
             .blocking_save_file()
         else {
             return Ok(None);
@@ -178,14 +202,15 @@ pub async fn backup_database(
         let Some(file) = app
             .dialog()
             .file()
-            .set_file_name("kresus-sauvegarde.sqlite3")
-            .add_filter("Base SQLite", &["sqlite3", "sqlite", "db"])
+            .set_file_name("kresus-sauvegarde.kresus")
+            .add_filter("Base Kresus", &["kresus"])
             .blocking_save_file()
         else {
             return Ok(None);
         };
         file.into_path().map_err(|e| e.to_string())?
     };
+    validate_kresus_extension(&path)?;
     let current = state
         .database
         .lock()
@@ -203,7 +228,7 @@ pub async fn choose_restore_file(app: tauri::AppHandle) -> Result<Option<String>
     let Some(file) = app
         .dialog()
         .file()
-        .add_filter("Base SQLite", &["sqlite3", "sqlite", "db"])
+        .add_filter("Base Kresus", &["kresus"])
         .blocking_pick_file()
     else {
         return Ok(None);
@@ -214,6 +239,7 @@ pub async fn choose_restore_file(app: tauri::AppHandle) -> Result<Option<String>
 
 #[tauri::command]
 pub fn restore_database(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    validate_kresus_extension(Path::new(&path))?;
     let mut current = state
         .database
         .lock()

@@ -27,7 +27,7 @@ mkdirSync(appData, { recursive: true });
 for (const dir of ["config", "cache", "state"]) mkdirSync(join(temp, dir));
 const generated = spawnSync(
   "python3",
-  [join(root, "scripts/generate_test_database.py"), "--output", join(appData, "kresus.sqlite3")],
+  [join(root, "scripts/generate_test_database.py"), "--output", join(appData, "comptes.kresus")],
   { stdio: "inherit" },
 );
 if (generated.status !== 0) throw new Error("Base de test indisponible.");
@@ -219,9 +219,9 @@ try {
     await closeDialog(id);
     console.log(`${name} : dialogue natif ouvert et annulé au clavier`);
   }
-  if (existsSync(join(temp, "backup.sqlite3")))
+  if (existsSync(join(temp, "backup.kresus")))
     throw new Error("L’annulation a créé une sauvegarde.");
-  const backupPath = join(temp, "native-backup.sqlite3");
+  const backupPath = join(temp, "native-backup.kresus");
   await menuAction("backup");
   await selectPath(await dialog(), backupPath);
   await waitFor(() => existsSync(backupPath), "Création de la sauvegarde native");
@@ -238,11 +238,11 @@ try {
           script: "return document.querySelector('.database-controls small')?.textContent",
           args: [],
         })
-      )?.includes("native-backup.sqlite3"),
+      )?.includes("native-backup.kresus"),
     "Ouverture de la base choisie",
   );
   // Build a representative older schema and controlled business data in a private copy.
-  const legacyPath = join(temp, "legacy.sqlite3");
+  const legacyPath = join(temp, "legacy.kresus");
   copyFileSync(backupPath, legacyPath);
   const legacySetup = spawnSync(
     "python3",
@@ -279,7 +279,7 @@ c.commit()`,
           script: "return document.querySelector('.database-controls small').textContent",
           args: [],
         })
-      ).includes("legacy.sqlite3"),
+      ).includes("legacy.kresus"),
     "Ouverture de la base ancienne",
   );
   await click('[data-account="receipt-business"]');
@@ -303,7 +303,7 @@ assert c.execute("select count(*) from schedules where account_id='receipt-busin
   );
   if (migrated.status !== 0) throw new Error(`Migration de la base : ${migrated.stderr}`);
   // Reject an incompatible database while retaining the current migrated one.
-  const incompatible = join(temp, "incompatible.sqlite3");
+  const incompatible = join(temp, "incompatible.kresus");
   writeFileSync(incompatible, "not a database");
   await menuAction("open");
   await selectPath(await dialog(), incompatible);
@@ -323,7 +323,7 @@ assert c.execute("select count(*) from schedules where account_id='receipt-busin
         script: "return document.querySelector('.database-controls small').textContent",
         args: [],
       })
-    ).includes("legacy.sqlite3") ||
+    ).includes("legacy.kresus") ||
     (await text(".page-heading h1")) !== "Compte métier" ||
     readFileSync(incompatible, "utf8") !== "not a database"
   )
@@ -445,9 +445,9 @@ assert c.execute("select next_due from schedules where id='due-today'").fetchone
     "Dialogues natifs : sauvegarde, ouverture et confirmation de restauration vérifiées.",
   );
   // A malformed file must never replace the active database, even after confirmation.
-  const invalidPath = join(temp, "invalid.sqlite3");
+  const invalidPath = join(temp, "invalid.kresus");
   writeFileSync(invalidPath, "not a SQLite database");
-  const activePath = join(appData, "kresus.sqlite3");
+  const activePath = join(appData, "comptes.kresus");
   const snapshot = spawnSync(
     "python3",
     [
@@ -513,7 +513,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
       !preview.includes("138 catégories")
     )
       throw new Error(`Aperçu Money inattendu après sélection native : ${preview}`);
-    const destination = join(temp, "native-money.sqlite3");
+    const destination = join(temp, "native-money.kresus");
     await click('.money-import-dialog button[type="submit"]');
     await closeDialog(await dialog());
     if (

@@ -18,12 +18,17 @@ afterEach(() => {
 
 it("switches databases, supports cancellation and returns to the default database", async () => {
   let active = "default";
-  let choice: string | null = "/tmp/test.sqlite3";
+  let choice: string | null = "/tmp/test.kresus";
   const invoke = vi.fn(async (command: string) => {
     if (command === "choose_database") {
       if (choice === "invalid") throw new Error("Base incompatible");
       if (choice) active = "test";
       return choice;
+    }
+    if (command === "open_database_path") {
+      if (choice === "invalid") throw new Error("Base incompatible");
+      active = "test";
+      return;
     }
     if (command === "use_default_database") {
       active = "default";
@@ -58,15 +63,14 @@ it("switches databases, supports cancellation and returns to the default databas
   });
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
   await import("../src/main");
-  const { runMenuAction } = await import("../src/accounts");
+  const { runMenuAction, openRequestedDatabase } = await import("../src/accounts");
   await vi.waitFor(() =>
     expect(document.querySelector(".page-heading h1")?.textContent).toBe("Principal"),
   );
-  void runMenuAction("open");
-  await vi.waitFor(() =>
-    expect(document.querySelector(".page-heading h1")?.textContent).toBe("Compte test"),
-  );
-  expect(document.querySelector(".database-controls")?.textContent).toContain("test.sqlite3");
+  await openRequestedDatabase("/tmp/test.kresus");
+  expect(invoke).toHaveBeenCalledWith("open_database_path", { path: "/tmp/test.kresus" });
+  expect(document.querySelector(".page-heading h1")?.textContent).toBe("Compte test");
+  expect(document.querySelector(".database-controls")?.textContent).toContain("test.kresus");
   expect(document.querySelector('[data-account="default"]')).toBeNull();
   choice = null;
   void runMenuAction("open");
@@ -75,7 +79,7 @@ it("switches databases, supports cancellation and returns to the default databas
   );
   expect(document.querySelector(".page-heading h1")?.textContent).toBe("Compte test");
   choice = "invalid";
-  void runMenuAction("open");
+  await openRequestedDatabase("/tmp/invalid.kresus");
   await vi.waitFor(() =>
     expect(document.querySelector(".database-error")?.textContent).toContain("Base incompatible"),
   );
@@ -94,9 +98,9 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
   const invoke = vi.fn(async (command: string) => {
     if (command === "backup_database") {
       if (failBackup) throw new Error("Destination inaccessible");
-      return "/tmp/backup.sqlite3";
+      return "/tmp/backup.kresus";
     }
-    if (command === "choose_restore_file") return "/tmp/backup.sqlite3";
+    if (command === "choose_restore_file") return "/tmp/backup.kresus";
     if (command === "restore_database") {
       if (failRestore) throw new Error("Fichier invalide");
       active = "after";
@@ -150,7 +154,7 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
   await vi.waitFor(() =>
     expect(document.querySelector(".confirmation-dialog[open]")).not.toBeNull(),
   );
-  expect(document.querySelector(".confirmation-message")?.textContent).toContain("backup.sqlite3");
+  expect(document.querySelector(".confirmation-message")?.textContent).toContain("backup.kresus");
   const backupsBefore = invoke.mock.calls.filter(
     ([command]) => command === "backup_database",
   ).length;

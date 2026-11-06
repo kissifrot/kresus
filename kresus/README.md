@@ -60,7 +60,7 @@ Cette commande utilise le générateur d’icônes de Tauri et met à jour les f
 
 ### Vérifications GitHub Actions
 
-Le workflow [`ci.yml`](../.github/workflows/ci.yml) lance sur Linux et Windows les tests TypeScript, Rust et du générateur de base, puis construit les paquets Tauri en mode release : un paquet `.deb` pour les distributions Linux compatibles Debian et deux installateurs Windows x64 (`.msi` et `-setup.exe` NSIS). Le formatage est vérifié sous Linux. Les dépendances Rust compilées sont mises en cache séparément selon l’environnement et la version de la toolchain. Le workflow se déclenche sur les pushs et les pull requests et peut aussi être lancé manuellement depuis l’onglet Actions de GitHub. Les fichiers sont téléchargeables comme artefacts de l’exécution pendant sept jours ; aucune version GitHub Release n’est publiée automatiquement.
+Le workflow [`ci.yml`](../.github/workflows/ci.yml) lance sur Linux et Windows les tests TypeScript, Rust et du générateur de base, puis construit les paquets Tauri en mode release : un paquet `.deb` pour les distributions Linux compatibles Debian et deux installateurs Windows x64 (`.msi` et `-setup.exe` NSIS). Le formatage est vérifié sous Linux. La CI contrôle la déclaration `.kresus` dans la configuration sur les deux systèmes et vérifie aussi le lanceur et le type MIME inclus dans le paquet Debian construit. Les dépendances Rust compilées sont mises en cache séparément selon l’environnement et la version de la toolchain. Le workflow se déclenche sur les pushs et les pull requests et peut aussi être lancé manuellement depuis l’onglet Actions de GitHub. Les fichiers sont téléchargeables comme artefacts de l’exécution pendant sept jours ; aucune version GitHub Release n’est publiée automatiquement.
 
 Les installateurs sont des builds de test non signés. Ils ne remplacent pas une validation sur les systèmes visés ; ils peuvent nécessiter une confirmation du système à l’installation. Le paquet Debian est construit sur Ubuntu 26.04, afin de stabiliser sa base de compatibilité ; une distribution plus ancienne peut ne pas fournir les versions nécessaires de ses bibliothèques. Tauri recommande de construire sur le système le plus ancien que l’on souhaite prendre en charge : voir sa [documentation Debian](https://v2.tauri.app/distribute/debian/). Le runner Ubuntu 22.04 étant en cours de retrait, une éventuelle cible plus ancienne nécessitera une autre solution de compilation. Les formats Linux universels et d’autres architectures restent à étudier. La [documentation Tauri pour Windows](https://v2.tauri.app/distribute/windows-installer/) précise notamment que la génération MSI nécessite Windows et la fonctionnalité VBScript.
 
@@ -80,18 +80,18 @@ Depuis le répertoire `kresus`, `yarn format` applique Prettier aux fichiers Typ
 
 Le parcours `e2e/tauri-smoke.mjs` lance la vraie application dans sa WebView, avec une base fictive temporaire de 12 000 opérations. Il vérifie la navigation, la pagination et le filtre « À pointer », puis la création d’un compte, la gestion d’une opération avec commentaire et son pointage, la création, la modification et la suppression d’un virement, la gestion des catégories, ainsi que la création, la modification ponctuelle et de série, la modification d’une occurrence future, l’enregistrement et la suppression d’une échéance. Il contrôle aussi la recherche, les limites par nombre et par date, les retards depuis le foyer, un virement récurrent et les totaux du rapport de dépenses avec exclusion des virements. Avec le fichier fictif versionné `tests/fixtures/money-reference.mny`, il vérifie également l’aperçu Money, la création d’une nouvelle base et son contenu SQLite (compte, catégories, opérations, échéances, solde et enregistrement d’un virement récurrent). On peut spécifier son emplacement avec `KRESUS_MONEY_SAMPLE` ; ce test attend les valeurs du fichier de référence (comptes de 1 000 € et 2 000 €, opérations ordinaires de −100 € et −25 €, trois virements de 100 €, neuf échéances et 138 catégories). Ce fichier est obligatoire pour ce parcours. Les confirmations intégrées sont explicitement annulées puis validées dans cette base temporaire. Les durées affichées incluent les échanges WebDriver ; ce parcours ne couvre pas encore tous les scénarios du document initial et ne remplace pas une inspection visuelle manuelle.
 
-Il nécessite `tauri-driver`, le pilote WebKitGTK et, pour un affichage virtuel, `xvfb-run`. Sur Ubuntu 26.04, les paquets système correspondants sont `webkitgtk-webdriver` et `xvfb` ; le pilote Tauri s’installe avec `cargo install tauri-driver --locked`. Les noms des paquets peuvent varier selon la distribution. Après installation :
+Il nécessite `tauri-driver`, le pilote WebKitGTK, `dbus-run-session` et, pour un affichage virtuel, `xvfb-run`. Le bus D-Bus isolé évite que le test ne transmette ses demandes à une application Kresus déjà ouverte. Sur Ubuntu 26.04, les paquets système correspondants sont `webkitgtk-webdriver` et `xvfb` ; le pilote Tauri s’installe avec `cargo install tauri-driver --locked`. Les noms des paquets peuvent varier selon la distribution. Après installation :
 
 ```sh
 nvm use
 yarn tauri build --debug --no-bundle --features e2e
-xvfb-run -a yarn test:e2e
+xvfb-run -a dbus-run-session -- yarn test:e2e
 ```
 
 Le test d’un collage réel est facultatif : il nécessite `xclip` et un affichage X11 isolé pour éviter de modifier le presse-papiers de la session utilisateur. Par exemple :
 
 ```sh
-GDK_BACKEND=x11 KRESUS_E2E_CLIPBOARD=1 xvfb-run -a yarn test:e2e
+GDK_BACKEND=x11 KRESUS_E2E_CLIPBOARD=1 xvfb-run -a dbus-run-session -- yarn test:e2e
 ```
 
 Sans cette option, le parcours signale que le test du presse-papiers est ignoré ; les formats de montants sont aussi couverts par les tests TypeScript.
@@ -129,17 +129,17 @@ python3 scripts/generate_test_database.py
 
 Les tests du générateur se lancent avec `python3 -m unittest discover -s scripts/tests`. Le script ne remplace jamais une base existante : pour obtenir les nouvelles données, choisir un nouveau nom de fichier.
 
-Le fichier est créé dans `donnees-test/kresus-test-12000.sqlite3` et peut être ouvert depuis le menu « Fichier » de Kresus. Pour choisir un autre emplacement ou volume :
+Le fichier est créé dans `donnees-test/kresus-test-12000.kresus` et peut être ouvert depuis le menu « Fichier » de Kresus. Pour choisir un autre emplacement ou volume :
 
 ```sh
-python3 scripts/generate_test_database.py --output donnees-test/autre-test.sqlite3 --operations 60000
+python3 scripts/generate_test_database.py --output donnees-test/autre-test.kresus --operations 60000
 ```
 
 Le script refuse d’écraser un fichier existant et utilise le schéma SQLite de l’application. Les données sont reproductibles et fictives. Git ignore les bases SQLite et leurs fichiers auxiliaires ; les fichiers déjà suivis ou ajoutés à l’index doivent toutefois être retirés de l’index séparément.
 
 ## Données et sauvegarde
 
-La base SQLite `kresus.sqlite3` est créée dans le répertoire de données de l’application fourni par Tauri. Sous Linux, il s’agit généralement de `~/.local/share/com.kissifrot.kresus/`. Copier ce fichier lorsque l’application est arrêtée permet de le sauvegarder. La commande « Fichier → Ouvrir une base… » permet de sélectionner une autre base SQLite compatible Kresus, ouverte en lecture-écriture directement à son emplacement. Le nom du fichier actif apparaît dans la barre latérale ; « Revenir à la base habituelle » rétablit la base du répertoire utilisateur. Le choix ne persiste pas après redémarrage. Les fichiers SQLite arbitraires ou sans compte sont refusés ; aucun import Money ni génération de base volumineuse n’est effectué par cette commande. Les montants sont stockés, échangés entre Rust et TypeScript et calculés en centimes entiers ; les euros sont utilisés à la saisie et à l’affichage.
+La base SQLite `comptes.kresus` est créée dans le répertoire de données de l’application fourni par Tauri. Sous Linux, il s’agit généralement de `~/.local/share/com.kissifrot.kresus/`. Copier ce fichier lorsque l’application est arrêtée permet de le sauvegarder. La commande « Fichier → Ouvrir une base… » permet de sélectionner un autre fichier `.kresus` compatible, ouvert en lecture-écriture directement à son emplacement. Le nom du fichier actif apparaît dans la barre latérale ; « Revenir à la base habituelle » rétablit la base du répertoire utilisateur. Le choix ne persiste pas après redémarrage. Un double-clic sur un fichier `.kresus` lance Kresus ou transmet le fichier à la fenêtre existante ; la base est validée avant ouverture. Les installateurs déclarent cette association. Le double-clic et l’installation effective restent à valider sur Windows. Les fichiers qui ne portent pas l’extension `.kresus`, les bases incompatibles ou sans compte sont refusés ; aucun import Money ni génération de base volumineuse n’est effectué par cette commande. Les montants sont stockés, échangés entre Rust et TypeScript et calculés en centimes entiers ; les euros sont utilisés à la saisie et à l’affichage.
 
 Les données d’exemple sont insérées uniquement à la création d’une nouvelle base. Une donnée d’exemple supprimée ne réapparaît pas au redémarrage, y compris pour les bases créées par une version précédente. L’initialisation peut également migrer les anciennes opérations utilisateur enregistrées dans le stockage local du prototype. Les détails et autres limites sont décrits dans la spécification.
 

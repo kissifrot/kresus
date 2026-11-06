@@ -211,13 +211,15 @@ export function renderAccountsList() {
 }
 
 // Reload all domains after a successful switch; cancelled selections do nothing.
-async function changeDatabase(useDefault: boolean) {
+async function changeDatabase(useDefault: boolean, requestedPath?: string) {
   document.body.classList.add("database-switching");
   let switched = false;
   try {
     const path = useDefault
       ? (await invoke("use_default_database"), null)
-      : await invoke<string | null>("choose_database");
+      : requestedPath !== undefined
+        ? (await invoke("open_database_path", { path: requestedPath }), requestedPath)
+        : await invoke<string | null>("choose_database");
     if (!useDefault && path === null) return;
     switched = true;
     await reloadDatabase(path);
@@ -239,6 +241,11 @@ async function changeDatabase(useDefault: boolean) {
   } finally {
     document.body.classList.remove("database-switching");
   }
+}
+
+// External file requests share the same validation and error handling as the chooser.
+export async function openRequestedDatabase(path: string) {
+  await changeDatabase(false, path);
 }
 
 // Refresh all domains after importing into a newly created database.

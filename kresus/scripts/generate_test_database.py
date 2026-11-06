@@ -11,7 +11,7 @@ import sqlite3
 
 PROJECT = Path(__file__).resolve().parents[1]
 SCHEMA = PROJECT / "src-tauri" / "src" / "schema.sql"
-DEFAULT_OUTPUT = PROJECT / "donnees-test" / "kresus-test-12000.sqlite3"
+DEFAULT_OUTPUT = PROJECT / "donnees-test" / "kresus-test-12000.kresus"
 START = dt.date(2016, 10, 29)
 END = dt.date(2026, 10, 28)
 

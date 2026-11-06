@@ -15,7 +15,7 @@ spec.loader.exec_module(generator)
 class GeneratedDatabaseTests(unittest.TestCase):
     def test_monthly_incomes_and_operation_counts(self):
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "example.sqlite3"
+            path = Path(folder) / "example.kresus"
             generator.generate(path, 12000)
             with closing(sqlite3.connect(path)) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 12000)
@@ -27,7 +27,7 @@ class GeneratedDatabaseTests(unittest.TestCase):
 
     def test_small_volume_and_existing_file_are_preserved(self):
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "example.sqlite3"
+            path = Path(folder) / "example.kresus"
             generator.generate(path, 12)
             with closing(sqlite3.connect(path)) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 12)

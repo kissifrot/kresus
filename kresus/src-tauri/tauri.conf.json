@@ -33,6 +33,25 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "kresus"
+        ],
+        "name": "Données Kresus",
+        "description": "Base de données Kresus",
+        "mimeType": "application/x-kresus",
+        "role": "Editor"
+      }
+    ],
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/mime/packages/kresus.xml": "mime/kresus.xml"
+        },
+        "desktopTemplate": "linux/kresus.desktop"
+      }
+    }
   }
 }

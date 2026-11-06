@@ -1,5 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+  writeFileSync,
+  readFileSync,
+  copyFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -13,7 +21,7 @@ const appData = join(data, "com.kissifrot.kresus");
 mkdirSync(appData, { recursive: true });
 const generation = spawnSync(
   "python3",
-  [join(root, "scripts/generate_test_database.py"), "--output", join(appData, "kresus.sqlite3")],
+  [join(root, "scripts/generate_test_database.py"), "--output", join(appData, "comptes.kresus")],
   { stdio: "inherit" },
 );
 if (generation.status !== 0) throw new Error("Création de la base fictive impossible.");
@@ -35,13 +43,13 @@ while (nativePort === port) nativePort = await freePort();
 const endpoint = `http://127.0.0.1:${port}`;
 const defaultMoneySample = resolve(root, "tests/fixtures/money-reference.mny");
 const moneySample = process.env.KRESUS_MONEY_SAMPLE ?? defaultMoneySample;
-const moneyDestination = join(temp, "import.sqlite3");
+const moneyDestination = join(temp, "import.kresus");
 const executable = process.env.TAURI_DRIVER || "tauri-driver";
 const driver = spawn(executable, ["--port", String(port), "--native-port", String(nativePort)], {
   env: {
     ...process.env,
     XDG_DATA_HOME: data,
-    KRESUS_E2E_BACKUP: join(temp, "backup.sqlite3"),
+    KRESUS_E2E_BACKUP: join(temp, "backup.kresus"),
     ...(moneySample
       ? {
           KRESUS_E2E_MONEY_SOURCE: resolve(moneySample),
@@ -61,7 +69,8 @@ async function request(method, path, body) {
     method,
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(20_000),
+    // Creating a WebKit session may be slow on a cold CI runner.
+    signal: AbortSignal.timeout(path === "/session" ? 60_000 : 20_000),
   });
   const response = await result.json();
   if (!result.ok || response.value?.error) throw new Error(JSON.stringify(response.value));
@@ -168,16 +177,32 @@ async function action(label, fn, check) {
 try {
   await waitFor(async () => (await request("GET", "/status"))?.ready, "Démarrage de tauri-driver");
   const started = performance.now();
+  const external = join(temp, "Foyer fictif.kresus");
+  copyFileSync(join(appData, "comptes.kresus"), external);
+  const rename = spawnSync("python3", [
+    "-c",
+    "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"UPDATE accounts SET name='Compte externe' WHERE id='test-courant'\"); c.commit()",
+    external,
+  ]);
+  if (rename.status !== 0) throw new Error("Préparation de la base externe impossible.");
   const result = await request("POST", "/session", {
     capabilities: {
       alwaysMatch: {
         browserName: "wry",
         unhandledPromptBehavior: "accept",
-        "tauri:options": { application: join(root, "src-tauri/target/debug/kresus") },
+        "tauri:options": {
+          application: join(root, "src-tauri/target/debug/kresus"),
+          args: [external],
+        },
       },
     },
   });
   session = result.sessionId;
+  await waitFor(
+    async () => (await text(".page-heading h1")) === "Compte externe",
+    "Ouverture au démarrage",
+  );
+  await menuAction("default");
   await waitFor(
     async () => (await text(".page-heading h1")) === "Compte courant — test",
     "Ouverture du registre",
@@ -188,6 +213,37 @@ try {
   );
   console.log(
     `Démarrage Tauri et chargement du compte : ${(performance.now() - started).toFixed(0)} ms`,
+  );
+  // A second process forwards the document to the existing window via the isolated session bus.
+  const launchFile = (path) =>
+    spawnSync(join(root, "src-tauri/target/debug/kresus"), [path], {
+      env: { ...process.env, XDG_DATA_HOME: data },
+      encoding: "utf8",
+      timeout: 15000,
+    });
+  const opened = launchFile(external);
+  if (opened.status !== 0) throw new Error(`Ouverture externe impossible : ${opened.stderr}`);
+  await waitFor(
+    async () => (await text(".page-heading h1")) === "Compte externe",
+    "Ouverture du fichier externe",
+  );
+  const invalid = join(temp, "invalide.kresus");
+  writeFileSync(invalid, "not a database");
+  const rejected = launchFile(invalid);
+  if (rejected.status !== 0) throw new Error("Transmission de la base invalide impossible.");
+  await waitFor(
+    async () => (await text(".database-error")).includes("Ouverture impossible"),
+    "Erreur de base invalide",
+  );
+  if ((await text(".page-heading h1")) !== "Compte externe")
+    throw new Error("La base active a changé après une erreur.");
+  await menuAction("default");
+  await waitFor(
+    async () => (await text(".page-heading h1")) === "Compte courant — test",
+    "Retour à la base habituelle",
+  );
+  console.log(
+    "Fichier Kresus : ouverture dans la fenêtre existante et refus d’une base invalide vérifiés",
   );
   // The chart is loaded on demand and works on the large test database.
   await click("#balance-history-toggle");
@@ -483,14 +539,14 @@ try {
     "Sauvegarde",
   );
   // A second backup to the same debug-selected path must not overwrite the first.
-  const savedBytes = readFileSync(join(temp, "backup.sqlite3"));
+  const savedBytes = readFileSync(join(temp, "backup.kresus"));
   await menuAction("backup");
   await waitFor(
     async () => (await text(".database-error")).includes("Sauvegarde impossible"),
     "Erreur de sauvegarde",
   );
   if (
-    !readFileSync(join(temp, "backup.sqlite3")).equals(savedBytes) ||
+    !readFileSync(join(temp, "backup.kresus")).equals(savedBytes) ||
     !(await text(".balance-card")).includes("100,00")
   )
     throw new Error("Échec de sauvegarde : données modifiées");
@@ -1014,7 +1070,7 @@ c=sqlite3.connect(sys.argv[1])
 rows=c.execute("SELECT t.amount_cents, EXISTS(SELECT 1 FROM transfers x WHERE x.debit_id=t.id OR x.credit_id=t.id) FROM transactions t WHERE t.account_id=? AND t.operation_date BETWEEN ? AND ?",sys.argv[2:]).fetchall()
 assert any(transfer for amount,transfer in rows), rows
 print(sum(-amount for amount,transfer in rows if amount<0 and not transfer))`,
-      join(appData, "kresus.sqlite3"),
+      join(appData, "comptes.kresus"),
       receiptId,
       dates[0],
       end,
@@ -1063,7 +1119,7 @@ print(sum(-amount for amount,transfer in rows if amount<0 and not transfer))`,
 c=sqlite3.connect(sys.argv[1])
 rows=c.execute("SELECT d.account_id,d.amount_cents,r.account_id,r.amount_cents FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE d.note LIKE '%Virement périodique recette%'").fetchall()
 assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
-      join(appData, "kresus.sqlite3"),
+      join(appData, "comptes.kresus"),
       receiptId,
     ],
     { encoding: "utf8" },

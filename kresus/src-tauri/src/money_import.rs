@@ -163,8 +163,8 @@ pub async fn import_money(
         let Some(file) = app
             .dialog()
             .file()
-            .set_file_name("kresus-import.sqlite3")
-            .add_filter("Base SQLite", &["sqlite3"])
+            .set_file_name("kresus-import.kresus")
+            .add_filter("Base Kresus", &["kresus"])
             .blocking_save_file()
         else {
             return Ok(None);
@@ -176,14 +176,15 @@ pub async fn import_money(
         let Some(file) = app
             .dialog()
             .file()
-            .set_file_name("kresus-import.sqlite3")
-            .add_filter("Base SQLite", &["sqlite3"])
+            .set_file_name("kresus-import.kresus")
+            .add_filter("Base Kresus", &["kresus"])
             .blocking_save_file()
         else {
             return Ok(None);
         };
         file.into_path().map_err(|e| e.to_string())?
     };
+    crate::database::validate_kresus_extension(&path)?;
     // create_new prevents overwriting any existing file, including a live database.
     fs::OpenOptions::new()
         .write(true)
