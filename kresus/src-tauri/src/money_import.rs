@@ -38,6 +38,8 @@ struct MoneySchedule {
     #[serde(default)]
     payment_method: Option<String>,
     #[serde(default)]
+    anchor_day: Option<i64>,
+    #[serde(default)]
     remaining_count: Option<i64>,
     #[serde(default)]
     end_date: Option<String>,
@@ -391,7 +393,24 @@ fn import_into_database(
             &schedule.kind
         };
         tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![id,format!("money-account-{}",schedule.account_id),schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method]).map_err(database_error)?;
-        tx.execute("INSERT INTO schedule_anchors (schedule_id,anchor_day) VALUES (?1, CAST(strftime('%d',?2) AS INTEGER))", params![id,schedule.next_due]).map_err(database_error)?;
+        // A partially recorded Money series retains its original day across short months.
+        let day: i64 = tx
+            .query_row(
+                "SELECT CAST(strftime('%d',?1) AS INTEGER)",
+                [&schedule.next_due],
+                |r| r.get(0),
+            )
+            .map_err(database_error)?;
+        let anchor = schedule.anchor_day.unwrap_or(day);
+        let expected: i64 = tx.query_row("SELECT MIN(?1, CAST(strftime('%d',date(?2,'start of month','+1 month','-1 day')) AS INTEGER))", params![anchor, schedule.next_due], |r| r.get(0)).map_err(database_error)?;
+        if !(1..=31).contains(&anchor) || day != expected {
+            return Err("Jour d’ancrage Money invalide.".into());
+        }
+        tx.execute(
+            "INSERT INTO schedule_anchors (schedule_id,anchor_day) VALUES (?1, ?2)",
+            params![id, anchor],
+        )
+        .map_err(database_error)?;
         // Persist the reviewed limit alongside the imported series.
         tx.execute(
             "INSERT INTO schedule_limits (schedule_id,remaining_count,end_date) VALUES (?1,?2,?3)",
@@ -468,6 +487,7 @@ mod tests {
             amount: -1200,
             kind: "debit".into(),
             payment_method: Some("cheque".into()),
+            anchor_day: None,
             remaining_count: None,
             end_date: None,
         });
@@ -762,6 +782,7 @@ mod tests {
             amount: -10000,
             kind: "transfer".into(),
             payment_method: None,
+            anchor_day: None,
             remaining_count: None,
             end_date: None,
         });
@@ -834,6 +855,7 @@ mod tests {
                 amount: -1200,
                 kind: "debit".into(),
                 payment_method: None,
+                anchor_day: None,
                 remaining_count,
                 end_date,
             });
@@ -882,6 +904,70 @@ mod tests {
     }
 
     #[test]
+    fn imported_started_series_preserves_month_end_anchor() {
+        let mut preview = fixture();
+        preview.schedules.push(MoneySchedule {
+            id: 9,
+            account_id: 1,
+            destination_account_id: None,
+            label: "Limitée".into(),
+            category: "Divers".into(),
+            next_due: "2028-02-29".into(),
+            frequency: "Mensuelle".into(),
+            amount: -1200,
+            kind: "debit".into(),
+            payment_method: None,
+            anchor_day: Some(31),
+            remaining_count: None,
+            end_date: Some("2028-03-31".into()),
+        });
+        let mut invalid = preview.clone();
+        invalid.schedules[0].anchor_day = Some(28);
+        let mut rejected = Connection::open_in_memory().unwrap();
+        assert!(
+            import_into_database(
+                &mut rejected,
+                &invalid,
+                &[MoneySelection {
+                    id: 1,
+                    kind: "Compte courant".into()
+                }]
+            )
+            .is_err()
+        );
+        let mut db = Connection::open_in_memory().unwrap();
+        import_into_database(
+            &mut db,
+            &preview,
+            &[MoneySelection {
+                id: 1,
+                kind: "Compte courant".into(),
+            }],
+        )
+        .unwrap();
+        crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "first").unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT next_due FROM schedules WHERE id='money-schedule-9'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "2028-03-31"
+        );
+        crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "last").unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM schedules WHERE id='money-schedule-9'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
     fn invalid_imported_schedule_limits_roll_back_the_import() {
         for (remaining_count, end_date) in [
             (Some(0), None),
@@ -901,6 +987,7 @@ mod tests {
                 amount: -1200,
                 kind: "debit".into(),
                 payment_method: None,
+                anchor_day: None,
                 remaining_count,
                 end_date,
             });

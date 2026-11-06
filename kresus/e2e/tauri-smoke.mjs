@@ -1084,13 +1084,13 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
     const preview = await text(".money-import-dialog");
     if (
       !preview.includes("138 catégories") ||
-      !preview.includes("675,00") ||
-      !preview.includes("4 opérations") ||
+      !preview.replace(/\s/g, "").includes("3491,55") ||
+      !preview.includes("9 opérations") ||
       !preview.includes("5 échéances") ||
-      !preview.includes("2 virements enregistrés") ||
+      !preview.includes("3 virements enregistrés") ||
       !preview.includes("2 échéances ne seront pas importées")
     )
-      throw new Error("Aperçu Money incomplet.");
+      throw new Error(`Aperçu Money incomplet : ${preview}`);
     await execute(
       "[...document.querySelectorAll('.money-import-dialog details summary')].find(s => s.textContent.startsWith('Voir les échéances')).click()",
     );
@@ -1099,7 +1099,7 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
       throw new Error("Dates de fin absentes de l’aperçu.");
     await click(".money-warning details summary");
     const skipped = await execute("return document.querySelector('.money-skipped-details').value");
-    if (!skipped.includes("EDF") || !skipped.includes("périodicité"))
+    if (!skipped.includes("Test périodicité trimestrielle") || !skipped.includes("périodicité"))
       throw new Error("Détail des échéances non importées incomplet.");
     if (existsSync(destination)) throw new Error("La base de destination existe avant l’import.");
     // Importing only one side must fail without leaving a new database behind.
@@ -1117,13 +1117,15 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
     );
     await click('.money-import-dialog button[type="submit"]');
     await waitFor(
-      async () => existsSync(destination) && (await text(".balance-card")).includes("675,00"),
+      async () =>
+        existsSync(destination) &&
+        (await text(".balance-card")).replace(/\s/g, "").includes("3491,55"),
       "Import Money et affichage du compte",
     );
     await waitFor(
       async () =>
-        (await text(".table-footer")).includes("4 opérations") ||
-        (await text(".table-footer")).includes("sur 4"),
+        (await text(".table-footer")).includes("9 opérations") ||
+        (await text(".table-footer")).includes("sur 9"),
       "Opérations importées",
     );
     const verification = spawnSync(
@@ -1135,15 +1137,19 @@ c = sqlite3.connect(sys.argv[1])
 a = c.execute("SELECT name, opening_balance_cents FROM accounts ORDER BY name").fetchall()
 t = c.execute("SELECT amount_cents FROM transactions ORDER BY amount_cents").fetchall()
 n = c.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetchone()[0]
-s = c.execute("SELECT next_due, frequency, amount_cents FROM schedules ORDER BY next_due").fetchall()
+s = c.execute("SELECT next_due, frequency, amount_cents FROM schedules ORDER BY next_due,id").fetchall()
 pair = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-9-10'").fetchone()
 assert pair == (-10000,1,10000,0), pair
 pair2 = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-17-16'").fetchone()
 assert pair2 == (-10000,0,10000,1), pair2
+pair3 = c.execute("SELECT d.amount_cents,d.reconciled,r.amount_cents,r.reconciled FROM transfers x JOIN transactions d ON d.id=x.debit_id JOIN transactions r ON r.id=x.credit_id WHERE x.id='money-transfer-19-20'").fetchone()
+assert pair3 == (-10000,0,10000,1), pair3
+assert c.execute("SELECT count(*) FROM transactions WHERE id IN ('money-transaction-18','money-transaction-23')").fetchone() == (2,)
+assert c.execute("SELECT anchor_day FROM schedule_anchors WHERE schedule_id='money-schedule-7'").fetchone() == (6,)
 assert c.execute("SELECT payment_method FROM schedules WHERE id='money-schedule-3'").fetchone() == (None,)
 limits=c.execute("SELECT schedule_id,end_date,remaining_count FROM schedule_limits WHERE end_date IS NOT NULL ORDER BY schedule_id").fetchall()
 assert limits == [('money-schedule-3','2027-08-04',None),('money-schedule-4','2027-03-19',None),('money-schedule-7','2026-12-06',None)], limits
-assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-10000,), (-10000,), (-10000,), (-2500,), (10000,), (10000,)] and n == 138 and s == [("2026-10-06", "Mensuelle", -20000), ("2026-10-15", "Bimestrielle", -10000), ("2026-10-31", "Mensuelle", -12000), ("2026-11-04", "Mensuelle", 20000), ("2026-11-19", "Mensuelle", 30000)], (a, t, n, s)`,
+assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-364155,), (-22500,), (-20000,), (-20000,), (-10000,), (-10000,), (-10000,), (-10000,), (-2500,), (10000,), (10000,), (10000,)] and n == 138 and s == [("2026-10-31", "Mensuelle", -12000), ("2026-11-04", "Mensuelle", 20000), ("2026-11-19", "Mensuelle", 30000), ("2026-11-19", "Bimestrielle", -20000), ("2026-12-06", "Mensuelle", -20000)], (a, t, n, s)`,
         destination,
       ],
       { encoding: "utf8" },
@@ -1151,38 +1157,39 @@ assert a == [("Compte courant", 100000), ("Livret A", 200000)] and t == [(-10000
     if (verification.status !== 0)
       throw new Error(`Base Money incorrecte : ${verification.stderr}`);
     await click("#schedules-nav");
+    // Record only the remaining occurrence; the two imported operations must not be duplicated.
     await click("#current-month");
-    const offset = await execute(
-      "const now = new Date(); return (2026 - now.getFullYear()) * 12 + 9 - now.getMonth();",
+    const remainingOffset = await execute(
+      "const d=new Date(); return (2026-d.getFullYear())*12+11-d.getMonth()",
     );
-    if (Math.abs(offset) > 240)
+    if (Math.abs(remainingOffset) > 240)
       throw new Error("Date système trop éloignée de l’échantillon Money.");
-    for (let i = 0; i < Math.abs(offset); i++)
-      await click(offset < 0 ? "#previous-month" : "#next-month");
+    for (let i = 0; i < Math.abs(remainingOffset); i++)
+      await click(remainingOffset < 0 ? "#previous-month" : "#next-month");
     await waitFor(
-      async () => await visible('[data-record-schedule="money-schedule-2"]'),
-      "Virement récurrent importé",
+      () => visible('[data-record-schedule="money-schedule-7"]'),
+      "Dernière occurrence importée",
     );
-    await click('[data-record-schedule="money-schedule-2"]');
+    await click('[data-record-schedule="money-schedule-7"]');
     await waitFor(
-      async () => !(await visible('[data-record-schedule="money-schedule-2"]')),
-      "Enregistrement du virement récurrent",
+      async () => !(await visible('[data-record-schedule="money-schedule-7"]')),
+      "Fin de la série importée",
     );
-    const transferCheck = spawnSync(
+    const startedCheck = spawnSync(
       "python3",
       [
         "-c",
-        `import sqlite3, sys
+        `import sqlite3,sys
 c=sqlite3.connect(sys.argv[1])
-assert c.execute("SELECT next_due FROM schedules WHERE id='money-schedule-2'").fetchone() == ('2026-12-15',)
-assert c.execute("SELECT count(*) FROM transfers").fetchone() == (3,)
-assert c.execute("SELECT amount_cents FROM transactions WHERE id LIKE 'schedule-%' ORDER BY amount_cents").fetchall() == [(-10000,), (10000,)]`,
+assert c.execute("SELECT count(*) FROM schedules WHERE id='money-schedule-7'").fetchone() == (0,)
+rows=c.execute("SELECT operation_date,amount_cents FROM transactions WHERE label='Série mensuelle limit. 3 déj com' ORDER BY operation_date").fetchall()
+assert rows == [('2026-10-06',-20000),('2026-11-06',-20000),('2026-12-06',-20000)],rows`,
         destination,
       ],
       { encoding: "utf8" },
     );
-    if (transferCheck.status !== 0)
-      throw new Error(`Virement récurrent incorrect : ${transferCheck.stderr}`);
+    if (startedCheck.status !== 0)
+      throw new Error(`Série Money déjà commencée : ${startedCheck.stderr}`);
     console.log(
       "Import Money : aperçu, échéances, virement enregistré et base SQLite vérifiés (chemins de test)",
     );

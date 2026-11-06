@@ -146,6 +146,19 @@ export function readPostedTransfers(
   return result;
 }
 
+// Reuse the original day as the anchor, including after short months and leap years.
+function scheduleOccurrence(due: Date, interval: number, offset: number): string {
+  const monthIndex = due.getUTCFullYear() * 12 + due.getUTCMonth() + offset * interval;
+  const year = Math.floor(monthIndex / 12);
+  if (year < 1 || year > 9999) return "";
+  const month = monthIndex % 12;
+  const first = new Date(0);
+  first.setUTCHours(0, 0, 0, 0);
+  first.setUTCFullYear(year, month + 1, 0);
+  const day = Math.min(due.getUTCDate(), first.getUTCDate());
+  return `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 // Preserve a Money end date only when its count yields the same last occurrence.
 function verifiedScheduleLimit(
   due: unknown,
@@ -171,20 +184,8 @@ function verifiedScheduleLimit(
     interval < 1
   )
     return undefined;
-  // Reuse the original day as the anchor, including after short months and leap years.
-  const occurrence = (offset: number) => {
-    const monthIndex = due.getUTCFullYear() * 12 + due.getUTCMonth() + offset * interval;
-    const year = Math.floor(monthIndex / 12);
-    if (year < 1 || year > 9999) return "";
-    const month = monthIndex % 12;
-    const first = new Date(0);
-    first.setUTCHours(0, 0, 0, 0);
-    first.setUTCFullYear(year, month + 1, 0);
-    const day = Math.min(due.getUTCDate(), first.getUTCDate());
-    return `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  };
-  const last = occurrence((count as number) - 1);
-  const next = occurrence(count as number);
+  const last = scheduleOccurrence(due, interval, (count as number) - 1);
+  const next = scheduleOccurrence(due, interval, count as number);
   return last && next && last <= end && end < next ? end : undefined;
 }
 
@@ -209,6 +210,7 @@ export function readMoneySchedules(
     kind: string;
     paymentMethod: "cheque" | null;
     endDate: string | null;
+    anchorDay: number;
   }[] = [];
   const warnings: string[] = [];
   const skippedSchedules: string[] = [];
@@ -230,16 +232,33 @@ export function readMoneySchedules(
     const interval = Number(bill.cFrqInst);
     const frequency =
       bill.frq === 3
-        ? ({ 1: "Mensuelle", 2: "Bimestrielle" } as Record<number, string>)[interval]
+        ? ({ 0.5: "Bimestrielle", 1: "Mensuelle" } as Record<number, string>)[interval]
         : undefined;
     // A limited series is accepted only when its two Money limits are consistent.
     const endDate = verifiedScheduleLimit(bill.dt, bill.dtMax, bill.cInstMax, interval);
+    // The observed started series stores its first date and the index of the next unpaid occurrence.
+    const unpaid = bill.iinstNextUnpaid;
+    const started = Number.isInteger(unpaid) && unpaid > 0;
+    const validPosition =
+      unpaid === 0 ||
+      (started &&
+        endDate != null &&
+        frequency === "Mensuelle" &&
+        unpaid < bill.cInstMax &&
+        source?.hacctLink == null &&
+        source?.amt != null &&
+        cents(source.amt) < 0);
+    const nextDue =
+      validPosition && bill.dt instanceof Date && !Number.isNaN(bill.dt.getTime())
+        ? scheduleOccurrence(bill.dt, interval, unpaid)
+        : "";
     if (
       !source ||
-      bill.st !== 3 ||
+      bill.st !== (started ? 1 : 3) ||
       bill.hbill !== bill.hbillHead ||
       bill.iinst !== 0 ||
-      bill.iinstNextUnpaid !== 0 ||
+      !validPosition ||
+      !nextDue ||
       endDate === undefined ||
       bill.iinstLastSkipped !== -1 ||
       bill.cDaysAutoEnter !== -1 ||
@@ -250,7 +269,12 @@ export function readMoneySchedules(
     ) {
       const reasons = [];
       if (endDate === undefined) reasons.push("limite de durée absente, invalide ou incohérente");
-      if (!frequency) reasons.push("périodicité non prise en charge");
+      if (!frequency)
+        reasons.push(
+          interval === 2 && bill.frq === 3
+            ? "périodicité Money à vérifier"
+            : "périodicité non prise en charge",
+        );
       if (!reasons.length) reasons.push("autres paramètres non pris en charge");
       skippedSchedules.push(`${description} : ${reasons.join(" ; ")}.`);
       continue;
@@ -306,7 +330,8 @@ export function readMoneySchedules(
       destinationAccountId,
       label: String(payee?.szFull ?? "").trim() || "Échéance sans destinataire",
       category: categoryLabel(source.hcat),
-      nextDue: bill.dt.toISOString().slice(0, 10),
+      nextDue,
+      anchorDay: bill.dt.getUTCDate(),
       frequency,
       amount,
       kind: destinationAccountId != null ? "transfer" : amount > 0 ? "credit" : "debit",

@@ -122,7 +122,7 @@ describe("Money reader", () => {
     for (const [start, end, count, interval, valid] of [
       ["2024-01-31", "2024-03-31", 3, 1, true],
       ["2024-01-31", "2024-02-29", 2, 1, true],
-      ["2023-12-31", "2024-04-30", 3, 2, true],
+      ["2023-12-31", "2024-04-30", 3, 2, false],
       ["2026-11-19", "2027-03-20", 5, 1, true],
       ["2024-01-31", "2024-03-31", 2, 1, false],
       ["2024-01-31", "2024-01-30", 1, 1, false],
@@ -139,6 +139,47 @@ describe("Money reader", () => {
       if (valid) expect(result.schedules[0]?.endDate).toBe(end);
       else expect(result.skippedSchedules).toHaveLength(1);
     }
+  });
+  it("advances a started limited series without losing its original month-end anchor", () => {
+    const source = {
+      htrn: 1,
+      hacct: 2,
+      amt: "-12.00",
+      frq: 3,
+      hsec: null,
+      act: -1,
+      hacctLink: null,
+      grftt: 2097152,
+    };
+    const bill = {
+      hbill: 1,
+      hbillHead: 1,
+      st: 1,
+      frq: 3,
+      cFrqInst: 1,
+      iinst: 0,
+      iinstNextUnpaid: 1,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 1,
+      dt: new Date("2024-01-31T00:00:00Z"),
+      dtMax: new Date("2024-03-31T00:00:00Z"),
+      cInstMax: 3,
+    };
+    const read = (b: typeof bill) =>
+      readMoneySchedules([b], [source], [], [{ hacct: 2 }], [], () => "Divers");
+    expect(read(bill).schedules[0]).toMatchObject({
+      nextDue: "2024-02-29",
+      anchorDay: 31,
+      endDate: "2024-03-31",
+    });
+    for (const b of [
+      { ...bill, iinstNextUnpaid: 3 },
+      { ...bill, iinstNextUnpaid: -1 },
+      { ...bill, iinstLastSkipped: 0 },
+      { ...bill, cInstMax: -1 },
+    ])
+      expect(read(b).skippedSchedules).toHaveLength(1);
   });
   it("imports only the observed cheque signature and warns about unknown payment flags", () => {
     const bill = {
@@ -190,7 +231,10 @@ describe("Money reader", () => {
       expect(preview.accounts).toHaveLength(2);
       expect(preview.categories).toHaveLength(138);
       expect(preview.operations.map((operation) => operation.amount).sort((a, b) => a - b)).toEqual(
-        [-10000, -10000, -10000, -2500, 10000, 10000],
+        [
+          -364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -2500, 10000, 10000,
+          10000,
+        ],
       );
       const current = preview.accounts.find((account) => account.name === "Compte courant")!;
       const saving = preview.accounts.find((account) => account.name === "Livret A")!;
@@ -199,10 +243,11 @@ describe("Money reader", () => {
         current.balance,
         saving.openingBalance,
         saving.balance,
-      ]).toEqual([100000, 67500, 200000, 220000]);
+      ]).toEqual([100000, -349155, 200000, 210000]);
       expect(preview.transfers).toEqual([
         { debitId: 9, creditId: 10 },
         { debitId: 17, creditId: 16 },
+        { debitId: 19, creditId: 20 },
       ]);
       expect(preview.operations.find((operation) => operation.id === 9)).toMatchObject({
         accountId: current.id,
@@ -234,19 +279,28 @@ describe("Money reader", () => {
             kind: "debit",
             paymentMethod: "cheque",
           }),
-          expect.objectContaining({
-            label: "Orange",
-            amount: -10000,
-            frequency: "Bimestrielle",
-            nextDue: "2026-10-15",
-            kind: "transfer",
-            paymentMethod: null,
-            destinationAccountId: saving.id,
-          }),
         ]),
       );
+      expect(preview.operations.find((op) => op.id === 18)).toMatchObject({
+        date: "2026-10-06",
+        amount: -20000,
+      });
+      expect(preview.operations.find((op) => op.id === 23)).toMatchObject({
+        date: "2026-11-06",
+        amount: -20000,
+      });
+      expect(preview.schedules.find((schedule) => schedule.id === 7)).toMatchObject({
+        nextDue: "2026-12-06",
+        endDate: "2026-12-06",
+        anchorDay: 6,
+      });
       expect(preview.warnings.length).toBeGreaterThan(0);
       expect(preview.skippedSchedules).toHaveLength(2);
+      expect(preview.skippedSchedules.join("\n")).toContain("périodicité Money à vérifier");
+      expect(preview.schedules.find((schedule) => schedule.id === 5)).toMatchObject({
+        nextDue: "2026-11-19",
+        frequency: "Bimestrielle",
+      });
       expect(preview.schedules).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
