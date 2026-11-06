@@ -13,6 +13,18 @@ spec.loader.exec_module(generator)
 
 
 class GeneratedDatabaseTests(unittest.TestCase):
+    def test_extreme_database_has_60000_operations_over_twenty_years(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "extreme.kresus"
+            generator.generate(path, 60000, years=20)
+            with closing(sqlite3.connect(path)) as db:
+                stats = db.execute("SELECT COUNT(*), MIN(operation_date), MAX(operation_date) FROM transactions").fetchone()
+                self.assertEqual(stats, (60000, "2006-10-29", "2026-10-28"))
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions WHERE account_id='test-courant'").fetchone()[0], 50000)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions WHERE label IN ('Salaire fictif','Pension fictive')").fetchone()[0], 482)
+                self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+
     def test_monthly_incomes_and_operation_counts(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "example.kresus"

@@ -562,6 +562,42 @@ fn register_search_matches_text_across_history_and_combines_with_filters() {
 }
 
 #[test]
+fn sparse_search_pages_keep_balances_from_hidden_transactions_across_dates() {
+    let db = database();
+    create_account_in_db(&db, account("sparse", "Compte courant", 100.0)).unwrap();
+    for i in 0..2_000 {
+        let mut item = operation(
+            &format!("sparse-{i:04}"),
+            "sparse",
+            if i % 2 == 0 { -2.0 } else { 1.0 },
+        );
+        item.date = format!("2027-01-{:02}", i / 100 + 1);
+        item.label = if i % 17 == 0 { "Recherche" } else { "Masquée" }.into();
+        create_transaction_in_db(&db, item).unwrap();
+    }
+    let mut seen = 0;
+    for page in [1, 2] {
+        let result =
+            list_register_in_db(&db, "sparse", "all", page, "2027-01", "recherche").unwrap();
+        assert_eq!(result.filtered_count, 118);
+        assert_eq!(result.page_count, 2);
+        for row in result.rows {
+            let index: i64 = row
+                .transaction
+                .id
+                .trim_start_matches("sparse-")
+                .parse()
+                .unwrap();
+            let evens = index / 2 + 1;
+            let odds = (index + 1) / 2;
+            assert_eq!(row.running_balance, 10_000 - evens * 200 + odds * 100);
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 118);
+}
+
+#[test]
 fn cheque_validation_is_shared_by_creation_and_editing() {
     let db = database();
     let mut item = operation("cheque-test", "ccp", -1.0);

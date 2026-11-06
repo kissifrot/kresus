@@ -352,24 +352,39 @@ pub(crate) fn list_register_in_db(
         .map_err(database_error)?;
     let page_count = ((filtered_count + 99) / 100).max(1);
     let page = page.min(page_count);
-    // Compute balances before filtering; hidden rows must still affect them.
+    // Select the visible page first, then calculate balances over its complete
+    // unfiltered span. Hidden rows between visible entries still affect balances.
     let sql = format!(
-        "WITH history AS (
-           SELECT t.*,
-                  a.opening_balance_cents + SUM(t.amount_cents) OVER (
+        "WITH selected AS MATERIALIZED (
+           SELECT id, operation_date FROM transactions
+           WHERE account_id=?1 AND {predicate}
+           ORDER BY operation_date DESC, id DESC LIMIT 100 OFFSET ?4
+         ), bounds AS (
+           SELECT
+             (SELECT operation_date FROM selected ORDER BY operation_date, id LIMIT 1) AS first_date,
+             (SELECT id FROM selected ORDER BY operation_date, id LIMIT 1) AS first_id,
+             (SELECT operation_date FROM selected ORDER BY operation_date DESC, id DESC LIMIT 1) AS last_date,
+             (SELECT id FROM selected ORDER BY operation_date DESC, id DESC LIMIT 1) AS last_id
+         ), baseline AS (
+           SELECT a.opening_balance_cents + COALESCE((
+             SELECT SUM(amount_cents) FROM transactions, bounds
+             WHERE account_id=?1 AND (operation_date,id)<(bounds.first_date,bounds.first_id)
+           ),0) AS amount FROM accounts a WHERE a.id=?1
+         ), history AS (
+           SELECT t.*, baseline.amount + SUM(t.amount_cents) OVER (
                       ORDER BY t.operation_date, t.id ROWS UNBOUNDED PRECEDING
                   ) AS running_balance
-           FROM transactions t
-           JOIN accounts a ON a.id = t.account_id
-           WHERE t.account_id = ?1
+           FROM transactions t CROSS JOIN bounds CROSS JOIN baseline
+           WHERE t.account_id=?1
+             AND (t.operation_date,t.id)>=(bounds.first_date,bounds.first_id)
+             AND (t.operation_date,t.id)<=(bounds.last_date,bounds.last_id)
          )
          SELECT h.id, h.account_id, h.operation_date, h.label, h.category, h.cheque,
                 h.amount_cents, h.reconciled, h.note, x.id, h.running_balance, h.reference
          FROM history h
+         JOIN selected s ON s.id=h.id
          LEFT JOIN transfers x ON x.debit_id = h.id OR x.credit_id = h.id
-         WHERE {predicate}
-         ORDER BY h.operation_date DESC, h.id DESC
-         LIMIT 100 OFFSET ?4"
+         ORDER BY h.operation_date DESC, h.id DESC"
     );
     let mut statement = db.prepare(&sql).map_err(database_error)?;
     let rows = statement

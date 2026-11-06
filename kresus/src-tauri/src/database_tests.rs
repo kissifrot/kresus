@@ -78,6 +78,16 @@ fn existing_database_without_demo_data_is_not_seeded() {
 #[test]
 #[ignore = "manual performance reference; run with --ignored --nocapture"]
 fn performance_reference_10000_operations() {
+    performance_reference(10_000, 3652);
+}
+
+#[test]
+#[ignore = "manual extreme performance reference; run with --ignored --nocapture"]
+fn performance_reference_60000_operations() {
+    performance_reference(60_000, 7305);
+}
+
+fn performance_reference(count: usize, days: usize) {
     use crate::accounts::list_accounts_in_db;
     use crate::transactions::{list_payees_in_db, list_register_in_db, list_transactions_in_db};
     use rusqlite::params;
@@ -96,14 +106,14 @@ fn performance_reference_10000_operations() {
         let tx = db.transaction().unwrap();
         {
             let mut insert = tx.prepare("INSERT INTO transactions (id, account_id, operation_date, label, category, amount_cents, reconciled) VALUES (?1, 'benchmark', date('2017-01-01', ?2), ?3, 'Divers', ?4, ?5)").unwrap();
-            for i in 0..10_000 {
+            for i in 0..count {
                 insert
                     .execute(params![
                         format!("perf-{i:05}"),
-                        format!("+{} days", i * 3652 / 10_000),
+                        format!("+{} days", i * days / count),
                         format!("Destinataire {}", i % 100),
                         if i % 2 == 0 { -500 } else { 1000 },
-                        i % 2
+                        (i % 2) as i64
                     ])
                     .unwrap();
             }
@@ -111,7 +121,7 @@ fn performance_reference_10000_operations() {
         tx.commit().unwrap();
     }
     println!(
-        "Insertion de 10 000 opérations en une transaction : {:.1} ms",
+        "Insertion de {count} opérations en une transaction : {:.1} ms",
         start.elapsed().as_secs_f64() * 1000.0
     );
     let start = Instant::now();
@@ -126,15 +136,15 @@ fn performance_reference_10000_operations() {
             .find(|a| a.id == "benchmark")
             .unwrap()
             .current_balance,
-        2_510_000
+        10_000 + (count as i64 / 2 * 500)
     );
     let start = Instant::now();
     let entries = list_transactions_in_db(&db, "benchmark").unwrap();
     println!(
-        "Lecture de 10 000 opérations : {:.1} ms",
+        "Lecture de {count} opérations : {:.1} ms",
         start.elapsed().as_secs_f64() * 1000.0
     );
-    assert_eq!(entries.len(), 10_000);
+    assert_eq!(entries.len(), count);
     let start = Instant::now();
     let json = serde_json::to_vec(&entries).unwrap();
     println!(

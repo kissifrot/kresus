@@ -12,11 +12,13 @@ import sqlite3
 PROJECT = Path(__file__).resolve().parents[1]
 SCHEMA = PROJECT / "src-tauri" / "src" / "schema.sql"
 DEFAULT_OUTPUT = PROJECT / "donnees-test" / "kresus-test-12000.kresus"
-START = dt.date(2016, 10, 29)
 END = dt.date(2026, 10, 28)
 
 
-def generate(path: Path, count: int) -> None:
+def generate(path: Path, count: int, years: int = 10) -> None:
+    if years < 1 or years >= END.year:
+        raise ValueError("La durée doit être comprise entre 1 et 2025 ans.")
+    start = END.replace(year=END.year - years) + dt.timedelta(days=1)
     path.parent.mkdir(parents=True, exist_ok=True)
     # Atomic exclusive creation prevents overwriting an existing database.
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -46,7 +48,7 @@ def generate(path: Path, count: int) -> None:
             savings_count = count - main_count
             # Reserve regular, predictable income before filling the remaining slots.
             months = []
-            month = START.replace(day=1)
+            month = start.replace(day=1)
             while month <= END:
                 months.append(month)
                 month = (month.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
@@ -57,7 +59,7 @@ def generate(path: Path, count: int) -> None:
                     (5, "Salaire fictif", 195000),
                     (12, "Pension fictive", 85000),
                 ][:incomes_per_month]):
-                    date = min(max(month.replace(day=day), START), END)
+                    date = min(max(month.replace(day=day), start), END)
                     rows.append((f"income-{month:%Y-%m}-{index}", "test-courant", date.isoformat(),
                                  label, "Revenus", None, amount, 1, "Revenu mensuel fictif"))
             regular_count = len(rows)
@@ -65,7 +67,7 @@ def generate(path: Path, count: int) -> None:
             for i in range(count - regular_count):
                 main = i < other_main_count
                 index, account_count = (i, other_main_count) if main else (i - other_main_count, savings_count)
-                date = START + dt.timedelta(days=index * (END - START).days // (account_count - 1))
+                date = start + dt.timedelta(days=index * (END - start).days // (account_count - 1))
                 if not main and i % 12 == 0:
                     label, category, amount = "Intérêts fictifs", "Revenus", rng.randint(100, 5000)
                 else:
@@ -80,18 +82,21 @@ def generate(path: Path, count: int) -> None:
         # Only remove the new file created by this invocation.
         path.unlink(missing_ok=True)
         raise
-    print(f"Base créée : {path.resolve()} ({count} opérations, du {START} au {END})")
+    print(f"Base créée : {path.resolve()} ({count} opérations, du {start} au {END})")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Chemin du fichier à créer")
     parser.add_argument("--operations", type=int, default=12000, help="Nombre total d’opérations (par défaut : 12000)")
+    parser.add_argument("--years", type=int, default=10, help="Nombre d’années d’historique (par défaut : 10)")
     args = parser.parse_args()
     if args.operations < 12:
         parser.error("au moins 12 opérations sont nécessaires")
+    if not 1 <= args.years < END.year:
+        parser.error("la durée doit être comprise entre 1 et 2025 ans")
     try:
-        generate(args.output, args.operations)
+        generate(args.output, args.operations, args.years)
     except FileExistsError:
         parser.error(f"le fichier existe déjà : {args.output}")
 

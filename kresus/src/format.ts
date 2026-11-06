@@ -1,16 +1,25 @@
+// Reuse formatters: the register formats hundreds of cells on every page.
+const currencyFormatter = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+const amountFormatter = new Intl.NumberFormat("fr-FR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
 // Amounts crossing the application boundary are integer cents.
-export const euro = (cents: number) =>
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100);
+export const euro = (cents: number) => currencyFormatter.format(cents / 100);
 // Use when a column heading already specifies the currency.
-export const amountWithoutCurrency = (cents: number) =>
-  new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
-    cents / 100,
-  );
+export const amountWithoutCurrency = (cents: number) => amountFormatter.format(cents / 100);
 // Accept either decimal key and French grouped amounts copied from other applications.
 export function parseCents(value: string): number {
   const input = value.trim().replace(/\s*€$/, "").trim();
-  const match =
-    /^(-?)((?:[0-9]+|[0-9]{1,3}(?:[ \u00a0\u202f][0-9]{3})+))(?:[.,]([0-9]{1,2}))?$/.exec(input);
+  const match = /^(-?)([0-9]+|[0-9]{1,3}(?:[ \u00a0\u202f][0-9]{3})+)(?:[.,]([0-9]{1,2}))?$/.exec(
+    input,
+  );
   if (!match) throw new Error("Saisissez un montant valide avec au plus deux décimales.");
   const cents =
     Number(match[2]!.replace(/[ \u00a0\u202f]/g, "")) * 100 +
@@ -30,10 +39,7 @@ export function centsInput(cents: number): string {
   const absolute = Math.abs(cents);
   return `${cents < 0 ? "-" : ""}${Math.floor(absolute / 100)},${String(absolute % 100).padStart(2, "0")}`;
 }
-export const dateLabel = (date: string) =>
-  new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" }).format(
-    new Date(`${date}T12:00:00`),
-  );
+export const dateLabel = (date: string) => dateFormatter.format(new Date(`${date}T12:00:00`));
 export const escapeHtml = (value: string) =>
   value.replace(
     /[&<>"']/g,

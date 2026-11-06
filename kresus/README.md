@@ -110,14 +110,39 @@ La session X11 et le bus D-Bus doivent être isolés : le script pilote les fen�
 
 ### Mesure de performance
 
-Deux scénarios facultatifs construisent chacun 10 000 opérations fictives sur dix ans, sans toucher à la base de l’utilisateur :
+Deux scénarios facultatifs construisent chacun 10 000 opérations fictives sur dix ans, sans toucher à la base de l’utilisateur. Un scénario Rust supplémentaire mesure un cas extrême de 60 000 opérations sur vingt ans pour un seul compte :
 
 ```sh
 yarn test:performance
 cargo test --manifest-path src-tauri/Cargo.toml performance_reference_10000_operations -- --ignored --nocapture
+cargo test --manifest-path src-tauri/Cargo.toml performance_reference_60000_operations -- --ignored --nocapture
 ```
 
 Le premier mesure le registre, un filtre, le pointage et les changements de compte dans jsdom avec un backend simulé. Le second utilise une base SQLite temporaire et mesure l’insertion groupée, les soldes, la lecture complète et paginée avec totaux, leur sérialisation JSON et les suggestions de destinataires. Les mesures sont indicatives, sans seuil automatique : elles varient selon la machine et la charge. Le DOM simulé ne mesure ni le rendu de la WebView Tauri, ni le transport réel entre Rust et l’interface ; le parcours WebDriver ci-dessus les exerce séparément, avec les délais propres à l’automatisation. L’insertion mesurée ne représente pas un import Money.
+
+À titre de référence, une mesure manuelle du 6 novembre 2026 a utilisé une compilation release sous Linux, WebKitGTK dans Xvfb et un processeur AMD Ryzen 9 7950X3D. La base fictive contenait 12 000 opérations, dont 10 000 sur le compte affiché. La mémoire indiquée est la PSS totale des processus Kresus et WebKit ; le CPU est exprimé en pourcentage d’un cœur :
+
+| Scénario | Mémoire PSS | CPU moyen |
+| --- | ---: | ---: |
+| Registre au repos, pendant 10 s | 158 Mio | 0,3 % |
+| Passage automatisé de 20 pages en environ 2,5 s | 199 Mio | 59 % |
+| Au repos pendant 6 s après ouverture des graphiques | 211 Mio | 2,1 % |
+
+Il s’agit d’une mesure ponctuelle, réalisée séparément des scripts de performance ci-dessus. L’affichage virtuel, la machine et l’activité de la WebView influent sur les résultats ; une comparaison doit reprendre autant que possible les mêmes conditions.
+
+Dans les mêmes conditions, une seconde mesure avec la base extrême de 60 000 opérations sur vingt ans, dont 50 000 sur le compte affiché, a donné :
+
+| Scénario | Mémoire PSS | CPU moyen |
+| --- | ---: | ---: |
+| Registre au repos, pendant 10 s | 194 Mio | 0 % |
+| Passage automatisé de 20 pages en environ 3,9 s | 222 Mio | 75 % |
+| Au repos pendant 6 s après ouverture des graphiques | 227 Mio | 2,2 % |
+
+Le CPU au repos est arrondi : aucune activité n’a été observée à la résolution de cette mesure, ce qui ne garantit pas une utilisation nulle en permanence.
+
+Après optimisation de la pagination, une nouvelle mesure ponctuelle dans les mêmes conditions sur la base extrême a donné 2,52 s pour les 20 changements de page, contre 3,85 s auparavant ; le CPU moyen pendant ce parcours est passé de 75 % à 62 % d’un cœur. La mémoire PSS médiane était de 194 Mio au repos et 243 Mio pendant la pagination, contre 194 et 222 Mio avant. Ces résultats ne démontrent donc pas de réduction de mémoire et restent sensibles à l’activité de la WebView.
+
+Un parcours ultérieur de 120 pages sur la même base a identifié des allocations répétées de formateurs de dates et de montants dans la WebView. Après leur réutilisation, deux mesures ponctuelles ont donné, après 20 secondes de repos : 241 contre 203 Mio de PSS après 20 pages, puis 342 contre 237 Mio après 120 pages. Le parcours des 20 premières pages a pris 2,76 contre 2,62 s, avec un CPU moyen de 57 % contre 54 % d’un cœur. La mémoire reste supérieure à celle du lancement ; ces mesures ne permettent pas, à elles seules, de conclure à une fuite ou de garantir les mêmes gains sur une autre machine.
 
 ### Générer une base de test
 
@@ -132,10 +157,10 @@ Les tests du générateur se lancent avec `python3 -m unittest discover -s scrip
 Le fichier est créé dans `donnees-test/kresus-test-12000.kresus` et peut être ouvert depuis le menu « Fichier » de Kresus. Pour choisir un autre emplacement ou volume :
 
 ```sh
-python3 scripts/generate_test_database.py --output donnees-test/autre-test.kresus --operations 60000
+python3 scripts/generate_test_database.py --output donnees-test/extreme-60000.kresus --operations 60000 --years 20
 ```
 
-Le script refuse d’écraser un fichier existant et utilise le schéma SQLite de l’application. Les données sont reproductibles et fictives. Git ignore les bases SQLite et leurs fichiers auxiliaires ; les fichiers déjà suivis ou ajoutés à l’index doivent toutefois être retirés de l’index séparément.
+Cette base extrême contient 50 000 opérations sur le compte courant et 10 000 sur le livret, du 29 octobre 2006 au 28 octobre 2026. Le script refuse d’écraser un fichier existant et utilise le schéma SQLite de l’application. Les données sont reproductibles et fictives. Git ignore les bases SQLite et leurs fichiers auxiliaires ; les fichiers déjà suivis ou ajoutés à l’index doivent toutefois être retirés de l’index séparément. Le test du générateur vérifie aussi la base extrême et son intégrité ; il utilise un fichier temporaire.
 
 ## Données et sauvegarde
 
