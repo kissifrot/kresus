@@ -1,3 +1,5 @@
+import type { Frequency } from "./frequency";
+
 // Monetary values in the frontend and Tauri API are integer cents.
 export type AccountKind = "Compte courant" | "Épargne" | "Assurance vie";
 export type Category = { id: string; name: string; parentId: string | null };
@@ -36,7 +38,7 @@ export type ScheduleSeries = {
 };
 export type Schedule = ScheduleSeries & {
   id: string;
-  frequency: string;
+  frequency: Frequency;
   remainingCount?: number | null;
   endDate?: string | null;
   series: ScheduleSeries & { anchorDay: number };
@@ -44,7 +46,7 @@ export type Schedule = ScheduleSeries & {
 };
 export type CalendarOccurrence = ScheduleSeries & {
   id: string;
-  frequency: string;
+  frequency: Frequency;
   projected: boolean;
   originalDue?: string;
 };

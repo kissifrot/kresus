@@ -1201,7 +1201,7 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
       !preview.includes("138 catégories") ||
       !preview.replace(/\s/g, "").includes("3491,55") ||
       !preview.includes("9 opérations") ||
-      !preview.includes("9 échéances") ||
+      !preview.includes("12 échéances") ||
       !preview.includes("3 virements enregistrés") ||
       preview.includes("ne sera pas importée") ||
       preview.includes("ne seront pas importées")
@@ -1215,7 +1215,8 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
       throw new Error("Dates de fin absentes de l’aperçu.");
     if (
       !schedulePreview.includes("Test périodicité trimestrielle") ||
-      !schedulePreview.includes("Orange bimensuel")
+      !schedulePreview.includes("Orange bimensuel") ||
+      !schedulePreview.includes("EDF semestriel")
     )
       throw new Error("Échéances trimestrielle ou bimensuelle absentes de l’aperçu.");
     if (existsSync(destination)) throw new Error("La base de destination existe avant l’import.");

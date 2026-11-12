@@ -32,6 +32,9 @@ assert limits == [('money-schedule-3','2027-08-04',None),('money-schedule-4','20
 schedules = connection.execute("SELECT id,next_due,frequency,amount_cents FROM schedules ORDER BY id").fetchall()
 assert schedules == [
     ('money-schedule-1','2026-10-31','Mensuelle',-12000),
+    ('money-schedule-10','2026-12-31','Mensuelle',10100),
+    ('money-schedule-11','2026-11-17','Bimestrielle',10000),
+    ('money-schedule-12','2026-11-13','Semestrielle',-10000),
     ('money-schedule-2','2026-10-15','Bimensuelle',-10000),
     ('money-schedule-3','2026-11-04','Mensuelle',20000),
     ('money-schedule-4','2026-11-19','Mensuelle',30000),

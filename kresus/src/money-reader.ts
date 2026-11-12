@@ -4,6 +4,7 @@
 import createHash from "create-hash";
 import { Buffer } from "buffer";
 import MDBReader from "mdb-reader";
+import { FREQUENCY, type Frequency } from "./frequency";
 
 type Row = Record<string, any>;
 // mdb-reader’s browser build expects the standard Buffer global.
@@ -205,7 +206,7 @@ export function readMoneySchedules(
     label: string;
     category: string;
     nextDue: string;
-    frequency: string;
+    frequency: Frequency;
     amount: number;
     kind: string;
     paymentMethod: "cheque" | null;
@@ -232,25 +233,32 @@ export function readMoneySchedules(
     const interval = Number(bill.cFrqInst);
     const frequency =
       bill.frq === 3
-        ? ({ 0.5: "Bimestrielle", 1: "Mensuelle", 2: "Bimensuelle" } as Record<number, string>)[
-            interval
-          ]
+        ? (
+            {
+              0.5: FREQUENCY.EVERY_TWO_MONTHS,
+              1: FREQUENCY.MONTHLY,
+              2: FREQUENCY.TWICE_MONTHLY,
+            } as Record<number, Frequency>
+          )[interval]
         : bill.frq === 4 && interval === 1
-          ? "Trimestrielle"
-          : undefined;
-    // Money uses a separate frequency code for quarters; only the unlimited form was observed.
-    const months = frequency === "Trimestrielle" ? 3 : interval;
+          ? FREQUENCY.QUARTERLY
+          : bill.frq === 5 && interval === 2
+            ? FREQUENCY.SEMIANNUAL
+            : undefined;
+    // Money uses distinct codes for the observed quarterly and semiannual series.
+    const months =
+      frequency === FREQUENCY.QUARTERLY ? 3 : frequency === FREQUENCY.SEMIANNUAL ? 6 : interval;
     const endDate = verifiedScheduleLimit(bill.dt, bill.dtMax, bill.cInstMax, months);
     // Only the 15th/month-end, unstarted and unlimited transfer was observed.
     const verifiedTwiceMonthly =
-      frequency !== "Bimensuelle" ||
+      frequency !== FREQUENCY.TWICE_MONTHLY ||
       (endDate === null &&
         bill.dt instanceof Date &&
         bill.dt.getUTCDate() === 15 &&
         bill.iinstNextUnpaid === 0 &&
         source?.hacctLink != null);
-    const verifiedQuarterly =
-      frequency !== "Trimestrielle" ||
+    const verifiedLongPeriod =
+      (frequency !== FREQUENCY.QUARTERLY && frequency !== FREQUENCY.SEMIANNUAL) ||
       (endDate === null &&
         source?.hacctLink == null &&
         source?.amt != null &&
@@ -262,7 +270,7 @@ export function readMoneySchedules(
       unpaid === 0 ||
       (started &&
         endDate != null &&
-        frequency === "Mensuelle" &&
+        frequency === FREQUENCY.MONTHLY &&
         unpaid < bill.cInstMax &&
         source?.hacctLink == null &&
         source?.amt != null &&
@@ -282,7 +290,7 @@ export function readMoneySchedules(
       bill.iinstLastSkipped !== -1 ||
       bill.cDaysAutoEnter !== -1 ||
       !frequency ||
-      !verifiedQuarterly ||
+      !verifiedLongPeriod ||
       !verifiedTwiceMonthly ||
       source.frq !== bill.frq ||
       !accounts.some((a) => a.hacct === source.hacct) ||

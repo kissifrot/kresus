@@ -9,7 +9,7 @@ fn schedule(date: &str, frequency: &str) -> Schedule {
         label: "Example".into(),
         category: "Bills".into(),
         next_due: date.into(),
-        frequency: frequency.into(),
+        frequency: frequency.parse().unwrap(),
         amount: -4275,
         kind: "debit".into(),
         destination_account_id: None,
@@ -59,6 +59,61 @@ fn next_date(db: &Connection) -> String {
         |row| row.get(0),
     )
     .unwrap()
+}
+
+#[test]
+fn recorded_recurrences_match_shared_calendar_cases() {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Case {
+        name: String,
+        frequency: Frequency,
+        start: String,
+        dates: Vec<String>,
+        remaining_count: Option<i64>,
+        end_date: Option<String>,
+    }
+
+    // The TypeScript projection uses the same independently specified dates.
+    let cases: Vec<Case> =
+        serde_json::from_str(include_str!("../../tests/fixtures/recurrence-cases.json")).unwrap();
+    for case in cases {
+        let mut db = database();
+        let mut item = schedule(&case.start, "Mensuelle");
+        item.frequency = case.frequency;
+        item.remaining_count = case.remaining_count;
+        item.end_date = case.end_date.clone();
+        save_schedule_in_db(&mut db, item, None).unwrap();
+        for (index, expected) in case.dates.iter().enumerate() {
+            assert_eq!(
+                &next_date(&db),
+                expected,
+                "{}: occurrence {}",
+                case.name,
+                index + 1
+            );
+            let operation_id = format!("shared-{index}");
+            record_schedule_in_db(&mut db, "test-schedule", &operation_id).unwrap();
+            let recorded: String = db
+                .query_row(
+                    "SELECT operation_date FROM transactions WHERE id=?1",
+                    [&operation_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(&recorded, expected, "{}: recorded date", case.name);
+        }
+        if case.remaining_count.is_some() || case.end_date.is_some() {
+            let remaining: bool = db
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM schedules WHERE id='test-schedule')",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(!remaining, "{}: the series should have ended", case.name);
+        }
+    }
 }
 
 fn recurring_transfer() -> Schedule {
@@ -251,7 +306,7 @@ fn changing_transfer_series_updates_following_occurrences_and_removes_override()
     let mut updated = recurring_transfer();
     updated.destination_account_id = Some("livret-michel".into());
     updated.amount = -7500;
-    updated.frequency = "Trimestrielle".into();
+    updated.frequency = Frequency::Quarterly;
     save_schedule_in_db(&mut db, updated, Some("series")).unwrap();
     for id in ["changed-first", "changed-second"] {
         record_schedule_in_db(&mut db, "test-schedule", id).unwrap();

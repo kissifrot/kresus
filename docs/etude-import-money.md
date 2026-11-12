@@ -116,7 +116,18 @@ La capture du registre montre les références `200001` et `200002` sur deux op�
 
 Pour EDF, le fichier actuel indique le 19 novembre 2026 comme date de départ de la série et contient une autre opération EDF datée du 30 octobre. L’utilisateur indique également le 19 septembre 2026 ; cette date n’apparaît pas comme prochaine échéance ou opération EDF dans ce fichier. Elle précède de deux mois le 19 novembre, mais son statut dans Money ne peut pas être établi à partir des seules données examinées.
 
-La série EDF stockée au 19 novembre 2026 avec une périodicité de deux mois permet à Kresus de projeter le 19 janvier 2027 : cette date future est calculée depuis la série, pas stockée comme opération. Les captures disponibles ne permettent pas d’attribuer indépendamment ce jour à EDF dans Money.
+La série EDF stockée au 19 novembre 2026 avec une périodicité de deux mois permet à Kresus de projeter le 19 janvier 2027 : cette date future est calculée depuis la série, pas stockée comme opération. La capture du 12 novembre confirme que Money attribue cette date à EDF.
+
+## Compléments du 12 novembre 2026
+
+Le fichier `references/Money.mny`, lu sans modification, contient les mêmes deux comptes bancaires et douze opérations que l’échantillon figé ; trois séries s’ajoutent aux neuf existantes. Les captures montrent les occurrences effectivement affichées par Money :
+
+- « Orange mensuel fin mois », crédit de 101 € à partir du 31 décembre 2026 : 31 janvier, 28 février, 31 mars et 30 avril 2027. L’import le reconnaît comme mensuel avec un jour d’ancrage de 31 ; la capture confirme son comportement pour février non bissextile.
+- « Orange bimestriel », crédit de 100 € : 17 novembre 2026, puis les 17 janvier, mars, mai et juillet 2027. Son modèle comporte `frq = 3` et `cFrqInst = 0,5` ; l’import reconnaît cette série comme bimestrielle.
+- « EDF semestriel », débit de 100 € : 13 novembre 2026, puis les 13 mai et novembre 2027 et 2028. Son modèle comporte `frq = 5`, `cFrqInst = 2` et ne présente aucune limite ni occurrence enregistrée. L’import reconnaît cette configuration précise, sans généraliser aux séries limitées, déjà commencées, de crédit ou de virement.
+- La capture de l’échéance EDF bimestrielle confirme les 19 novembre 2026, 19 janvier, 19 mars, 19 mai et 19 juillet 2027.
+
+L’aperçu reconnaît désormais les douze séries, dont EDF semestriel. Les nouvelles captures montrent « Versement », « Dépôt » et « Autre » pour les trois nouvelles séries, mais elles ne démontrent pas les correspondances pour les autres types d’opérations. Aucun commentaire d’échéance n’a été identifié dans leurs modèles. L’échantillon fictif de test versionné a été actualisé avec ce fichier.
 
 ## Étude des références d’opérations enregistrées
 

@@ -2,6 +2,7 @@ mod accounts;
 mod categories;
 mod database;
 mod file_open;
+mod frequency;
 mod menu;
 mod money_import;
 mod schedules;

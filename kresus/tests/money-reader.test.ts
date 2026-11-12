@@ -149,6 +149,71 @@ describe("Money reader", () => {
     expect(read(bill, [debit]).skippedSchedules).toHaveLength(1);
     expect(read(bill, [debit, { ...credit, amt: "99.00" }]).skippedSchedules).toHaveLength(1);
   });
+  it("imports only the observed unlimited, unstarted semiannual debit", () => {
+    const source = {
+      htrn: 28,
+      hacct: 2,
+      amt: "-100.0000",
+      frq: 5,
+      hsec: null,
+      act: -1,
+      hacctLink: null as number | null,
+      grftt: 2097152,
+      grfstem: 2176,
+      grfEntryMethods: 1,
+      fPrint: false,
+      lHpay: 16,
+    };
+    const bill = {
+      hbill: 12,
+      hbillHead: 12,
+      st: 3,
+      frq: 5,
+      cFrqInst: 2,
+      dt: new Date("2026-11-13T00:00:00Z"),
+      dtMax: new Date("2200-12-31T00:00:00Z"),
+      cInstMax: -1,
+      iinst: 0,
+      iinstNextUnpaid: 0,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 28,
+    };
+    const read = (b: typeof bill, t: typeof source) =>
+      readMoneySchedules(
+        [b],
+        [t],
+        [],
+        [{ hacct: 2 }],
+        [{ hpay: 16, szFull: "EDF semestriel" }],
+        () => "Divers",
+      );
+    const result = read(bill, source);
+    expect(result.schedules[0]).toMatchObject({
+      id: 12,
+      label: "EDF semestriel",
+      frequency: "Semestrielle",
+      nextDue: "2026-11-13",
+      anchorDay: 13,
+      amount: -10000,
+      kind: "debit",
+      endDate: null,
+      paymentMethod: null,
+    });
+    expect(
+      result.warnings.some((warning) => warning.includes("méthode de paiement non reconnue")),
+    ).toBe(true);
+    for (const [b, t] of [
+      [{ ...bill, cFrqInst: 1 }, source],
+      [{ ...bill, cInstMax: 2, dtMax: new Date("2027-05-13T00:00:00Z") }, source],
+      [{ ...bill, st: 1, iinstNextUnpaid: 1 }, source],
+      [bill, { ...source, amt: "100.00" }],
+      [bill, { ...source, hacctLink: 3 }],
+    ] as const) {
+      expect(read(b, t).schedules).toHaveLength(0);
+      expect(read(b, t).skippedSchedules).toHaveLength(1);
+    }
+  });
   it("imports only the observed unlimited, unstarted quarterly debit", () => {
     const source = {
       htrn: 1,
@@ -405,6 +470,16 @@ describe("Money reader", () => {
     });
     expect(preview.warnings.length).toBeGreaterThan(0);
     expect(preview.skippedSchedules).toHaveLength(0);
+    expect(preview.schedules).toHaveLength(12);
+    expect(preview.schedules.find((schedule) => schedule.id === 12)).toMatchObject({
+      label: "EDF semestriel",
+      frequency: "Semestrielle",
+      nextDue: "2026-11-13",
+      anchorDay: 13,
+      amount: -10000,
+      kind: "debit",
+      paymentMethod: null,
+    });
     expect(preview.schedules.find((schedule) => schedule.id === 2)).toMatchObject({
       label: "Orange bimensuel",
       frequency: "Bimensuelle",

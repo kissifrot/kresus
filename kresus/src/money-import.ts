@@ -3,6 +3,7 @@ import { euro, escapeHtml } from "./format";
 import { reloadDatabase } from "./accounts";
 import { Buffer } from "buffer";
 import browserProcess from "process";
+import type { Frequency } from "./frequency";
 
 type MoneyAccount = {
   id: number;
@@ -25,7 +26,7 @@ type MoneySchedule = {
   destinationAccountId: number | null;
   label: string;
   nextDue: string;
-  frequency: string;
+  frequency: Frequency;
   amount: number;
   paymentMethod: "cheque" | null;
   endDate: string | null;

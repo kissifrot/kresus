@@ -1,4 +1,5 @@
 use crate::database::{AppState, database_error};
+use crate::frequency::Frequency;
 use crate::transactions::{NewTransfer, insert_transfer_in_tx, validate_cheque};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,7 @@ pub struct Schedule {
     pub(crate) label: String,
     pub(crate) category: String,
     pub(crate) next_due: String,
-    pub(crate) frequency: String,
+    pub(crate) frequency: Frequency,
     pub(crate) amount: i64,
     pub(crate) kind: String,
     #[serde(default)]
@@ -175,7 +176,16 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
     let mut schedules = rows
         .collect::<Result<Vec<_>, _>>()
         .map_err(database_error)?;
-    let mut future = connection.prepare("SELECT original_due, account_id, label, category, due_date, amount_cents, CASE WHEN destination_account_id IS NOT NULL THEN 'transfer' ELSE kind END, destination_account_id, payment_method, cheque, note FROM schedule_future_overrides WHERE schedule_id=?1 ORDER BY original_due").map_err(database_error)?;
+    let mut future = connection
+        .prepare(
+            "SELECT original_due, account_id, label, category, due_date, amount_cents,
+                CASE WHEN destination_account_id IS NOT NULL THEN 'transfer' ELSE kind END,
+                destination_account_id, payment_method, cheque, note
+         FROM schedule_future_overrides
+         WHERE schedule_id = ?1
+         ORDER BY original_due",
+        )
+        .map_err(database_error)?;
     for schedule in &mut schedules {
         schedule.future_overrides = future
             .query_map([&schedule.id], |r| {
@@ -259,16 +269,61 @@ fn update_future_in_db(
     // Validate the original date against the recurrence and its remaining limit.
     let bimonthly: bool = db
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM schedules WHERE id=?1 AND frequency='Bimensuelle')",
-            [&schedule.id],
+            "SELECT EXISTS(SELECT 1 FROM schedules WHERE id=?1 AND frequency=?2)",
+            params![schedule.id, Frequency::TwiceMonthly],
             |row| row.get(0),
         )
         .map_err(database_error)?;
     let eligible: bool = if bimonthly {
         // Count each half-month separately so limits and moved occurrences stay consistent.
-        db.query_row("SELECT EXISTS(SELECT 1 FROM schedules s LEFT JOIN schedule_limits l ON l.schedule_id=s.id WHERE s.id=?1 AND length(?2)=10 AND date(?2,'+0 days')=?2 AND ?2>s.next_due AND (l.end_date IS NULL OR ?2<=l.end_date) AND (strftime('%d',?2)='15' OR ?2=date(?2,'start of month','+1 month','-1 day')) AND (l.remaining_count IS NULL OR 2*((CAST(strftime('%Y',?2) AS INTEGER)-CAST(strftime('%Y',s.next_due) AS INTEGER))*12+CAST(strftime('%m',?2) AS INTEGER)-CAST(strftime('%m',s.next_due) AS INTEGER)) + CASE WHEN strftime('%d',?2)='15' THEN 0 ELSE 1 END - CASE WHEN strftime('%d',s.next_due)='15' THEN 0 ELSE 1 END < l.remaining_count))", params![schedule.id,original], |r|r.get(0)).map_err(database_error)?
+        db.query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM schedules s
+                LEFT JOIN schedule_limits l ON l.schedule_id = s.id
+                WHERE s.id = ?1
+                  AND length(?2) = 10 AND date(?2, '+0 days') = ?2
+                  AND ?2 > s.next_due
+                  AND (l.end_date IS NULL OR ?2 <= l.end_date)
+                  AND (strftime('%d', ?2) = '15'
+                       OR ?2 = date(?2, 'start of month', '+1 month', '-1 day'))
+                  AND (l.remaining_count IS NULL OR
+                       2 * ((CAST(strftime('%Y', ?2) AS INTEGER) - CAST(strftime('%Y', s.next_due) AS INTEGER)) * 12
+                            + CAST(strftime('%m', ?2) AS INTEGER) - CAST(strftime('%m', s.next_due) AS INTEGER))
+                       + CASE WHEN strftime('%d', ?2) = '15' THEN 0 ELSE 1 END
+                       - CASE WHEN strftime('%d', s.next_due) = '15' THEN 0 ELSE 1 END
+                       < l.remaining_count)
+            )",
+            params![schedule.id, original],
+            |r| r.get(0),
+        ).map_err(database_error)?
     } else {
-        db.query_row("SELECT EXISTS(SELECT 1 FROM schedules s JOIN schedule_anchors a ON a.schedule_id=s.id LEFT JOIN schedule_limits l ON l.schedule_id=s.id WHERE s.id=?1 AND length(?2)=10 AND date(?2,'+0 days')=?2 AND ?2>s.next_due AND (l.end_date IS NULL OR ?2<=l.end_date) AND ((CAST(strftime('%Y',?2) AS INTEGER)-CAST(strftime('%Y',s.next_due) AS INTEGER))*12 + CAST(strftime('%m',?2) AS INTEGER)-CAST(strftime('%m',s.next_due) AS INTEGER)) % CASE s.frequency WHEN 'Mensuelle' THEN 1 WHEN 'Bimestrielle' THEN 2 WHEN 'Trimestrielle' THEN 3 WHEN 'Semestrielle' THEN 6 WHEN 'Annuelle' THEN 12 END = 0 AND (l.remaining_count IS NULL OR ((CAST(strftime('%Y',?2) AS INTEGER)-CAST(strftime('%Y',s.next_due) AS INTEGER))*12 + CAST(strftime('%m',?2) AS INTEGER)-CAST(strftime('%m',s.next_due) AS INTEGER)) / CASE s.frequency WHEN 'Mensuelle' THEN 1 WHEN 'Bimestrielle' THEN 2 WHEN 'Trimestrielle' THEN 3 WHEN 'Semestrielle' THEN 6 WHEN 'Annuelle' THEN 12 END < l.remaining_count) AND CAST(strftime('%d',?2) AS INTEGER)=MIN(a.anchor_day,CAST(strftime('%d',date(?2,'start of month','+1 month','-1 day')) AS INTEGER)))", params![schedule.id,original], |r|r.get(0)).map_err(database_error)?
+        db.query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM schedules s
+                JOIN schedule_anchors a ON a.schedule_id = s.id
+                LEFT JOIN schedule_limits l ON l.schedule_id = s.id
+                WHERE s.id = ?1
+                  AND length(?2) = 10 AND date(?2, '+0 days') = ?2
+                  AND ?2 > s.next_due
+                  AND (l.end_date IS NULL OR ?2 <= l.end_date)
+                  AND ((CAST(strftime('%Y', ?2) AS INTEGER) - CAST(strftime('%Y', s.next_due) AS INTEGER)) * 12
+                       + CAST(strftime('%m', ?2) AS INTEGER) - CAST(strftime('%m', s.next_due) AS INTEGER))
+                      % CASE s.frequency WHEN ?3 THEN 1 WHEN ?4 THEN 2 WHEN ?5 THEN 3 WHEN ?6 THEN 6 WHEN ?7 THEN 12 END = 0
+                  AND (l.remaining_count IS NULL OR
+                       ((CAST(strftime('%Y', ?2) AS INTEGER) - CAST(strftime('%Y', s.next_due) AS INTEGER)) * 12
+                        + CAST(strftime('%m', ?2) AS INTEGER) - CAST(strftime('%m', s.next_due) AS INTEGER))
+                       / CASE s.frequency WHEN ?3 THEN 1 WHEN ?4 THEN 2 WHEN ?5 THEN 3 WHEN ?6 THEN 6 WHEN ?7 THEN 12 END
+                       < l.remaining_count)
+                  AND CAST(strftime('%d', ?2) AS INTEGER) = MIN(
+                      a.anchor_day,
+                      CAST(strftime('%d', date(?2, 'start of month', '+1 month', '-1 day')) AS INTEGER)
+                  )
+            )",
+            params![schedule.id, original, Frequency::Monthly, Frequency::EveryTwoMonths, Frequency::Quarterly, Frequency::Semiannual, Frequency::Annual],
+            |r| r.get(0),
+        ).map_err(database_error)?
     };
     if !eligible {
         return Err("Cette occurrence future n’appartient pas à la série.".into());
@@ -283,7 +338,20 @@ fn update_future_in_db(
     } else {
         None
     };
-    db.execute("INSERT INTO schedule_future_overrides (schedule_id,original_due,account_id,label,category,due_date,amount_cents,kind,destination_account_id,payment_method,cheque,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULLIF(TRIM(?11),''),NULLIF(TRIM(?12),'')) ON CONFLICT(schedule_id,original_due) DO UPDATE SET account_id=excluded.account_id,label=excluded.label,category=excluded.category,due_date=excluded.due_date,amount_cents=excluded.amount_cents,kind=excluded.kind,destination_account_id=excluded.destination_account_id,payment_method=excluded.payment_method,cheque=excluded.cheque,note=excluded.note", params![schedule.id,original,schedule.account_id,schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.amount,kind,destination,schedule.payment_method,schedule.cheque.as_deref().map(str::trim),schedule.note.as_deref().map(str::trim)]).map_err(database_error)?;
+    db.execute(
+        "INSERT INTO schedule_future_overrides
+            (schedule_id, original_due, account_id, label, category, due_date, amount_cents,
+             kind, destination_account_id, payment_method, cheque, note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULLIF(TRIM(?11), ''), NULLIF(TRIM(?12), ''))
+         ON CONFLICT(schedule_id, original_due) DO UPDATE SET
+             account_id = excluded.account_id, label = excluded.label, category = excluded.category,
+             due_date = excluded.due_date, amount_cents = excluded.amount_cents, kind = excluded.kind,
+             destination_account_id = excluded.destination_account_id,
+             payment_method = excluded.payment_method, cheque = excluded.cheque, note = excluded.note",
+        params![schedule.id, original, schedule.account_id, schedule.label.trim(), schedule.category.trim(),
+            schedule.next_due, schedule.amount, kind, destination, schedule.payment_method,
+            schedule.cheque.as_deref().map(str::trim), schedule.note.as_deref().map(str::trim)],
+    ).map_err(database_error)?;
     Ok(())
 }
 
@@ -355,17 +423,6 @@ pub(crate) fn save_schedule_in_db(
     {
         return Err("Le libellé et la catégorie sont obligatoires.".into());
     }
-    if !matches!(
-        schedule.frequency.as_str(),
-        "Mensuelle"
-            | "Bimensuelle"
-            | "Bimestrielle"
-            | "Trimestrielle"
-            | "Semestrielle"
-            | "Annuelle"
-    ) {
-        return Err("Périodicité invalide.".into());
-    }
     if schedule.amount == 0
         || schedule.amount.unsigned_abs() > 100_000_000_000
         || !matches!(
@@ -395,7 +452,7 @@ pub(crate) fn save_schedule_in_db(
     }
     if scope != Some("occurrence") {
         // This cadence uses the two dates verified against Money.
-        if schedule.frequency == "Bimensuelle" {
+        if schedule.frequency == Frequency::TwiceMonthly {
             let valid_day: bool = connection.query_row(
                 "SELECT strftime('%d',?1)='15' OR ?1=date(?1,'start of month','+1 month','-1 day')",
                 [&schedule.next_due], |row| row.get(0),
@@ -444,7 +501,18 @@ pub(crate) fn save_schedule_in_db(
         } else {
             &schedule.kind
         };
-        tx.execute("INSERT INTO schedule_overrides (schedule_id, account_id, label, category, due_date, amount_cents, kind, payment_method, cheque, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULLIF(TRIM(?9),''), NULLIF(TRIM(?10),'')) ON CONFLICT(schedule_id) DO UPDATE SET account_id=excluded.account_id, label=excluded.label, category=excluded.category, due_date=excluded.due_date, amount_cents=excluded.amount_cents, kind=excluded.kind,payment_method=excluded.payment_method,cheque=excluded.cheque,note=excluded.note", params![schedule.id, schedule.account_id, schedule.label.trim(), schedule.category.trim(), schedule.next_due, schedule.amount, stored_kind, schedule.payment_method, schedule.cheque.as_deref().map(str::trim), schedule.note.as_deref().map(str::trim)]).map_err(database_error)?;
+        tx.execute(
+            "INSERT INTO schedule_overrides
+                (schedule_id, account_id, label, category, due_date, amount_cents, kind, payment_method, cheque, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULLIF(TRIM(?9), ''), NULLIF(TRIM(?10), ''))
+             ON CONFLICT(schedule_id) DO UPDATE SET
+                 account_id = excluded.account_id, label = excluded.label, category = excluded.category,
+                 due_date = excluded.due_date, amount_cents = excluded.amount_cents, kind = excluded.kind,
+                 payment_method = excluded.payment_method, cheque = excluded.cheque, note = excluded.note",
+            params![schedule.id, schedule.account_id, schedule.label.trim(), schedule.category.trim(),
+                schedule.next_due, schedule.amount, stored_kind, schedule.payment_method,
+                schedule.cheque.as_deref().map(str::trim), schedule.note.as_deref().map(str::trim)],
+        ).map_err(database_error)?;
         tx.execute(
             "DELETE FROM schedule_transfer_overrides WHERE schedule_id=?1",
             [&schedule.id],
@@ -554,7 +622,18 @@ pub(crate) fn record_schedule_in_db(
 ) -> Result<(), String> {
     let tx = connection.transaction().map_err(database_error)?;
     // Resolve the effective occurrence, including a one-time transfer override.
-    let occurrence: Option<(String, Option<String>, String, String, String, i64)> = tx.query_row("SELECT COALESCE(o.account_id,s.account_id), CASE WHEN o.schedule_id IS NOT NULL THEN ot.destination_account_id ELSE st.destination_account_id END, COALESCE(o.due_date,s.next_due), COALESCE(o.label,s.label), COALESCE(o.category,s.category), COALESCE(o.amount_cents,s.amount_cents) FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id LEFT JOIN schedule_transfers st ON st.schedule_id=s.id LEFT JOIN schedule_transfer_overrides ot ON ot.schedule_id=s.id WHERE s.id=?1", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional().map_err(database_error)?;
+    let occurrence: Option<(String, Option<String>, String, String, String, i64)> = tx.query_row(
+        "SELECT COALESCE(o.account_id, s.account_id),
+                CASE WHEN o.schedule_id IS NOT NULL THEN ot.destination_account_id ELSE st.destination_account_id END,
+                COALESCE(o.due_date, s.next_due), COALESCE(o.label, s.label),
+                COALESCE(o.category, s.category), COALESCE(o.amount_cents, s.amount_cents)
+         FROM schedules s
+         LEFT JOIN schedule_overrides o ON o.schedule_id = s.id
+         LEFT JOIN schedule_transfers st ON st.schedule_id = s.id
+         LEFT JOIN schedule_transfer_overrides ot ON ot.schedule_id = s.id
+         WHERE s.id = ?1",
+        [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+    ).optional().map_err(database_error)?;
     let (source, destination, date, label, category, cents) =
         occurrence.ok_or_else(|| "Échéance introuvable.".to_string())?;
     // Old databases may contain an invalid number; ask for correction without changing data.
@@ -589,13 +668,23 @@ pub(crate) fn record_schedule_in_db(
     ).map_err(database_error)?;
     }
     tx.execute(
-        "UPDATE schedules SET next_due = CASE WHEN frequency='Bimensuelle' THEN
-          CASE WHEN strftime('%d',next_due)='15' THEN date(next_due,'start of month','+1 month','-1 day') ELSE date(next_due,'start of month','+1 month','+14 days') END
-        ELSE (
-          SELECT date(target_month, printf('+%d days', MIN(anchor_day, CAST(strftime('%d', date(target_month, '+1 month', '-1 day')) AS INTEGER)) - 1))
-          FROM (SELECT date(schedules.next_due, 'start of month', CASE schedules.frequency WHEN 'Mensuelle' THEN '+1 month' WHEN 'Bimestrielle' THEN '+2 months' WHEN 'Trimestrielle' THEN '+3 months' WHEN 'Semestrielle' THEN '+6 months' WHEN 'Annuelle' THEN '+12 months' END) AS target_month), schedule_anchors WHERE schedule_id = schedules.id
-        ) END WHERE id = ?1",
-        [id],
+        "UPDATE schedules
+         SET next_due = CASE WHEN frequency = ?2 THEN
+             CASE WHEN strftime('%d', next_due) = '15'
+                  THEN date(next_due, 'start of month', '+1 month', '-1 day')
+                  ELSE date(next_due, 'start of month', '+1 month', '+14 days') END
+         ELSE (
+             SELECT date(target_month, printf('+%d days',
+                         MIN(anchor_day, CAST(strftime('%d', date(target_month, '+1 month', '-1 day')) AS INTEGER)) - 1))
+             FROM (SELECT date(schedules.next_due, 'start of month',
+                               CASE schedules.frequency
+                                   WHEN ?3 THEN '+1 month' WHEN ?4 THEN '+2 months'
+                                   WHEN ?5 THEN '+3 months' WHEN ?6 THEN '+6 months'
+                                   WHEN ?7 THEN '+12 months' END) AS target_month), schedule_anchors
+             WHERE schedule_id = schedules.id
+         ) END
+         WHERE id = ?1",
+        params![id, Frequency::TwiceMonthly, Frequency::Monthly, Frequency::EveryTwoMonths, Frequency::Quarterly, Frequency::Semiannual, Frequency::Annual],
     ).map_err(database_error)?;
     // Never reuse a cheque number on the next occurrence.
     tx.execute("UPDATE schedules SET cheque=NULL WHERE id=?1", [id])
@@ -609,8 +698,25 @@ pub(crate) fn record_schedule_in_db(
     )
     .map_err(database_error)?;
     // Promote an exception when its original occurrence becomes the next pending one.
-    tx.execute("INSERT INTO schedule_overrides (schedule_id,account_id,label,category,due_date,amount_cents,kind,payment_method,cheque,note) SELECT f.schedule_id,f.account_id,f.label,f.category,f.due_date,f.amount_cents,f.kind,f.payment_method,f.cheque,f.note FROM schedule_future_overrides f JOIN schedules s ON s.id=f.schedule_id AND s.next_due=f.original_due WHERE s.id=?1", [id]).map_err(database_error)?;
-    tx.execute("INSERT INTO schedule_transfer_overrides (schedule_id,destination_account_id) SELECT f.schedule_id,f.destination_account_id FROM schedule_future_overrides f JOIN schedules s ON s.id=f.schedule_id AND s.next_due=f.original_due WHERE s.id=?1 AND f.destination_account_id IS NOT NULL", [id]).map_err(database_error)?;
+    tx.execute(
+        "INSERT INTO schedule_overrides
+            (schedule_id, account_id, label, category, due_date, amount_cents, kind, payment_method, cheque, note)
+         SELECT f.schedule_id, f.account_id, f.label, f.category, f.due_date, f.amount_cents,
+                f.kind, f.payment_method, f.cheque, f.note
+         FROM schedule_future_overrides f
+         JOIN schedules s ON s.id = f.schedule_id AND s.next_due = f.original_due
+         WHERE s.id = ?1",
+        [id],
+    ).map_err(database_error)?;
+    tx.execute(
+        "INSERT INTO schedule_transfer_overrides (schedule_id, destination_account_id)
+         SELECT f.schedule_id, f.destination_account_id
+         FROM schedule_future_overrides f
+         JOIN schedules s ON s.id = f.schedule_id AND s.next_due = f.original_due
+         WHERE s.id = ?1 AND f.destination_account_id IS NOT NULL",
+        [id],
+    )
+    .map_err(database_error)?;
     tx.execute("DELETE FROM schedule_future_overrides WHERE schedule_id=?1 AND original_due=(SELECT next_due FROM schedules WHERE id=?1)", [id]).map_err(database_error)?;
     tx.commit().map_err(database_error)
 }

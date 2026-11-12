@@ -1,0 +1,60 @@
+[
+  {
+    "name": "Mensuelle, février non bissextile puis retour au 31",
+    "frequency": "Mensuelle",
+    "start": "2027-01-31",
+    "dates": ["2027-01-31", "2027-02-28", "2027-03-31", "2027-04-30"]
+  },
+  {
+    "name": "Mensuelle, février bissextile puis retour au 31",
+    "frequency": "Mensuelle",
+    "start": "2028-01-31",
+    "dates": ["2028-01-31", "2028-02-29", "2028-03-31", "2028-04-30"]
+  },
+  {
+    "name": "Bimestrielle, de décembre à février bissextile",
+    "frequency": "Bimestrielle",
+    "start": "2027-12-31",
+    "dates": ["2027-12-31", "2028-02-29", "2028-04-30", "2028-06-30", "2028-08-31"]
+  },
+  {
+    "name": "Trimestrielle, conservation du jour en fin de mois",
+    "frequency": "Trimestrielle",
+    "start": "2027-11-30",
+    "dates": ["2027-11-30", "2028-02-29", "2028-05-30", "2028-08-30"]
+  },
+  {
+    "name": "Semestrielle, année bissextile",
+    "frequency": "Semestrielle",
+    "start": "2027-08-31",
+    "dates": ["2027-08-31", "2028-02-29", "2028-08-31", "2029-02-28"]
+  },
+  {
+    "name": "Annuelle, le 29 février et le siècle non bissextile",
+    "frequency": "Annuelle",
+    "start": "2096-02-29",
+    "dates": ["2096-02-29", "2097-02-28", "2098-02-28", "2099-02-28", "2100-02-28", "2101-02-28", "2102-02-28", "2103-02-28", "2104-02-29"]
+  },
+  {
+    "name": "Bimensuelle, fin de mois bissextile",
+    "frequency": "Bimensuelle",
+    "start": "2028-01-31",
+    "dates": ["2028-01-31", "2028-02-15", "2028-02-29", "2028-03-15", "2028-03-31"]
+  },
+  {
+    "name": "Bimensuelle, nombre d’occurrences limité",
+    "frequency": "Bimensuelle",
+    "start": "2027-02-15",
+    "remainingCount": 3,
+    "through": "2027-04-30",
+    "dates": ["2027-02-15", "2027-02-28", "2027-03-15"]
+  },
+  {
+    "name": "Mensuelle, date de fin incluse",
+    "frequency": "Mensuelle",
+    "start": "2028-01-31",
+    "endDate": "2028-03-31",
+    "through": "2028-05-31",
+    "dates": ["2028-01-31", "2028-02-29", "2028-03-31"]
+  }
+]

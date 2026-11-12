@@ -16,14 +16,15 @@ Cette checklist rassemble ce qu’il reste à observer dans Money pour poursuivr
 - Deux séries mensuelles non commencées à durée limitée : 200 € jusqu’au 4 août 2027 et 300 € jusqu’au 19 mars 2027. Money calcule aussi un nombre d’occurrences lorsqu’une date de fin est saisie.
 - Une série mensuelle limitée à trois occurrences dont deux sont enregistrées les 6 octobre et 6 novembre 2026 ; la prochaine affichée est le 6 décembre. Cette configuration est importée et testée.
 - Une opération avec commentaire, importé, et une opération avec une référence de chèque dont la signification exacte reste à vérifier ci-dessous.
+- Les captures du 12 novembre montrent les dates de l’échéance bimestrielle EDF : 19 novembre 2026, 19 janvier, 19 mars, 19 mai et 19 juillet 2027. Elles montrent aussi une série mensuelle en fin de mois de décembre 2026 à avril 2027, ainsi qu’une série semestrielle désormais importée dans sa configuration observée.
 
 ## À vérifier en priorité
 
 ### 1. Dates réelles des échéances Orange et EDF
 
-Les captures du 6 novembre attribuent à Orange les 15 et 31 octobre, les 15 et 30 novembre et le 15 décembre 2026. Money indique deux occurrences en retard. Kresus gère désormais le 15 et la fin du mois et importe cette série de virement non commencée et sans limite. Ces dates sont acquises ; il reste surtout à comprendre les autres jours de départ et les fins de février. Les captures antérieures désignent EDF comme « Bimestrielle ».
+Les captures du 6 novembre attribuent à Orange les 15 et 31 octobre, les 15 et 30 novembre et le 15 décembre 2026. Money indique deux occurrences en retard. Kresus gère désormais le 15 et la fin du mois et importe cette série de virement non commencée et sans limite. Ces dates sont acquises ; il reste surtout à comprendre les autres jours de départ et les fins de février. Les dates bimestrielles d’EDF sont confirmées par la capture du 12 novembre.
 
-Pour compléter ces observations, si l’occasion se présente, relever les dates d’une série bimensuelle démarrant un autre jour et celles autour de février ; pour **EDF**, relever les deux dates suivant la prochaine si elles sont visibles. Pour chaque série :
+Pour compléter ces observations, si l’occasion se présente, relever les dates d’une série bimensuelle démarrant un autre jour et celles autour de février. Pour chaque série :
 
 1. Capturer sa fiche ou sa ligne de synthèse avec son libellé, son montant, son compte, sa périodicité exacte et sa prochaine date. Pour Orange, montrer également le compte de destination du virement s’il est visible.
 2. Capturer la vue des retards ou la liste détaillée montrant les dates des occurrences concernées. Sélectionner chaque date utile dans le calendrier et capturer la liste des échéances de ce jour, avec le nom et le montant de la série visibles.
@@ -35,7 +36,7 @@ Pour compléter ces observations, si l’occasion se présente, relever les date
 | Série | Périodicité affichée | Dates attribuées à la série et état de chacune | Capture(s) / remarque |
 | --- | --- | --- | --- |
 | Orange | Bimensuelle | 15 et 31 octobre, 15 et 30 novembre, 15 décembre 2026 | Captures du 6 novembre : acquis |
-| EDF | Bimestrielle | Prochaine date : 19 novembre 2026 ; dates suivantes à relever si visibles | Capture de synthèse du 6 novembre |
+| EDF | Bimestrielle | 19 novembre 2026, 19 janvier, 19 mars, 19 mai et 19 juillet 2027 | Capture `2026-11-12 181638` : acquis |
 
 ### 2. Méthodes de paiement des échéances
 
@@ -55,7 +56,7 @@ Pour chaque exemple :
 
 ### 3. Autres périodicités proposées
 
-La série trimestrielle créée démarre le 6 novembre 2026 et apparaît le 6 février 2027 : ces observations sont acquises. Capturer la liste déroulante des périodicités si possible. Pour chaque périodicité supplémentaire proposée et pertinente, créer une série fictive distincte avec un destinataire explicite. Conserver les autres paramètres identiques lorsque c’est possible.
+La série trimestrielle créée démarre le 6 novembre 2026 et apparaît le 6 février 2027. Les captures du 12 novembre montrent aussi une série semestrielle de débit non commencée et sans limite ; ces observations sont acquises. Capturer la liste déroulante des périodicités si possible. Pour chaque autre périodicité proposée et pertinente, créer une série fictive distincte avec un destinataire explicite. Conserver les autres paramètres identiques lorsque c’est possible.
 
 Capturer la fiche après création et, pour chaque date visible, le détail du jour sélectionné dans le calendrier comme indiqué plus haut. Noter le libellé exact, la date de départ saisie, la prochaine date affichée et les deux ou trois dates suivantes **réellement visibles**. Si Money ne les montre pas, l’indiquer sans les déduire.
 
@@ -78,7 +79,7 @@ La capture du registre montre les valeurs 100000, 100001, 200001, 200002 et 2000
 
 ### Fins de mois et limites de séries
 
-- Créer une échéance mensuelle en fin de mois, par exemple le 31 janvier d’une année bissextile. Capturer sa fiche et le détail de chaque date visible en février, mars et avril ; noter les dates réellement affichées. Cela permettra de vérifier le comportement de Money en février et le retour éventuel au 31.
+- Les captures montrent une série mensuelle les 31 décembre 2026, 31 janvier, 28 février, 31 mars et 30 avril 2027. Pour compléter avec une année bissextile, créer une échéance mensuelle le 31 janvier d’une telle année et capturer les dates visibles en février, mars et avril.
 - Créer une série avec une date de fin saisie **entre deux occurrences**. Avant validation, capturer la date de début, la périodicité et la date de fin saisie ; après validation et réouverture, capturer la fin, le nombre d’occurrences et la dernière date affichés. Noter toutes ces valeurs, même si Money ajuste la fin.
 - Si Money le permet facilement, créer une autre série limitée dont une occurrence est ignorée, sans modifier la série existante. Capturer sa configuration avant, l’action proposée, puis la prochaine date, le nombre restant et la date de fin après l’action et après réouverture. Noter ce qui a été fait et les dates concernées.
 
