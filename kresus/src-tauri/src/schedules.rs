@@ -1,6 +1,6 @@
 use crate::database::{AppState, database_error};
 use crate::frequency::Frequency;
-use crate::transactions::{NewTransfer, insert_transfer_in_tx, validate_cheque};
+use crate::transactions::{NewTransfer, insert_transfer_in_tx};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -84,17 +84,19 @@ pub(crate) struct ScheduleSeries {
     destination_account_id: Option<String>,
 }
 
-// A cheque number identifies one occurrence and is never reused automatically.
+// An occurrence reference is never reused automatically.
 fn validate_payment(schedule: &Schedule) -> Result<(), String> {
-    validate_cheque(schedule.cheque.as_deref())?;
+    crate::text_limits::validate_reference_length(schedule.cheque.as_deref())?;
     if !matches!(
         schedule.payment_method.as_deref(),
         None | Some("cheque" | "bank_transfer" | "direct_debit" | "automatic" | "income_payment")
     ) || (schedule.payment_method.as_deref() == Some("income_payment")
         && schedule.kind != "credit")
-        || schedule.cheque.as_ref().is_some_and(|n| {
-            !n.trim().is_empty() && schedule.payment_method.as_deref() != Some("cheque")
-        })
+        || (schedule.kind == "transfer"
+            && schedule
+                .cheque
+                .as_ref()
+                .is_some_and(|n| !n.trim().is_empty()))
         || (schedule.kind == "transfer"
             && schedule
                 .payment_method
@@ -659,9 +661,6 @@ pub(crate) fn record_schedule_in_db(
     ).optional().map_err(database_error)?;
     let (source, destination, date, label, category, cents) =
         occurrence.ok_or_else(|| "Échéance introuvable.".to_string())?;
-    // Old databases may contain an invalid number; ask for correction without changing data.
-    let cheque: Option<String> = tx.query_row("SELECT CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id WHERE s.id=?1", [id], |row| row.get(0)).map_err(database_error)?;
-    validate_cheque(cheque.as_deref())?;
     // An occurrence override can clear the series comment independently.
     let note: Option<String> = tx.query_row("SELECT CASE WHEN o.schedule_id IS NOT NULL THEN o.note ELSE s.note END FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id WHERE s.id=?1", [id], |row| row.get(0)).map_err(database_error)?;
     if let Some(destination) = destination {
@@ -684,7 +683,7 @@ pub(crate) fn record_schedule_in_db(
         insert_transfer_in_tx(&tx, &transfer)?;
     } else {
         tx.execute(
-        "INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, reconciled, note)
+        "INSERT INTO transactions (id, account_id, operation_date, label, category, reference, amount_cents, reconciled, note)
          SELECT ?1, COALESCE(o.account_id,s.account_id), COALESCE(o.due_date,s.next_due), COALESCE(o.label,s.label), COALESCE(o.category,s.category), CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END, COALESCE(o.amount_cents,s.amount_cents), 0, COALESCE(?3, 'Créée depuis une échéance')
          FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id = s.id WHERE s.id = ?2",
         params![transaction_id, id, note],
@@ -719,7 +718,7 @@ pub(crate) fn record_schedule_in_db(
          WHERE id = ?1",
         params![id, Frequency::TwiceMonthly, Frequency::Monthly, Frequency::EveryTwoMonths, Frequency::Quarterly, Frequency::Semiannual, Frequency::Annual],
     ).map_err(database_error)?;
-    // Never reuse a cheque number on the next occurrence.
+    // Never reuse an occurrence reference on the next occurrence.
     tx.execute("UPDATE schedules SET cheque=NULL WHERE id=?1", [id])
         .map_err(database_error)?;
     // Advance and consume one occurrence atomically; expired series leave recorded operations intact.

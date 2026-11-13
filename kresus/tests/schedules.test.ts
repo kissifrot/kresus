@@ -10,6 +10,7 @@ type Series = {
   kind: string;
   anchorDay: number;
   destinationAccountId?: string | null;
+  note?: string | null;
 };
 type Schedule = Omit<Series, "anchorDay"> & {
   id: string;
@@ -362,6 +363,19 @@ describe("schedule calendar", () => {
     );
   });
 
+  it("shows an imported schedule comment in the list and edit form", async () => {
+    vi.setSystemTime(new Date(2026, 11, 1, 12));
+    const item = recurring("2026-12-10", 10, "Mensuelle");
+    item.note = "garantie santé <famille>";
+    item.series.note = item.note;
+    await openCalendar([item]);
+    expect(document.querySelector(".schedule-row-copy")?.textContent).toContain(item.note);
+    expect(document.querySelector(".schedule-row-copy famille")).toBeNull();
+    (document.querySelector("[data-edit-schedule]") as HTMLButtonElement).click();
+    const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
+    expect((form.elements.namedItem("note") as HTMLTextAreaElement).value).toBe(item.note);
+  });
+
   it("edits a schedule comment and trims its outer whitespace", async () => {
     vi.setSystemTime(new Date(2028, 0, 1, 12));
     const item = recurring("2028-01-15", 15, "Mensuelle");
@@ -669,37 +683,31 @@ describe("schedule calendar", () => {
     },
   );
 
-  it("allows a cheque number only when cheque is selected, including for a future occurrence", async () => {
+  it("accepts an occurrence reference independently of the payment method", async () => {
     vi.setSystemTime(new Date(2028, 0, 1, 12));
     const invoke = await openCalendar([recurring("2028-01-31", 31, "Mensuelle")]);
     (document.querySelector("#next-month") as HTMLButtonElement).click();
     (document.querySelector("[data-edit-future]") as HTMLButtonElement).click();
     const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
-    const method = form.elements.namedItem("paymentMethod") as HTMLSelectElement;
-    const cheque = form.elements.namedItem("cheque") as HTMLInputElement;
-    expect(cheque.disabled).toBe(true);
-    method.value = "cheque";
-    method.dispatchEvent(new Event("change"));
-    expect(cheque.disabled).toBe(false);
-    cheque.value = "123";
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    expect(invoke).not.toHaveBeenCalledWith("update_future_occurrence", expect.anything());
-    expect(form.querySelector(".editor-error")?.textContent).toContain("7 chiffres");
-    cheque.value = "0012345";
+    const reference = form.elements.namedItem("reference") as HTMLInputElement;
+    expect(reference.disabled).toBe(false);
+    expect(reference.maxLength).toBe(50);
+    reference.value = "REF-123";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
         "update_future_occurrence",
         expect.objectContaining({
-          schedule: expect.objectContaining({ paymentMethod: "cheque", cheque: "0012345" }),
+          schedule: expect.objectContaining({ cheque: "REF-123" }),
         }),
       ),
     );
     await vi.waitFor(() =>
       expect(document.querySelector("#schedule-dialog")!.hasAttribute("open")).toBe(false),
     );
+    expect(document.querySelector(".schedule-row-copy")?.textContent).toContain("Réf. REF-123");
     (document.querySelector("[data-edit-future]") as HTMLButtonElement).click();
-    expect(document.querySelector<HTMLInputElement>('[name="cheque"]')!.value).toBe("0012345");
+    expect(document.querySelector<HTMLInputElement>('[name="reference"]')!.value).toBe("REF-123");
   });
 
   it("saves an occurrence edit and displays its updated date and amount", async () => {

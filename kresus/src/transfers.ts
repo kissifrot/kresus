@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { accounts } from "./state";
-import { escapeHtml, parsePositiveCents, centsInput } from "./format";
+import { displayReference, escapeHtml, parsePositiveCents, centsInput } from "./format";
+import { REFERENCE_LIMIT } from "./text-limits";
 import { bindCategoryCreation, categoryOptions } from "./categories";
 
 type Transfer = {
@@ -44,8 +45,8 @@ export async function openTransferEditor(
         <label>Compte crédité<select name="destinationId" required>${options(transfer.destinationId)}</select></label>
         <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(transfer.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required value="${centsInput(transfer.amount)}"></label>
-        <label>Référence du débit<input name="debitReference" value="${escapeHtml(transfer.debitReference ?? "")}"></label>
-        <label>Référence du crédit<input name="creditReference" value="${escapeHtml(transfer.creditReference ?? "")}"></label>
+        <label>Réf. / N° chèque du débit<input name="debitReference" maxlength="${REFERENCE_LIMIT}" value="${escapeHtml(displayReference(transfer.debitReference ?? ""))}"></label>
+        <label>Réf. / N° chèque du crédit<input name="creditReference" maxlength="${REFERENCE_LIMIT}" value="${escapeHtml(displayReference(transfer.creditReference ?? ""))}"></label>
         <label class="editor-note">Commentaire<textarea name="note" rows="2" placeholder="Ajouter un commentaire (facultatif)">${escapeHtml(transfer.note)}</textarea></label>
         <div class="editor-actions"><button type="submit" class="primary-button">Enregistrer</button><button type="button" class="secondary-button cancel-editor">Annuler</button></div>
         <p class="editor-error" role="alert"></p>

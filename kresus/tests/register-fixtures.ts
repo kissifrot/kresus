@@ -194,6 +194,7 @@ export async function openRegister(
           id: `${transfer.id}-debit`,
           accountId: source.id,
           label: `Virement vers ${destination.name}`,
+          reference: transfer.debitReference,
           amount: -transfer.amount,
         });
         transactions.push({
@@ -201,6 +202,7 @@ export async function openRegister(
           id: `${transfer.id}-credit`,
           accountId: destination.id,
           label: `Virement depuis ${source.name}`,
+          reference: transfer.creditReference,
           amount: transfer.amount,
         });
         return;

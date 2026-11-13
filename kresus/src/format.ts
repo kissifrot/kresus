@@ -47,6 +47,13 @@ export const escapeHtml = (value: string) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char,
   );
 
+// Money stores observed numeric references as a 13-character padded field.
+export function displayReference(value: string): string {
+  const reference = value.trim();
+  const padded = reference.length === 13 ? /^0 +(\d+)$/.exec(reference) : null;
+  return padded ? padded[1]! : reference;
+}
+
 // Format the calendar date in the user's local time zone.
 export function localDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

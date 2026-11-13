@@ -9,3 +9,11 @@ pub(crate) fn validate_name_length(value: &str, unchanged: bool) -> Result<(), S
     }
     Ok(())
 }
+
+// Match HTML maxlength, which counts UTF-16 code units.
+pub(crate) fn validate_reference_length(value: Option<&str>) -> Result<(), String> {
+    if value.is_some_and(|v| v.trim().encode_utf16().count() > 50) {
+        return Err("La référence ne peut pas dépasser 50 caractères.".into());
+    }
+    Ok(())
+}

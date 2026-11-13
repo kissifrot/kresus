@@ -1,6 +1,6 @@
 import { occurrencesForMonth } from "./schedule-occurrences";
 import { FREQUENCY } from "./frequency";
-import { TEXT_NAME_LIMIT } from "./text-limits";
+import { REFERENCE_LIMIT, TEXT_NAME_LIMIT } from "./text-limits";
 import { invoke } from "@tauri-apps/api/core";
 import { confirmAction } from "./confirmation";
 import type { Account, Schedule, CalendarOccurrence } from "./types";
@@ -104,16 +104,15 @@ function renderScheduleRow(schedule: CalendarOccurrence, showOverdue: boolean): 
   }).format(date);
   const destinationLabel =
     schedule.kind === "transfer" ? ` → ${escapeHtml(destination?.name ?? "Compte")}` : "";
-  const paymentLabel = payment
-    ? ` · ${payment}${schedule.cheque ? ` n° ${escapeHtml(schedule.cheque)}` : ""}`
-    : "";
+  const paymentLabel = payment ? ` · ${payment}` : "";
+  const referenceLabel = schedule.cheque ? ` · Réf. ${escapeHtml(schedule.cheque)}` : "";
   const sign = schedule.kind === "credit" ? "+ " : schedule.kind === "transfer" ? "↔ " : "− ";
   const actions = schedule.projected
     ? `<span class="schedule-projected">Prévision</span><button class="schedule-record" ${occurrenceEditAttributes(schedule)}>Modifier</button>`
     : `<button class="schedule-record" ${occurrenceEditAttributes(schedule)}>Modifier</button><button class="schedule-record" data-record-schedule="${escapeHtml(schedule.id)}">Enregistrer</button>`;
   return `<div class="schedule-row">
     <time><strong>${date.getDate()}</strong><small>${month}</small></time>
-    <span class="schedule-row-copy"><strong>${escapeHtml(schedule.label)}</strong><small>${escapeHtml(schedule.category)} · ${escapeHtml(account?.name ?? "Compte")}${destinationLabel}${paymentLabel}</small>${schedule.note ? `<small>${escapeHtml(schedule.note)}</small>` : ""}</span>
+    <span class="schedule-row-copy"><strong>${escapeHtml(schedule.label)}</strong><small>${escapeHtml(schedule.category)} · ${escapeHtml(account?.name ?? "Compte")}${destinationLabel}${paymentLabel}${referenceLabel}</small>${schedule.note ? `<small>${escapeHtml(schedule.note)}</small>` : ""}</span>
     <span class="schedule-amount ${schedule.kind}">${sign}${euro(Math.abs(schedule.amount))}<small>${escapeHtml(schedule.frequency)}${schedule.estimated ? " · Montant estimé" : ""}</small></span>
     <div class="schedule-row-actions">${actions}<button class="secondary-button schedule-delete" data-delete-schedule="${escapeHtml(schedule.id)}">Supprimer</button></div>
   </div>`;
@@ -129,7 +128,7 @@ function renderScheduleDialog(): string {
         <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><button type="button" class="secondary-button add-category">+ Catégorie</button></div>
         <div class="form-row"><label>Type<select name="kind"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer">Virement</option></select></label>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label></div>
-        <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option><option value="automatic">Prélèvt/Virement auto.</option><option value="income_payment">Versement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label></div>
+        <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option><option value="automatic">Prélèvt/Virement auto.</option><option value="income_payment">Versement</option></select></label><label class="schedule-reference">Réf. / N° chèque (cette occurrence)<input name="reference" maxlength="${REFERENCE_LIMIT}"></label></div>
         <label class="schedule-estimated"><input type="checkbox" name="estimated"><span>Montant estimé pour la série</span></label>
         <label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label>
         <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" required></label>
@@ -228,7 +227,7 @@ function renderScheduleView(showOverdue: boolean) {
   bindCategoryCreation(scheduleForm);
   let editingSchedule: Schedule | undefined;
   let editingOriginal: string | undefined;
-  // A cheque number is specific to the occurrence, never the recurring series.
+  // A reference is specific to the occurrence, never the recurring series.
   function updatePaymentFields() {
     const transfer =
       (scheduleForm.elements.namedItem("kind") as HTMLSelectElement).value === "transfer";
@@ -243,10 +242,9 @@ function renderScheduleView(showOverdue: boolean) {
     if (!credit && method.value === "income_payment") method.value = "";
     if (transfer && ["cheque", "direct_debit"].includes(method.value))
       method.value = "bank_transfer";
-    const cheque = scheduleForm.elements.namedItem("cheque") as HTMLInputElement;
-    const showCheque = !transfer && method.value === "cheque";
-    scheduleForm.querySelector<HTMLElement>(".schedule-cheque")!.hidden = !showCheque;
-    cheque.disabled = !showCheque;
+    const reference = scheduleForm.elements.namedItem("reference") as HTMLInputElement;
+    scheduleForm.querySelector<HTMLElement>(".schedule-reference")!.hidden = transfer;
+    reference.disabled = transfer;
   }
   function updateTransferFields() {
     const transfer =
@@ -332,7 +330,7 @@ function renderScheduleView(showOverdue: boolean) {
       setValue("category", schedule.category);
       setValue("kind", schedule.kind);
       setValue("paymentMethod", schedule.paymentMethod ?? "");
-      setValue("cheque", schedule.cheque ?? "");
+      setValue("reference", schedule.cheque ?? "");
       (scheduleForm.elements.namedItem("note") as HTMLTextAreaElement).value = schedule.note ?? "";
       setValue("amount", centsInput(Math.abs(schedule.amount)));
       setValue("frequency", schedule.frequency);
@@ -406,12 +404,7 @@ function renderScheduleView(showOverdue: boolean) {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const values = new FormData(form);
-    const cheque = String(values.get("cheque") ?? "").trim();
-    if (cheque && !/^[0-9]{7}$/.test(cheque)) {
-      form.querySelector<HTMLElement>(".editor-error")!.textContent =
-        "Le numéro de chèque doit comporter 7 chiffres.";
-      return;
-    }
+    const reference = String(values.get("reference") ?? "").trim();
     const kind = String(values.get("kind"));
     const nextDue = String(values.get("nextDue"));
     const accountId = String(values.get("accountId"));
@@ -447,7 +440,7 @@ function renderScheduleView(showOverdue: boolean) {
             kind,
             estimated: values.has("estimated"),
             paymentMethod: String(values.get("paymentMethod") ?? "") || null,
-            cheque: cheque || null,
+            cheque: reference || null,
             note: String(values.get("note") ?? "").trim() || null,
             remainingCount: values.get("remainingCount")
               ? Number(values.get("remainingCount"))

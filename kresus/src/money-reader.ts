@@ -209,6 +209,7 @@ export function readMoneySchedules(
     frequency: Frequency;
     amount: number;
     estimated: boolean;
+    note: string | null;
     kind: string;
     paymentMethod: "cheque" | "automatic" | "income_payment" | null;
     endDate: string | null;
@@ -495,12 +496,12 @@ export function readMoneySchedules(
       frequency,
       amount,
       estimated: bill.cEstInst === 0,
+      note: String(source.mMemo ?? "").trim() || null,
       kind: destinationAccountId != null ? "transfer" : amount > 0 ? "credit" : "debit",
       paymentMethod,
       endDate,
     });
   }
-  if (schedules.length) warnings.push("Les notes des échéances Money ne sont pas importées.");
   return { schedules, warnings, skippedSchedules };
 }
 

@@ -172,8 +172,8 @@ describe("Money reader", () => {
     const result = readMoneySchedules(
       [head, version, older],
       [
-        { ...template, htrn: 1 },
-        { ...template, htrn: 2 },
+        { ...template, htrn: 1, mMemo: "Ancien commentaire" },
+        { ...template, htrn: 2, mMemo: "  Commentaire actuel  " },
       ],
       [],
       [{ hacct: 2 }],
@@ -187,6 +187,7 @@ describe("Money reader", () => {
       anchorDay: 31,
       amount: 258175,
       estimated: false,
+      note: "Commentaire actuel",
     });
     expect(result.skippedSchedules).toHaveLength(0);
   });

@@ -118,6 +118,48 @@ fn transfer() -> NewTransfer {
 }
 
 #[test]
+fn references_obey_the_limit_and_are_preserved_on_both_transfer_sides() {
+    let mut db = database();
+    let mut op = operation("ref-limit", "ccp", -10.0);
+    op.cheque = None;
+    op.reference = Some("é".repeat(50));
+    create_transaction_in_db(&db, op).unwrap();
+    let created = list_transactions_in_db(&db, "ccp")
+        .unwrap()
+        .into_iter()
+        .find(|t| t.id == "ref-limit")
+        .unwrap();
+    assert_eq!(created.reference.as_deref(), Some("é".repeat(50).as_str()));
+    let mut update = operation("ref-limit", "ccp", -10.0);
+    update.cheque = None;
+    update.reference = Some("x".repeat(51));
+    assert!(update_transaction_in_db(&db, update).is_err());
+    let mut invalid = operation("ref-invalid", "ccp", -10.0);
+    invalid.cheque = None;
+    invalid.reference = Some("é".repeat(51));
+    assert!(create_transaction_in_db(&db, invalid).is_err());
+    let mut t = transfer();
+    t.debit_reference = Some("Débit-42".into());
+    t.credit_reference = Some("Crédit-42".into());
+    create_transfer_in_db(&mut db, t).unwrap();
+    let values: (String, String) = db.query_row("SELECT d.reference,c.reference FROM transfers t JOIN transactions d ON d.id=t.debit_id JOIN transactions c ON c.id=t.credit_id WHERE t.id='transfer'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert_eq!(values, ("Débit-42".into(), "Crédit-42".into()));
+    let loaded = get_transfer_in_db(&db, "transfer").unwrap();
+    assert_eq!(loaded.debit_reference.as_deref(), Some("Débit-42"));
+    assert_eq!(loaded.credit_reference.as_deref(), Some("Crédit-42"));
+    let mut limit_update = loaded;
+    limit_update.debit_reference = Some("x".repeat(50));
+    update_transfer_in_db(&mut db, limit_update).unwrap();
+    let mut overlong_update = get_transfer_in_db(&db, "transfer").unwrap();
+    overlong_update.debit_reference = Some("x".repeat(51));
+    assert!(update_transfer_in_db(&mut db, overlong_update).is_err());
+    let mut invalid = transfer();
+    invalid.id = "long".into();
+    invalid.credit_reference = Some("😀".repeat(26));
+    assert!(create_transfer_in_db(&mut db, invalid).is_err());
+}
+
+#[test]
 fn transfer_creates_linked_opposite_operations_and_can_be_deleted_from_either_account() {
     for delete_id in ["transfer-debit", "transfer-credit"] {
         let mut db = database();

@@ -1,8 +1,15 @@
-import { TEXT_NAME_LIMIT } from "./text-limits";
+import { REFERENCE_LIMIT, TEXT_NAME_LIMIT } from "./text-limits";
 import { invoke } from "@tauri-apps/api/core";
 import { transactions, accounts, selectedAccount, setTransactions, setAccounts } from "./state";
 import type { Account, Transaction } from "./types";
-import { escapeHtml, parseCents, parsePositiveCents, centsInput, localDate } from "./format";
+import {
+  escapeHtml,
+  displayReference,
+  parseCents,
+  parsePositiveCents,
+  centsInput,
+  localDate,
+} from "./format";
 import { render } from "./accounts";
 import { bindCategoryCreation, categoryOptions } from "./categories";
 import { openTransferEditor } from "./transfers";
@@ -158,14 +165,16 @@ export function bindTransactionActions() {
         return;
       }
 
+      const initialReference = item.reference
+        ? displayReference(item.reference)
+        : (item.cheque ?? "");
       editor.innerHTML = `
         <h2>Modifier l’opération</h2>
         <form class="transaction-editor">
           <label>Date<input name="date" type="date" required value="${escapeHtml(item.date)}"></label>
           <label>Tiers<input name="label" list="edit-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
           <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
-          <label>Référence<input name="reference" value="${escapeHtml(item.reference ?? "")}"></label>
-          <label>N° chèque<input name="cheque" pattern="[0-9]{7}" maxlength="7" value="${escapeHtml(item.cheque ?? "")}"></label>
+          <label>Réf. / N° chèque<input name="reference" maxlength="${REFERENCE_LIMIT}" value="${escapeHtml(initialReference)}"></label>
           <label>Type<select name="type">
             <option value="debit" ${item.amount < 0 ? "selected" : ""}>Débit</option>
             <option value="credit" ${item.amount > 0 ? "selected" : ""}>Crédit</option>
@@ -193,6 +202,7 @@ export function bindTransactionActions() {
         const values = new FormData(form);
         try {
           const amount = parsePositiveCents(String(values.get("amount")));
+          const reference = String(values.get("reference") ?? "").trim();
           await invoke("update_transaction", {
             transaction: {
               id: item.id,
@@ -200,9 +210,9 @@ export function bindTransactionActions() {
               date: String(values.get("date")),
               label: String(values.get("label")).trim(),
               category: String(values.get("category")).trim(),
-              cheque: String(values.get("cheque")).trim() || null,
+              cheque: null,
               note: String(values.get("note") ?? "").trim(),
-              reference: String(values.get("reference") ?? "").trim(),
+              reference,
               amount: values.get("type") === "credit" ? amount : -amount,
             },
           });
@@ -226,30 +236,28 @@ export function bindTransactionActions() {
   });
   const creationForm = document.querySelector<HTMLFormElement>("#transaction-form")!;
   bindCategoryCreation(creationForm);
-  // A transfer has two accounts; ordinary debits and credits have a payee and cheque.
+  // A transfer has two accounts; ordinary debits and credits have a payee and reference.
   function updateCreationType() {
     const transfer =
       (creationForm.elements.namedItem("type") as HTMLSelectElement).value === "transfer";
     creationForm.querySelector<HTMLElement>(".transaction-transfer-accounts")!.hidden = !transfer;
     creationForm.querySelector<HTMLElement>(".transaction-payee")!.hidden = transfer;
-    creationForm.querySelector<HTMLElement>(".transaction-cheque")!.hidden = transfer;
+    creationForm.querySelector<HTMLElement>(".transaction-reference-field")!.hidden = transfer;
     for (const name of ["sourceId", "destinationId"]) {
       const input = creationForm.elements.namedItem(name) as HTMLSelectElement;
       input.disabled = !transfer;
       input.required = transfer;
     }
+    for (const name of ["debitReference", "creditReference"])
+      (creationForm.elements.namedItem(name) as HTMLInputElement).disabled = !transfer;
     const label = creationForm.elements.namedItem("label") as HTMLInputElement;
     label.disabled = transfer;
     label.required = !transfer;
-    (creationForm.elements.namedItem("cheque") as HTMLInputElement).disabled = transfer;
+    (creationForm.elements.namedItem("reference") as HTMLInputElement).disabled = transfer;
     creationForm.querySelector<HTMLButtonElement>('button[type="submit"]')!.textContent = transfer
       ? "Créer le virement"
       : "Ajouter l’opération";
   }
-  (creationForm.elements.namedItem("cheque") as HTMLInputElement).addEventListener(
-    "input",
-    (event) => (event.currentTarget as HTMLInputElement).setCustomValidity(""),
-  );
   (creationForm.elements.namedItem("type") as HTMLSelectElement).addEventListener(
     "change",
     updateCreationType,
@@ -258,7 +266,6 @@ export function bindTransactionActions() {
     const dialog = document.querySelector<HTMLDialogElement>("#transaction-dialog")!;
     const suggestions = dialog.querySelector<HTMLDataListElement>("#payee-suggestions")!;
     creationForm.reset();
-    (creationForm.elements.namedItem("cheque") as HTMLInputElement).setCustomValidity("");
     (creationForm.elements.namedItem("sourceId") as HTMLSelectElement).value = selectedAccount.id;
     (creationForm.elements.namedItem("destinationId") as HTMLSelectElement).value =
       accounts.find((account) => account.id !== selectedAccount.id)?.id ?? "";
@@ -287,14 +294,6 @@ export function bindTransactionActions() {
         "Choisissez deux comptes différents.";
       return;
     }
-    const cheque = String(values.get("cheque") ?? "").trim();
-    if (cheque && !/^\d{7}$/.test(cheque)) {
-      (form.elements.namedItem("cheque") as HTMLInputElement).setCustomValidity(
-        "Le numéro de chèque doit comporter 7 chiffres.",
-      );
-      (form.elements.namedItem("cheque") as HTMLInputElement).reportValidity();
-      return;
-    }
     try {
       const amount = parsePositiveCents(String(values.get("amount")));
       if (isTransfer) {
@@ -306,6 +305,8 @@ export function bindTransactionActions() {
             date: String(values.get("date")),
             amount,
             category: String(values.get("category")),
+            debitReference: String(values.get("debitReference") ?? "").trim() || null,
+            creditReference: String(values.get("creditReference") ?? "").trim() || null,
             note: String(values.get("note") ?? "").trim(),
           },
         });
@@ -317,7 +318,7 @@ export function bindTransactionActions() {
             date: String(values.get("date")),
             label: String(values.get("label")).trim(),
             category: String(values.get("category")),
-            cheque: cheque || null,
+            reference: String(values.get("reference") ?? "").trim() || null,
             note: String(values.get("note") ?? "").trim(),
             amount: values.get("type") === "credit" ? amount : -amount,
           },

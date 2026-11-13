@@ -485,8 +485,8 @@ pub(crate) fn insert_transfer_in_tx(
     let credit_id = format!("{}-credit", transfer.id);
     let cents = transfer.amount;
     let note = transfer.note.trim();
-    tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,note) VALUES (?1,?2,?3,?4,?5,?6,?7)", params![debit_id,transfer.source_id,transfer.date,format!("Virement vers {destination}"),transfer.category.trim(),-cents,note]).map_err(database_error)?;
-    tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,note) VALUES (?1,?2,?3,?4,?5,?6,?7)", params![credit_id,transfer.destination_id,transfer.date,format!("Virement depuis {source}"),transfer.category.trim(),cents,note]).map_err(database_error)?;
+    tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,note,reference) VALUES (?1,?2,?3,?4,?5,?6,?7,NULLIF(TRIM(?8),''))", params![debit_id,transfer.source_id,transfer.date,format!("Virement vers {destination}"),transfer.category.trim(),-cents,note,transfer.debit_reference.as_deref()]).map_err(database_error)?;
+    tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,note,reference) VALUES (?1,?2,?3,?4,?5,?6,?7,NULLIF(TRIM(?8),''))", params![credit_id,transfer.destination_id,transfer.date,format!("Virement depuis {source}"),transfer.category.trim(),cents,note,transfer.credit_reference.as_deref()]).map_err(database_error)?;
     tx.execute(
         "INSERT INTO transfers (id,debit_id,credit_id) VALUES (?1,?2,?3)",
         params![transfer.id, debit_id, credit_id],
@@ -497,6 +497,8 @@ pub(crate) fn insert_transfer_in_tx(
 
 // Validate inputs consistently for creation and modification.
 fn validate_transfer(db: &Connection, transfer: &NewTransfer) -> Result<(), String> {
+    crate::text_limits::validate_reference_length(transfer.debit_reference.as_deref())?;
+    crate::text_limits::validate_reference_length(transfer.credit_reference.as_deref())?;
     if transfer.id.trim().is_empty()
         || transfer.source_id == transfer.destination_id
         || transfer.category.trim().is_empty()
@@ -610,6 +612,7 @@ pub(crate) fn create_transaction_in_db(
     transaction: NewTransaction,
 ) -> Result<(), String> {
     validate_transaction_amount(transaction.amount)?;
+    crate::text_limits::validate_reference_length(transaction.reference.as_deref())?;
     validate_cheque(transaction.cheque.as_deref())?;
     crate::text_limits::validate_name_length(&transaction.label, false)?;
     let cents = transaction.amount;
@@ -658,6 +661,7 @@ pub(crate) fn update_transaction_in_db(
     transaction: NewTransaction,
 ) -> Result<(), String> {
     validate_transaction_amount(transaction.amount)?;
+    crate::text_limits::validate_reference_length(transaction.reference.as_deref())?;
     validate_cheque(transaction.cheque.as_deref())?;
     let unchanged: bool = connection
         .query_row(

@@ -1,6 +1,52 @@
 use super::*;
 
 #[test]
+fn imports_schedule_comment_and_copies_it_to_recorded_operation() {
+    let mut preview = fixture();
+    preview.schedules.push(MoneySchedule {
+        id: 80,
+        account_id: 1,
+        destination_account_id: None,
+        label: "Mutuelle".into(),
+        category: "Divers".into(),
+        next_due: "2026-12-10".into(),
+        frequency: Frequency::Monthly,
+        amount: -9020,
+        kind: "debit".into(),
+        estimated: false,
+        note: Some("  garantie santé  ".into()),
+        payment_method: None,
+        anchor_day: None,
+        remaining_count: None,
+        end_date: None,
+    });
+    let selected = [MoneySelection {
+        id: 1,
+        kind: "Compte courant".into(),
+    }];
+    let mut db = Connection::open_in_memory().unwrap();
+    import_into_database(&mut db, &preview, &selected).unwrap();
+    let comment: String = db
+        .query_row(
+            "SELECT note FROM schedules WHERE id='money-schedule-80'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(comment, "garantie santé");
+    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-80", "schedule-note-test")
+        .unwrap();
+    let recorded: String = db
+        .query_row(
+            "SELECT note FROM transactions WHERE id='schedule-note-test'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(recorded, "garantie santé");
+}
+
+#[test]
 fn imports_income_payment_for_credit_and_rejects_it_on_debit() {
     let mut preview = fixture();
     preview.schedules.push(MoneySchedule {
@@ -14,6 +60,7 @@ fn imports_income_payment_for_credit_and_rejects_it_on_debit() {
         amount: 200000,
         kind: "credit".into(),
         estimated: false,
+        note: None,
         payment_method: Some("income_payment".into()),
         anchor_day: None,
         remaining_count: None,
@@ -53,6 +100,7 @@ fn imported_overdue_annual_schedule_keeps_due_date_and_advances_one_year() {
         amount: -19690,
         kind: "debit".into(),
         estimated: false,
+        note: None,
         payment_method: Some("cheque".into()),
         anchor_day: Some(9),
         remaining_count: None,
@@ -88,6 +136,7 @@ fn imported_one_time_schedule_records_once() {
         amount: -53000,
         kind: "debit".into(),
         estimated: false,
+        note: None,
         payment_method: None,
         anchor_day: Some(28),
         remaining_count: None,
@@ -212,6 +261,7 @@ fn imports_verified_payment_method_and_rejects_invalid_values() {
         amount: -1200,
         kind: "debit".into(),
         estimated: true,
+        note: None,
         payment_method: Some("cheque".into()),
         anchor_day: None,
         remaining_count: None,
@@ -550,6 +600,7 @@ fn imported_transfer_series_requires_both_accounts_and_records_linked_operations
         amount: -10000,
         kind: "transfer".into(),
         estimated: false,
+        note: None,
         payment_method: Some("automatic".into()),
         anchor_day: None,
         remaining_count: None,
@@ -637,6 +688,7 @@ fn imported_twice_monthly_transfer_creates_linked_entries_and_advances() {
         amount: -10000,
         kind: "transfer".into(),
         estimated: false,
+        note: None,
         payment_method: None,
         anchor_day: Some(15),
         remaining_count: None,
@@ -676,6 +728,7 @@ fn imported_semiannual_debit_persists_and_advances_every_six_months() {
         amount: -10000,
         kind: "debit".into(),
         estimated: false,
+        note: None,
         payment_method: None,
         anchor_day: Some(13),
         remaining_count: None,
@@ -721,6 +774,7 @@ fn imported_quarterly_debit_advances_by_three_months() {
         amount: -10000,
         kind: "debit".into(),
         estimated: false,
+        note: None,
         payment_method: Some("cheque".into()),
         anchor_day: Some(6),
         remaining_count: None,
@@ -763,6 +817,7 @@ fn imported_schedule_limits_are_atomic_and_enforced() {
             amount: -1200,
             kind: "debit".into(),
             estimated: false,
+            note: None,
             payment_method: None,
             anchor_day: None,
             remaining_count,
@@ -825,6 +880,7 @@ fn imported_started_series_preserves_month_end_anchor() {
         amount: -1200,
         kind: "debit".into(),
         estimated: false,
+        note: None,
         payment_method: None,
         anchor_day: Some(31),
         remaining_count: None,
@@ -896,6 +952,7 @@ fn invalid_imported_schedule_limits_roll_back_the_import() {
             amount: -1200,
             kind: "debit".into(),
             estimated: false,
+            note: None,
             payment_method: None,
             anchor_day: None,
             remaining_count,

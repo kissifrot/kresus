@@ -60,6 +60,8 @@ struct MoneySchedule {
     #[serde(default)]
     estimated: bool,
     #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
     payment_method: Option<String>,
     #[serde(default)]
     anchor_day: Option<i64>,
@@ -424,7 +426,7 @@ fn import_into_database(
         } else {
             &schedule.kind
         };
-        tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![id,format!("money-account-{}",schedule.account_id),schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method]).map_err(database_error)?;
+        tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,NULLIF(TRIM(?10),''))", params![id,format!("money-account-{}",schedule.account_id),schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method,schedule.note.as_deref()]).map_err(database_error)?;
         if schedule.estimated {
             tx.execute(
                 "INSERT INTO schedule_estimates (schedule_id) VALUES (?1)",

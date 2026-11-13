@@ -155,7 +155,7 @@ describe("transaction register", () => {
     expect(document.querySelector(".transaction-editor")).toBeNull();
   });
 
-  it("displays, searches and edits a reference separately from the cheque and comment", async () => {
+  it("edits a Money reference through the combined field", async () => {
     const invoke = await openRegister({
       transactions: [
         {
@@ -165,13 +165,13 @@ describe("transaction register", () => {
           label: "Libellé",
           category: "Divers",
           amount: -10,
-          cheque: "0012345",
           note: "Commentaire",
           reference: "0      200001",
         },
       ],
     });
-    expect(document.querySelector(".transaction-reference")?.textContent).toContain("200001");
+    expect(document.querySelector(".cheque-cell")?.textContent).toBe("200001");
+    expect(document.querySelector("thead")?.textContent).toContain("RÉF. / N° CHÈQUE");
     const search = document.querySelector<HTMLInputElement>("#transaction-search")!;
     search.value = "200001";
     submit(document.querySelector<HTMLFormElement>("#transaction-search-form")!);
@@ -180,7 +180,9 @@ describe("transaction register", () => {
     );
     click('tr[data-transaction="ref"]');
     const form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
-    expect(field(form, "reference").value).toBe("0      200001");
+    expect(field(form, "reference").value).toBe("200001");
+    expect(field(form, "reference").maxLength).toBe(50);
+    expect(form.querySelector('[name="cheque"]')).toBeNull();
     field(form, "reference").value = "  REF-42  ";
     submit(form);
     await vi.waitFor(() =>
@@ -189,12 +191,68 @@ describe("transaction register", () => {
         expect.objectContaining({
           transaction: expect.objectContaining({
             reference: "REF-42",
-            cheque: "0012345",
+            cheque: null,
             note: "Commentaire",
           }),
         }),
       ),
     );
+  });
+
+  it("edits a cheque number as a single reference", async () => {
+    const invoke = await openRegister({
+      transactions: [
+        {
+          id: "cheque",
+          accountId: "one",
+          date: "2027-01-01",
+          label: "Exemple",
+          category: "Divers",
+          amount: -10,
+          cheque: "0012345",
+        },
+      ],
+    });
+    click('tr[data-transaction="cheque"]');
+    const form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    expect(field(form, "reference").value).toBe("0012345");
+    field(form, "reference").value = "123456";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "update_transaction",
+        expect.objectContaining({
+          transaction: expect.objectContaining({ reference: "123456", cheque: null }),
+        }),
+      ),
+    );
+  });
+
+  it("formats padded Money references without changing other references", async () => {
+    const common = {
+      accountId: "one",
+      date: "2027-01-01",
+      label: "Exemple",
+      category: "Divers",
+      amount: -10,
+    };
+    await openRegister({
+      transactions: [
+        { ...common, id: "money", reference: "0     1757043" },
+        { ...common, id: "custom", reference: "0 123" },
+        { ...common, id: "cheque", cheque: "0012345" },
+        { ...common, id: "same", reference: "0     0012345", cheque: "0012345" },
+        { ...common, id: "html", reference: "<ref>" },
+      ],
+    });
+    const cell = (id: string) =>
+      document.querySelector(`tr[data-transaction="${id}"] .cheque-cell`)!;
+    expect(cell("money").textContent).toBe("1757043");
+    expect(cell("custom").textContent).toBe("0 123");
+    expect(cell("cheque").textContent).toBe("0012345");
+    expect(cell("same").textContent).toBe("0012345");
+    expect(cell("html").textContent).toBe("<ref>");
+    expect(cell("html").querySelector("ref")).toBeNull();
   });
 
   it("requires confirmation before deleting an ordinary operation", async () => {
@@ -503,20 +561,25 @@ describe("transaction register", () => {
     expect(cards()[2].textContent).toContain("0 opérations débitrices");
   });
 
-  it("creates a debit with a cheque and refreshes the account balance", async () => {
+  it("creates a debit with a reference and refreshes the account balance", async () => {
     const invoke = await openRegister();
     click("#new-transaction");
     const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
     field(form, "label").value = "Réparation";
     field(form, "date").value = "2027-01-03";
     field(form, "amount").value = "12,34 €";
-    field(form, "cheque").value = "0012345";
+    expect(field(form, "reference").maxLength).toBe(50);
+    field(form, "reference").value = "REF-0012345";
     submit(form);
     await vi.waitFor(() =>
       expect(document.querySelector("tbody")?.textContent).toContain("Réparation"),
     );
     expect(invoke).toHaveBeenCalledWith("create_transaction", {
-      transaction: expect.objectContaining({ accountId: "one", amount: -1234, cheque: "0012345" }),
+      transaction: expect.objectContaining({
+        accountId: "one",
+        amount: -1234,
+        reference: "REF-0012345",
+      }),
     });
     expect(document.querySelector(".balance-card")?.textContent).toContain("117,66");
     expect(document.querySelector(".account-item.active .account-balance")?.textContent).toContain(
@@ -739,6 +802,9 @@ describe("transaction register", () => {
     field(form, "destinationId").value = "two";
     field(form, "date").value = "2027-01-15";
     field(form, "note").value = "Épargne";
+    field(form, "debitReference").value = "DEBIT-42";
+    field(form, "creditReference").value = "CREDIT-42";
+    expect(field(form, "debitReference").maxLength).toBe(50);
     submit(form);
     await vi.waitFor(() =>
       expect(document.querySelector("tbody")?.textContent).toContain("Virement vers Épargne"),
@@ -750,8 +816,11 @@ describe("transaction register", () => {
         amount: 2550,
         date: "2027-01-15",
         note: "Épargne",
+        debitReference: "DEBIT-42",
+        creditReference: "CREDIT-42",
       }),
     });
+    expect(document.querySelector(".cheque-cell")?.textContent).toContain("DEBIT-42");
     expect(document.querySelector('[data-account="one"] .account-balance')?.textContent).toContain(
       "74,50",
     );
@@ -762,6 +831,7 @@ describe("transaction register", () => {
     await vi.waitFor(() =>
       expect(document.querySelector("tbody")?.textContent).toContain("Virement depuis Principal"),
     );
+    expect(document.querySelector(".cheque-cell")?.textContent).toContain("CREDIT-42");
     click("[data-delete]");
     expect(document.querySelector<HTMLDialogElement>("#delete-transaction-dialog")!.open).toBe(
       true,

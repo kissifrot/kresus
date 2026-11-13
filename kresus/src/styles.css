@@ -725,8 +725,7 @@ tbody tr:last-child {
   font-weight: 600;
   color: #344037;
 }
-.transaction-note,
-.transaction-reference {
+.transaction-note {
   display: block;
   font-size: 10px;
   color: #9aa39b;
@@ -745,7 +744,12 @@ tbody tr:last-child {
 }
 .cheque-cell {
   font-size: 11px;
-  color: #89938b;
+  color: #68736a;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cheque-cell span {
+  display: block;
 }
 .amount {
   text-align: right;
