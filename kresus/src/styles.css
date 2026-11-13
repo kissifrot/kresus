@@ -1006,6 +1006,24 @@ dialog::backdrop {
   font-size: 13px;
   outline: none;
 }
+#schedule-form .schedule-estimated {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  cursor: pointer;
+}
+#schedule-form .schedule-estimated input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  cursor: inherit;
+}
+#schedule-form .schedule-estimated:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
 #schedule-form input:focus,
 #schedule-form select:focus {
   border-color: #69a27a;

@@ -130,7 +130,7 @@ function renderScheduleDialog(): string {
         <div class="form-row"><label>Type<select name="kind"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer">Virement</option></select></label>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label></div>
         <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option><option value="automatic">Prélèvt/Virement auto.</option><option value="income_payment">Versement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label></div>
-        <label><input type="checkbox" name="estimated"> Montant estimé pour la série</label>
+        <label class="schedule-estimated"><input type="checkbox" name="estimated"><span>Montant estimé pour la série</span></label>
         <label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label>
         <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" required></label>
         <label>Périodicité<select name="frequency">${Object.values(FREQUENCY)
