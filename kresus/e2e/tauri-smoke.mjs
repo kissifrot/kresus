@@ -113,6 +113,20 @@ async function text(selector) {
 async function click(selector) {
   await request("POST", `/session/${session}/element/${await element(selector)}/click`, {});
 }
+// Schedule options can extend the dialog beyond the viewport; scroll its own content.
+async function submitSchedule() {
+  await execute(
+    "const dialog = document.querySelector('#schedule-dialog'); dialog.scrollTop = dialog.scrollHeight",
+  );
+  await waitFor(
+    () =>
+      execute(
+        "const r = document.querySelector('#schedule-form button[type=submit]').getBoundingClientRect(), d = document.querySelector('#schedule-dialog').getBoundingClientRect(); return r.top >= Math.max(0, d.top) - 1 && r.bottom <= Math.min(innerHeight, d.bottom) + 1",
+      ),
+    "Bouton d’enregistrement de l’échéance visible",
+  );
+  await click('#schedule-form button[type="submit"]');
+}
 async function execute(script, ...args) {
   return request("POST", `/session/${session}/execute/sync`, { script, args });
 }
@@ -993,7 +1007,7 @@ try {
     amount: "9.99",
     frequency: "Mensuelle",
   });
-  await click('#schedule-form button[type="submit"]');
+  await submitSchedule();
   await waitFor(
     async () => (await text(".schedule-list")).includes("Échéance recette"),
     "Création d’échéance",
@@ -1016,7 +1030,7 @@ try {
   if (!futureOriginal) throw new Error("Prévision annuelle introuvable");
   await click(`[data-edit-future="${scheduleId}"][data-original-due="${futureOriginal}"]`);
   await fill("#schedule-form", { paymentMethod: "cheque", cheque: "0012345", amount: "15.00" });
-  await click('#schedule-form button[type="submit"]');
+  await submitSchedule();
   await waitFor(async () => !(await visible("#schedule-dialog[open]")), "Modification future");
   await click(`[data-edit-future="${scheduleId}"][data-original-due="${futureOriginal}"]`);
   const futureValues = await execute(
@@ -1034,7 +1048,7 @@ try {
   );
   await click(`[data-edit-schedule="${scheduleId}"]`);
   await fill("#schedule-form", { amount: "11.50", scope: "occurrence" });
-  await click('#schedule-form button[type="submit"]');
+  await submitSchedule();
   await waitFor(
     async () => (await text(".schedule-list")).includes("11,50"),
     "Modification ponctuelle d’échéance",
@@ -1062,18 +1076,7 @@ try {
   );
   await click(`[data-edit-schedule="${scheduleId}"]`);
   await fill("#schedule-form", { scope: "series", amount: "12.50" });
-  // The series controls make this dialog taller than the smallest test window.
-  await execute(
-    "const dialog = document.querySelector('#schedule-dialog'); dialog.scrollTop = dialog.scrollHeight",
-  );
-  await waitFor(
-    () =>
-      execute(
-        "const r = document.querySelector('#schedule-form button[type=submit]').getBoundingClientRect(), d = document.querySelector('#schedule-dialog').getBoundingClientRect(); return r.top >= Math.max(0, d.top) - 1 && r.bottom <= Math.min(innerHeight, d.bottom) + 1",
-      ),
-    "Bouton de modification de série visible",
-  );
-  await click('#schedule-form button[type="submit"]');
+  await submitSchedule();
   await waitFor(
     async () => (await text(".schedule-list")).includes("12,50"),
     "Modification de série",
@@ -1125,7 +1128,7 @@ try {
     paymentMethod: "cheque",
     cheque: "0012345",
   });
-  await click('#schedule-form button[type="submit"]');
+  await submitSchedule();
   await waitFor(
     async () => (await text(".schedule-list")).includes("Recette limitée"),
     "Création série limitée",
@@ -1174,7 +1177,7 @@ try {
     limitType: "date",
     endDate: dates[1],
   });
-  await click('#schedule-form button[type="submit"]');
+  await submitSchedule();
   await waitFor(
     async () => (await text(".schedule-list")).includes("Recette fin datée"),
     "Création date limite",
@@ -1288,7 +1291,7 @@ print(sum(-amount for amount,transfer in rows if amount<0 and not transfer))`,
     nextDue: end,
     frequency: "Bimestrielle",
   });
-  await click('#schedule-form button[type="submit"]');
+  await submitSchedule();
   await waitFor(
     async () => (await text(".schedule-list")).includes("Virement périodique recette"),
     "Création virement récurrent",
