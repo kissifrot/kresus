@@ -1,5 +1,18 @@
 use super::*;
 
+#[test]
+fn money_file_size_limit_accepts_large_files_and_rejects_above_64_mib() {
+    let path = crate::test_support::temporary_database_path();
+    let file = fs::File::create(&path.0).unwrap();
+    // Sparse files exercise the actual file reader without shipping large fixtures.
+    for size in [20 * 1024 * 1024 + 1, MAX_MONEY_FILE_BYTES] {
+        file.set_len(size).unwrap();
+        assert_eq!(read_money_file(&path.0).unwrap().len() as u64, size);
+    }
+    file.set_len(MAX_MONEY_FILE_BYTES + 1).unwrap();
+    assert!(read_money_file(&path.0).unwrap_err().contains("64 Mio"));
+}
+
 fn fixture() -> MoneyPreview {
     serde_json::from_str(r#"{"accounts":[{"id":1,"name":"Compte","openingBalance":100000,"balance":87500,"count":2}],"categories":[{"id":3,"name":"Maison","parentId":null},{"id":4,"name":"Charges","parentId":3}],"operations":[{"id":1,"accountId":1,"date":"2026-01-01","label":"Loyer","category":"Maison · Charges","amount":-10000,"reconciled":false,"note":""},{"id":2,"accountId":1,"date":"2026-01-02","label":"Achat","category":"Divers","amount":-2500,"reconciled":true,"note":"Référence Money : 1Carte"}],"warnings":[]}"#).unwrap()
 }

@@ -5,8 +5,29 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::Read,
+    path::Path,
 };
 use tauri_plugin_dialog::DialogExt;
+
+const MAX_MONEY_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+// Bound the read as well as checking metadata, in case the file grows during import.
+fn read_money_file(path: &Path) -> Result<Vec<u8>, String> {
+    let file = fs::File::open(path).map_err(|e| format!("Lecture du fichier impossible : {e}"))?;
+    let too_large = || "Le fichier Money dépasse la limite de 64 Mio.".to_string();
+    if file.metadata().map_err(|e| e.to_string())?.len() > MAX_MONEY_FILE_BYTES {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_MONEY_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Lecture du fichier impossible : {e}"))?;
+    if bytes.len() as u64 > MAX_MONEY_FILE_BYTES {
+        return Err(too_large());
+    }
+    Ok(bytes)
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,13 +143,7 @@ pub async fn choose_money_file(
         };
         file.into_path().map_err(|e| e.to_string())?
     };
-    let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
-    if metadata.len() > 16 * 1024 * 1024 {
-        return Err("Le fichier Money dépasse la limite de 16 Mo.".into());
-    }
-    fs::read(path)
-        .map(Some)
-        .map_err(|e| format!("Lecture du fichier impossible : {e}"))
+    read_money_file(&path).map(Some)
 }
 
 // Freeze the parsed preview on the backend until the user confirms the import.
