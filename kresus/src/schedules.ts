@@ -123,7 +123,7 @@ function renderScheduleDialog(): string {
         <label class="schedule-scope" hidden>Appliquer la modification<select name="scope"><option value="occurrence">Cette occurrence uniquement</option><option value="series">Cette occurrence et les suivantes</option></select></label><p class="schedule-exceptions-warning" hidden>Modifier la série supprimera les modifications individuelles des occurrences futures.</p>
         <label><span class="schedule-account-label">Compte</span><select name="accountId" required>${accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === selectedAccount.id ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}</select></label>
         <label class="schedule-destination" hidden>Compte crédité<select name="destinationAccountId">${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label>
-        <label>Destinataire / libellé<input name="label" list="schedule-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}"><datalist id="schedule-payee-suggestions"></datalist></label>
+        <label>Tiers<input name="label" list="schedule-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}"><datalist id="schedule-payee-suggestions"></datalist></label>
         <label>Catégorie<select name="category" required>${categoryOptions()}</select></label>
         <div class="form-row"><label>Type<select name="kind"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer">Virement</option></select></label>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label></div>

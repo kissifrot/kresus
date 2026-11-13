@@ -162,7 +162,7 @@ export function bindTransactionActions() {
         <h2>Modifier l’opération</h2>
         <form class="transaction-editor">
           <label>Date<input name="date" type="date" required value="${escapeHtml(item.date)}"></label>
-          <label>Destinataire<input name="label" list="edit-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
+          <label>Tiers<input name="label" list="edit-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
           <label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label>
           <label>Référence<input name="reference" value="${escapeHtml(item.reference ?? "")}"></label>
           <label>N° chèque<input name="cheque" pattern="[0-9]{7}" maxlength="7" value="${escapeHtml(item.cheque ?? "")}"></label>

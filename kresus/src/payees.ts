@@ -12,6 +12,6 @@ export async function loadPayeeSuggestions(list: HTMLDataListElement) {
       }),
     );
   } catch (error) {
-    console.error("Impossible de charger les suggestions de destinataires.", error);
+    console.error("Impossible de charger les suggestions de tiers.", error);
   }
 }

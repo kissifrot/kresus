@@ -94,6 +94,7 @@ describe("Money reader", () => {
       expect(result.schedules).toHaveLength(0);
       expect(result.skippedSchedules).toHaveLength(1);
       expect(result.skippedSchedules[0]).toContain("Échéance Money 1");
+      expect(result.skippedSchedules[0]).toContain("Tiers inconnu");
     }
   });
   it("imports the verified twice-monthly Money transfer and rejects unverified variants", () => {
@@ -386,6 +387,7 @@ describe("Money reader", () => {
     ] as const) {
       const result = readMoneySchedules([bill], [template], [], [{ hacct: 2 }], [], () => "Divers");
       expect(result.schedules[0]?.paymentMethod).toBe(expected);
+      expect(result.schedules[0]?.label).toBe("Échéance sans tiers");
       expect(
         result.warnings.some((warning) => warning.includes("méthode de paiement non reconnue")),
       ).toBe(expected === null);

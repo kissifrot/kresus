@@ -229,7 +229,7 @@ export function readMoneySchedules(
             timeZone: "UTC",
           }).format(bill.dt)
         : "date inconnue";
-    const description = `Échéance Money ${bill.hbill} · ${String(payee?.szFull ?? "Destinataire inconnu").trim()} · ${String(account?.szFull ?? "Compte inconnu").trim()} · ${date}`;
+    const description = `Échéance Money ${bill.hbill} · ${String(payee?.szFull ?? "Tiers inconnu").trim()} · ${String(account?.szFull ?? "Compte inconnu").trim()} · ${date}`;
     const interval = Number(bill.cFrqInst);
     const frequency =
       bill.frq === 3
@@ -357,7 +357,7 @@ export function readMoneySchedules(
       id: bill.hbill,
       accountId: source.hacct,
       destinationAccountId,
-      label: String(payee?.szFull ?? "").trim() || "Échéance sans destinataire",
+      label: String(payee?.szFull ?? "").trim() || "Échéance sans tiers",
       category: categoryLabel(source.hcat),
       nextDue,
       anchorDay: bill.dt.getUTCDate(),
@@ -438,7 +438,7 @@ export function inspect(buffer: Buffer) {
         id: t.htrn,
         accountId: t.hacct,
         date: (t.dt as Date).toISOString().slice(0, 10),
-        label: String(payee?.szFull ?? "").trim() || "Opération sans destinataire",
+        label: String(payee?.szFull ?? "").trim() || "Opération sans tiers",
         category: label(t.hcat),
         amount: cents(t.amt),
         reconciled: t.cs !== 0,
