@@ -45,6 +45,14 @@
         "role": "Editor"
       }
     ],
+    "windows": {
+      "wix": {
+        "language": "fr-FR"
+      },
+      "nsis": {
+        "languages": ["French"]
+      }
+    },
     "linux": {
       "deb": {
         "files": {

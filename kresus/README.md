@@ -60,7 +60,20 @@ Cette commande utilise le générateur d’icônes de Tauri et met à jour les f
 
 ### Vérifications GitHub Actions
 
-Le workflow [`ci.yml`](../.github/workflows/ci.yml) lance sur Linux et Windows les tests TypeScript, Rust et du générateur de base, puis construit les paquets Tauri en mode release : un paquet `.deb` pour les distributions Linux compatibles Debian et deux installateurs Windows x64 (`.msi` et `-setup.exe` NSIS). Le formatage est vérifié sous Linux. La CI contrôle la déclaration `.kresus` dans la configuration sur les deux systèmes et vérifie aussi le lanceur et le type MIME inclus dans le paquet Debian construit. Les dépendances Rust compilées sont mises en cache séparément selon l’environnement et la version de la toolchain. Le workflow se déclenche sur les pushs et les pull requests et peut aussi être lancé manuellement depuis l’onglet Actions de GitHub. Les fichiers sont téléchargeables comme artefacts de l’exécution pendant sept jours ; aucune version GitHub Release n’est publiée automatiquement.
+Le workflow [`ci.yml`](../.github/workflows/ci.yml) lance sur Linux et Windows les tests TypeScript, Rust et du générateur de base, puis construit les paquets Tauri en mode release : un paquet `.deb` pour les distributions Linux compatibles Debian et deux installateurs Windows x64 (`.msi` et `-setup.exe` NSIS). Le formatage est vérifié sous Linux. La CI contrôle la déclaration `.kresus` dans la configuration sur les deux systèmes et vérifie aussi le lanceur et le type MIME inclus dans le paquet Debian construit. Les dépendances Rust compilées sont mises en cache séparément selon l’environnement et la version de la toolchain. Le workflow se déclenche sur les pushs et les pull requests et peut aussi être lancé manuellement depuis l’onglet Actions de GitHub. Les fichiers sont téléchargeables comme artefacts de l’exécution pendant sept jours. Les installateurs MSI et NSIS sont configurés en français.
+
+### Publication d’une préversion
+
+Un tag poussé dont le nom commence par `preview-` déclenche la CI et, si les tâches Linux et Windows réussissent, publie une préversion GitHub contenant les trois installateurs. Les préversions sont accessibles depuis [Releases](https://github.com/kissifrot/kresus/releases), sans compte GitHub si le dépôt est public. Les autres tags et les exécutions ordinaires ne publient rien.
+
+Depuis un commit déjà poussé, choisir un nom de tag unique, par exemple :
+
+```sh
+git tag preview-2026-11-13-1
+git push origin preview-2026-11-13-1
+```
+
+Le nom du tag identifie l’essai indépendamment du numéro de version déclaré dans l’application : plusieurs préversions peuvent donc partager cette version. Les installateurs et la fenêtre « À propos » continuent d’afficher la version configurée ; la mise à niveau entre deux installateurs Windows de même version reste à vérifier et peut nécessiter une désinstallation. La préversion ne devient pas la dernière version stable. Si une publication échoue après création d’un brouillon GitHub, vérifier et supprimer ou terminer ce brouillon avant de relancer la publication pour le même tag.
 
 Les installateurs sont des builds de test non signés. Ils ne remplacent pas une validation sur les systèmes visés ; ils peuvent nécessiter une confirmation du système à l’installation. Le paquet Debian est construit sur Ubuntu 26.04, afin de stabiliser sa base de compatibilité ; une distribution plus ancienne peut ne pas fournir les versions nécessaires de ses bibliothèques. Tauri recommande de construire sur le système le plus ancien que l’on souhaite prendre en charge : voir sa [documentation Debian](https://v2.tauri.app/distribute/debian/). Le runner Ubuntu 22.04 étant en cours de retrait, une éventuelle cible plus ancienne nécessitera une autre solution de compilation. Les formats Linux universels et d’autres architectures restent à étudier. La [documentation Tauri pour Windows](https://v2.tauri.app/distribute/windows-installer/) précise notamment que la génération MSI nécessite Windows et la fonctionnalité VBScript.
 

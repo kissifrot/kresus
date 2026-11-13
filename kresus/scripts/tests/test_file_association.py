@@ -9,6 +9,12 @@ TAURI = PROJECT / "src-tauri"
 
 
 class FileAssociationTests(unittest.TestCase):
+    def test_windows_installers_use_french(self):
+        config = json.loads((TAURI / "tauri.conf.json").read_text(encoding="utf-8"))
+        windows = config["bundle"]["windows"]
+        self.assertEqual(windows["wix"]["language"], "fr-FR")
+        self.assertEqual(windows["nsis"]["languages"], ["French"])
+
     def test_cross_platform_association_and_linux_launcher(self):
         config = json.loads((TAURI / "tauri.conf.json").read_text(encoding="utf-8"))
         bundle = config["bundle"]

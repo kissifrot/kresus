@@ -87,7 +87,7 @@ jobs:
         env:
           GDK_BACKEND: x11
 
-      # Build installers only after tests; keep them as workflow artifacts, not releases.
+      # Build installers only after tests; retain them as workflow artifacts.
       - name: Build Debian package
         if: runner.os == 'Linux'
         run: yarn tauri build --bundles deb
@@ -138,3 +138,22 @@ jobs:
           path: kresus/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
           retention-days: 7
+
+  publish-preview:
+    name: Publish preview
+    needs: test-and-build
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'preview-')
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PREVIEW_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v7.0.1
+      - name: Publish prerelease
+        shell: bash
+        run: bash kresus/scripts/publish-preview.sh
