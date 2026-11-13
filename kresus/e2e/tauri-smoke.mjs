@@ -1062,6 +1062,17 @@ try {
   );
   await click(`[data-edit-schedule="${scheduleId}"]`);
   await fill("#schedule-form", { scope: "series", amount: "12.50" });
+  // The series controls make this dialog taller than the smallest test window.
+  await execute(
+    "const dialog = document.querySelector('#schedule-dialog'); dialog.scrollTop = dialog.scrollHeight",
+  );
+  await waitFor(
+    () =>
+      execute(
+        "const r = document.querySelector('#schedule-form button[type=submit]').getBoundingClientRect(), d = document.querySelector('#schedule-dialog').getBoundingClientRect(); return r.top >= Math.max(0, d.top) - 1 && r.bottom <= Math.min(innerHeight, d.bottom) + 1",
+      ),
+    "Bouton de modification de série visible",
+  );
   await click('#schedule-form button[type="submit"]');
   await waitFor(
     async () => (await text(".schedule-list")).includes("12,50"),
