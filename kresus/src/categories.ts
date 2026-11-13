@@ -27,6 +27,57 @@ export async function refreshCategories() {
   setCategories(await invoke<Category[]>("list_categories"));
 }
 
+async function createCategory(name: string, parentId: string | null): Promise<Category> {
+  const category = { id: crypto.randomUUID(), name: name.trim(), parentId };
+  await invoke("create_category", { category });
+  return category;
+}
+
+// Keep the operation or schedule form open while a category is created.
+export function bindCategoryCreation(form: HTMLFormElement) {
+  form.querySelector<HTMLButtonElement>(".add-category")!.addEventListener("click", () => {
+    const select = form.elements.namedItem("category") as HTMLSelectElement;
+    const dialog = document.createElement("dialog");
+    const roots = categories.filter((category) => !category.parentId);
+    dialog.innerHTML = `<form id="quick-category-form"><div class="dialog-heading"><h2>Nouvelle catégorie</h2><button type="button" class="dialog-close" aria-label="Fermer">×</button></div><label>Nom<input name="name" maxlength="${TEXT_NAME_LIMIT}" required autofocus></label><label>Catégorie principale<select name="parent"><option value="">Aucune — catégorie principale</option>${roots.map((root) => `<option value="${escapeHtml(root.id)}">${escapeHtml(root.name)}</option>`).join("")}</select></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button quick-category-cancel">Annuler</button><button type="submit" class="primary-button">Créer la catégorie</button></div></form>`;
+    document.body.append(dialog);
+    const close = () => {
+      dialog.close();
+      dialog.remove();
+      select.focus();
+    };
+    dialog
+      .querySelectorAll(".dialog-close, .quick-category-cancel")
+      .forEach((button) => button.addEventListener("click", close));
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close();
+    });
+    const categoryForm = dialog.querySelector<HTMLFormElement>("form")!;
+    categoryForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const values = new FormData(categoryForm);
+      const button = categoryForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+      button.disabled = true;
+      try {
+        const category = await createCategory(
+          String(values.get("name")),
+          String(values.get("parent")) || null,
+        );
+        await refreshCategories();
+        const label = categoryLabel(category);
+        select.innerHTML = categoryOptions(label);
+        select.value = label;
+        close();
+      } catch (error) {
+        categoryForm.querySelector<HTMLElement>(".editor-error")!.textContent = String(error);
+        button.disabled = false;
+      }
+    });
+    dialog.showModal();
+  });
+}
+
 export function renderCategories() {
   render();
   document.querySelector(".nav-item.selected")?.classList.remove("selected");
@@ -114,13 +165,7 @@ export function renderCategories() {
     button.disabled = true;
     try {
       if (mode === "create")
-        await invoke("create_category", {
-          category: {
-            id: crypto.randomUUID(),
-            name: String(values.get("name")).trim(),
-            parentId: String(values.get("parent")) || null,
-          },
-        });
+        await createCategory(String(values.get("name")), String(values.get("parent")) || null);
       if (mode === "rename")
         await invoke("rename_category", {
           id: selected!.id,

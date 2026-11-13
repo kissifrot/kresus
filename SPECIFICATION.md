@@ -42,7 +42,7 @@ La recherche du registre porte sur tout l’historique du compte sélectionné :
 
 ### Catégories et dépenses
 
-- Création, renommage, fusion et suppression des catégories et sous-catégories. Deux niveaux sont prévus. La suppression est refusée si la catégorie est utilisée ou contient des sous-catégories. Les fusions se font entre catégories de même niveau et répercutent les changements sur les opérations et les échéances, y compris les modifications ponctuelles.
+- Création, renommage, fusion et suppression des catégories et sous-catégories. Deux niveaux sont prévus. Une catégorie ou sous-catégorie peut également être créée lors de la création ou de la modification d’une opération, d’un virement ou d’une échéance ; elle est enregistrée immédiatement et sélectionnée sans effacer la saisie en cours. La suppression est refusée si la catégorie est utilisée ou contient des sous-catégories. Les fusions se font entre catégories de même niveau et répercutent les changements sur les opérations et les échéances, y compris les modifications ponctuelles.
 - Le rapport de dépenses charge actuellement l’historique complet du compte indépendamment du registre paginé.
 - La répartition des dépenses présente, sous forme de graphique, les débits par catégorie pour un compte et une période dont les dates sont incluses. Les crédits et les virements entre comptes sont exclus.
 

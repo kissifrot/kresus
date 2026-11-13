@@ -4,7 +4,7 @@ import { transactions, accounts, selectedAccount, setTransactions, setAccounts }
 import type { Account, Transaction } from "./types";
 import { escapeHtml, parseCents, parsePositiveCents, centsInput, localDate } from "./format";
 import { render } from "./accounts";
-import { categoryOptions } from "./categories";
+import { bindCategoryCreation, categoryOptions } from "./categories";
 import { openTransferEditor } from "./transfers";
 import { loadPayeeSuggestions } from "./payees";
 
@@ -163,7 +163,7 @@ export function bindTransactionActions() {
         <form class="transaction-editor">
           <label>Date<input name="date" type="date" required value="${escapeHtml(item.date)}"></label>
           <label>Tiers<input name="label" list="edit-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
-          <label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label>
+          <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
           <label>Référence<input name="reference" value="${escapeHtml(item.reference ?? "")}"></label>
           <label>N° chèque<input name="cheque" pattern="[0-9]{7}" maxlength="7" value="${escapeHtml(item.cheque ?? "")}"></label>
           <label>Type<select name="type">
@@ -179,6 +179,7 @@ export function bindTransactionActions() {
           <p class="editor-error" role="alert"></p>
         </form>`;
       document.querySelector(".transactions-panel")!.after(editor);
+      bindCategoryCreation(editor.querySelector<HTMLFormElement>(".transaction-editor")!);
       if (keyboard) editor.querySelector<HTMLInputElement>('input[name="label"]')?.focus();
       void loadPayeeSuggestions(
         editor.querySelector<HTMLDataListElement>("#edit-payee-suggestions")!,
@@ -224,6 +225,7 @@ export function bindTransactionActions() {
     });
   });
   const creationForm = document.querySelector<HTMLFormElement>("#transaction-form")!;
+  bindCategoryCreation(creationForm);
   // A transfer has two accounts; ordinary debits and credits have a payee and cheque.
   function updateCreationType() {
     const transfer =

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { accounts } from "./state";
 import { escapeHtml, parsePositiveCents, centsInput } from "./format";
-import { categoryOptions } from "./categories";
+import { bindCategoryCreation, categoryOptions } from "./categories";
 
 type Transfer = {
   id: string;
@@ -42,7 +42,7 @@ export async function openTransferEditor(
         <label>Date<input name="date" type="date" required value="${escapeHtml(transfer.date)}"></label>
         <label>Compte débité<select name="sourceId" required>${options(transfer.sourceId)}</select></label>
         <label>Compte crédité<select name="destinationId" required>${options(transfer.destinationId)}</select></label>
-        <label>Catégorie<select name="category" required>${categoryOptions(transfer.category)}</select></label>
+        <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(transfer.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required value="${centsInput(transfer.amount)}"></label>
         <label>Référence du débit<input name="debitReference" value="${escapeHtml(transfer.debitReference ?? "")}"></label>
         <label>Référence du crédit<input name="creditReference" value="${escapeHtml(transfer.creditReference ?? "")}"></label>
@@ -51,6 +51,7 @@ export async function openTransferEditor(
         <p class="editor-error" role="alert"></p>
       </form>`;
     const form = panel.querySelector<HTMLFormElement>(".transfer-editor")!;
+    bindCategoryCreation(form);
     if (keyboard) form.querySelector<HTMLSelectElement>('[name="sourceId"]')!.focus();
     form.querySelector(".cancel-editor")!.addEventListener("click", cancel);
     form.addEventListener("submit", async (event) => {

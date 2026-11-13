@@ -1015,13 +1015,15 @@ dialog::backdrop {
   max-height: 90vh;
   overflow: auto;
 }
-#category-form {
+#category-form,
+#quick-category-form {
   padding: 25px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
-#category-form label {
+#category-form label,
+#quick-category-form label {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1032,13 +1034,31 @@ dialog::backdrop {
   display: none;
 }
 #category-form input,
-#category-form select {
+#category-form select,
+#quick-category-form input,
+#quick-category-form select {
   height: 37px;
   border: 1px solid #dfe5df;
   border-radius: 5px;
   background: #fff;
   padding: 0 10px;
   color: #344037;
+}
+.category-picker {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.category-picker label {
+  flex: 1;
+  min-width: 0;
+}
+.category-picker .add-category {
+  flex: none;
+}
+.transaction-editor .category-picker .add-category {
+  width: 37px;
+  padding: 0;
 }
 .category-panel {
   background: #fff;

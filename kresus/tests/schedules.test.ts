@@ -39,6 +39,11 @@ async function openCalendar(
   twoAccounts = false,
   onRecord?: (id: string) => void,
 ) {
+  const categories = ["Divers", "Alimentation"].map((name) => ({
+    id: name,
+    name,
+    parentId: null as string | null,
+  }));
   // Convert fixture euros to the integer-cent API representation.
   schedules.forEach((item) => {
     item.amount = Math.round(item.amount * 100);
@@ -74,8 +79,11 @@ async function openCalendar(
             : []),
         ];
       if (command === "list_schedules") return schedules;
-      if (command === "list_categories")
-        return ["Divers", "Alimentation"].map((name) => ({ id: name, name, parentId: null }));
+      if (command === "list_categories") return categories;
+      if (command === "create_category") {
+        categories.push((args as any).category);
+        return;
+      }
       if (command === "list_transactions") return [];
       if (command === "list_register")
         return {
@@ -184,6 +192,33 @@ describe("schedule calendar", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.doUnmock("@tauri-apps/api/core");
+  });
+
+  it("creates a category from an unfinished schedule and selects it", async () => {
+    const invoke = await openCalendar([]);
+    (document.querySelector("#new-schedule") as HTMLButtonElement).click();
+    const form = document.querySelector<HTMLFormElement>("#schedule-form")!;
+    (form.elements.namedItem("label") as HTMLInputElement).value = "Assurance";
+    (form.elements.namedItem("amount") as HTMLInputElement).value = "15";
+    (form.querySelector(".add-category") as HTMLButtonElement).click();
+    const quick = document.querySelector<HTMLFormElement>("#quick-category-form")!;
+    (quick.elements.namedItem("name") as HTMLInputElement).value = "Assurances";
+    quick.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() =>
+      expect((form.elements.namedItem("category") as HTMLSelectElement).value).toBe("Assurances"),
+    );
+    expect((form.elements.namedItem("label") as HTMLInputElement).value).toBe("Assurance");
+    expect((form.elements.namedItem("amount") as HTMLInputElement).value).toBe("15");
+    expect(invoke).toHaveBeenCalledWith("create_category", {
+      category: expect.objectContaining({ name: "Assurances", parentId: null }),
+    });
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "create_schedule",
+        expect.objectContaining({ schedule: expect.objectContaining({ category: "Assurances" }) }),
+      ),
+    );
   });
 
   it("shows a yearly overview with leap-day projections, limits and month navigation", async () => {

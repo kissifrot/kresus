@@ -21,6 +21,75 @@ describe("transaction register", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("creates and selects a subcategory without losing the operation being entered", async () => {
+    const invoke = await openRegister();
+    click("#new-transaction");
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    field(form, "label").value = "Courses en cours";
+    field(form, "amount").value = "25,00";
+    click("#transaction-form .add-category");
+    const categoryForm = document.querySelector<HTMLFormElement>("#quick-category-form")!;
+    field(categoryForm, "name").value = "  Épicerie  ";
+    field(categoryForm, "parent").value = "Alimentation";
+    submit(categoryForm);
+    await vi.waitFor(() => expect(field(form, "category").value).toBe("Alimentation · Épicerie"));
+    expect(field(form, "label").value).toBe("Courses en cours");
+    expect(field(form, "amount").value).toBe("25,00");
+    expect(invoke).toHaveBeenCalledWith("create_category", {
+      category: expect.objectContaining({ name: "Épicerie", parentId: "Alimentation" }),
+    });
+    submit(form);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "create_transaction",
+        expect.objectContaining({
+          transaction: expect.objectContaining({ category: "Alimentation · Épicerie" }),
+        }),
+      ),
+    );
+  });
+
+  it("keeps the category form open after a duplicate error and allows cancellation", async () => {
+    await openRegister();
+    click("#new-transaction");
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    field(form, "label").value = "Saisie conservée";
+    click("#transaction-form .add-category");
+    const categoryForm = document.querySelector<HTMLFormElement>("#quick-category-form")!;
+    field(categoryForm, "name").value = "Divers";
+    submit(categoryForm);
+    await vi.waitFor(() =>
+      expect(categoryForm.querySelector(".editor-error")?.textContent).toContain("existe déjà"),
+    );
+    click(".quick-category-cancel");
+    expect(document.querySelector("#quick-category-form")).toBeNull();
+    expect(field(form, "label").value).toBe("Saisie conservée");
+  });
+
+  it("creates and saves a category while editing an existing operation", async () => {
+    const invoke = await openRegister();
+    click('tr[data-transaction="debit"]');
+    const form = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    field(form, "note").value = "Saisie conservée";
+    click(".transaction-editor .add-category");
+    const categoryForm = document.querySelector<HTMLFormElement>("#quick-category-form")!;
+    field(categoryForm, "name").value = "Entretien";
+    submit(categoryForm);
+    await vi.waitFor(() => expect(field(form, "category").value).toBe("Entretien"));
+    expect(field(form, "note").value).toBe("Saisie conservée");
+    expect(document.querySelector<HTMLElement>(".summary-grid")!.hidden).toBe(true);
+    submit(form);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("update_transaction", {
+        transaction: expect.objectContaining({
+          id: "debit",
+          category: "Entretien",
+          note: "Saisie conservée",
+        }),
+      }),
+    );
+  });
+
   it("keeps an imported long payee when editing another field", async () => {
     const label = "é".repeat(201);
     const invoke = await openRegister({
@@ -763,6 +832,12 @@ describe("transaction register", () => {
     field(form, "debitReference").value = "Réf débit";
     field(form, "creditReference").value = "Réf crédit";
     field(form, "date").value = "2027-02-01";
+    click(".transfer-editor .add-category");
+    const categoryForm = document.querySelector<HTMLFormElement>("#quick-category-form")!;
+    field(categoryForm, "name").value = "Transferts";
+    submit(categoryForm);
+    await vi.waitFor(() => expect(field(form, "category").value).toBe("Transferts"));
+    expect(field(form, "amount").value).toBe("40");
     submit(form);
     await vi.waitFor(() =>
       expect(
@@ -778,6 +853,7 @@ describe("transaction register", () => {
         destinationId: "two",
         amount: 4000,
         date: "2027-02-01",
+        category: "Transferts",
         debitReference: "Réf débit",
         creditReference: "Réf crédit",
       }),

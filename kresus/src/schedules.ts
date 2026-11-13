@@ -7,7 +7,7 @@ import type { Account, Schedule, CalendarOccurrence } from "./types";
 import { accounts, schedules, selectedAccount, setAccounts, setSchedules } from "./state";
 import { euro, amountWithoutCurrency, escapeHtml, parsePositiveCents, centsInput } from "./format";
 import { render } from "./accounts";
-import { categoryOptions } from "./categories";
+import { bindCategoryCreation, categoryOptions } from "./categories";
 import { loadPayeeSuggestions } from "./payees";
 
 // Store the first day of the displayed month to simplify month navigation.
@@ -124,7 +124,7 @@ function renderScheduleDialog(): string {
         <label><span class="schedule-account-label">Compte</span><select name="accountId" required>${accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === selectedAccount.id ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}</select></label>
         <label class="schedule-destination" hidden>Compte crédité<select name="destinationAccountId">${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label>
         <label>Tiers<input name="label" list="schedule-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}"><datalist id="schedule-payee-suggestions"></datalist></label>
-        <label>Catégorie<select name="category" required>${categoryOptions()}</select></label>
+        <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><button type="button" class="secondary-button add-category">+ Catégorie</button></div>
         <div class="form-row"><label>Type<select name="kind"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer">Virement</option></select></label>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label></div>
         <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label></div>
@@ -222,6 +222,7 @@ function renderScheduleView(showOverdue: boolean) {
     ${renderScheduleDialog()}`;
   const scheduleDialog = document.querySelector<HTMLDialogElement>("#schedule-dialog")!;
   const scheduleForm = scheduleDialog.querySelector<HTMLFormElement>("#schedule-form")!;
+  bindCategoryCreation(scheduleForm);
   let editingSchedule: Schedule | undefined;
   let editingOriginal: string | undefined;
   // A cheque number is specific to the occurrence, never the recurring series.

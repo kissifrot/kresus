@@ -527,6 +527,21 @@ try {
     await tabTo("tbody tr[data-transaction]", 3);
     await key("\uE007");
     await waitFor(() => visible(".transaction-editor"), "Éditeur au clavier");
+    if (width === 900) {
+      await fill(".transaction-editor", { note: "Modification conservée" });
+      await click(".transaction-editor .add-category");
+      await fill("#quick-category-form", { name: "Catégorie depuis édition" });
+      await click('#quick-category-form button[type="submit"]');
+      await waitFor(
+        async () => !(await visible("#quick-category-form")),
+        "Catégorie depuis édition",
+      );
+      const values = await execute(
+        "const f=document.querySelector('.transaction-editor'); return [f.elements.category.value, f.elements.note.value]",
+      );
+      if (values.join("|") !== "Catégorie depuis édition|Modification conservée")
+        throw new Error(`Édition modifiée par la création de catégorie : ${values}`);
+    }
     const layout = await execute(
       `const p=document.querySelector('.transaction-editor-panel'); const r=p.getBoundingClientRect(); const t=document.querySelector('.table-wrap'); t.scrollLeft=t.scrollWidth; const reachesEnd=t.scrollLeft >= t.scrollWidth-t.clientWidth-1; t.scrollLeft=0; return {left:r.left,right:r.right,width:innerWidth,scroll:p.scrollWidth,client:p.clientWidth,tableScrollable:reachesEnd}`,
     );
@@ -639,6 +654,52 @@ try {
   );
   if (!(await text(".balance-card")).includes("100,00")) throw new Error("Solde initial incorrect");
   console.log("Compte : création et solde initial OK");
+  // Create a subcategory without losing the open transaction or schedule form.
+  const quickAccountId = await execute(
+    "return document.querySelector('.account-item.active').dataset.account",
+  );
+  await click("#new-transaction");
+  await fill("#transaction-form", { label: "Saisie en cours", amount: "12,34" });
+  await click("#transaction-form .add-category");
+  await fill("#quick-category-form", { name: "Recette rapide" });
+  await execute(
+    "const s=document.querySelector('#quick-category-form [name=parent]'); s.value=[...s.options].find(o => o.textContent === 'Alimentation').value",
+  );
+  await screenshot("categorie-rapide-operation");
+  await click('#quick-category-form button[type="submit"]');
+  await waitFor(
+    async () => !(await visible("#quick-category-form")),
+    "Création rapide de catégorie",
+  );
+  const quickTransaction = await execute(
+    `const f=document.querySelector('#transaction-form'); return [f.elements.label.value,f.elements.amount.value,f.elements.category.value]`,
+  );
+  if (quickTransaction.join("|") !== "Saisie en cours|12,34|Alimentation · Recette rapide")
+    throw new Error(`Formulaire d’opération modifié : ${quickTransaction}`);
+  await click("#transaction-form .dialog-cancel");
+  await click("#schedules-nav");
+  await waitFor(() => visible("#new-schedule"), "Vue des échéances");
+  await click("#new-schedule");
+  await fill("#schedule-form", { label: "Échéance en cours", amount: "15" });
+  await click("#schedule-form .add-category");
+  await fill("#quick-category-form", { name: "Recette échéance" });
+  await click('#quick-category-form button[type="submit"]');
+  await waitFor(async () => !(await visible("#quick-category-form")), "Catégorie d’échéance");
+  const quickSchedule = await execute(
+    `const f=document.querySelector('#schedule-form'); return [f.elements.label.value,f.elements.amount.value,f.elements.category.value]`,
+  );
+  if (quickSchedule.join("|") !== "Échéance en cours|15|Recette échéance")
+    throw new Error(`Formulaire d’échéance modifié : ${quickSchedule}`);
+  await click("#schedule-form .schedule-close.secondary-button");
+  await execute(
+    "document.querySelectorAll('[data-account]').forEach(el => { if (el.dataset.account === arguments[0]) el.click(); })",
+    quickAccountId,
+  );
+  await waitFor(
+    async () => (await text(".page-heading h1")) === "Compte recette",
+    "Retour au compte",
+  );
+  console.log("Catégories rapides : opération et échéance vérifiées");
   await menuAction("backup");
   await waitFor(
     async () => (await text(".database-error")).includes("Sauvegarde créée"),

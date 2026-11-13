@@ -64,6 +64,11 @@ export async function openRegister(
     amount: Math.round(item.amount * 100),
     series: { ...item.series, amount: Math.round(item.series.amount * 100) },
   }));
+  const categories = ["Alimentation", "Divers", "Revenus"].map((name) => ({
+    id: name,
+    name,
+    parentId: null as string | null,
+  }));
   // Model the commands in memory so the real interface can be exercised safely.
   const invoke = vi.fn(async (command: string, args?: Record<string, any>) => {
     switch (command) {
@@ -84,11 +89,16 @@ export async function openRegister(
         return;
       }
       case "list_categories":
-        return ["Alimentation", "Divers", "Revenus"].map((name) => ({
-          id: name,
-          name,
-          parentId: null,
-        }));
+        return categories;
+      case "create_category":
+        if (
+          categories.some(
+            (item) => item.name === args?.category.name && item.parentId === args.category.parentId,
+          )
+        )
+          throw new Error("Cette catégorie existe déjà");
+        categories.push(args!.category);
+        return;
       case "list_transactions":
         return transactions.filter((transaction) => transaction.accountId === args?.accountId);
       case "list_register": {
