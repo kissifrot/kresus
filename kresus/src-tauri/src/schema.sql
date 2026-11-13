@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS schedules (
   amount_cents INTEGER NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('debit', 'credit'))
 );
+CREATE TABLE IF NOT EXISTS schedule_estimates (
+  schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS schedule_overrides (
   schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id),

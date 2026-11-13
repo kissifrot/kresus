@@ -25,6 +25,7 @@ export type Transaction = {
   reference?: string | null;
 };
 export type ScheduleSeries = {
+  estimated?: boolean;
   note?: string | null;
   accountId: string;
   label: string;
@@ -33,7 +34,8 @@ export type ScheduleSeries = {
   amount: number;
   kind: "debit" | "credit" | "transfer";
   destinationAccountId?: string | null;
-  paymentMethod?: "cheque" | "bank_transfer" | "direct_debit" | null;
+  paymentMethod?:
+    "cheque" | "bank_transfer" | "direct_debit" | "automatic" | "income_payment" | null;
   cheque?: string | null;
 };
 export type Schedule = ScheduleSeries & {

@@ -30,6 +30,8 @@ pub struct Schedule {
     pub(crate) next_due: String,
     pub(crate) frequency: Frequency,
     pub(crate) amount: i64,
+    #[serde(default)]
+    pub(crate) estimated: bool,
     pub(crate) kind: String,
     #[serde(default)]
     pub(crate) destination_account_id: Option<String>,
@@ -52,6 +54,7 @@ pub struct Schedule {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FutureOverride {
+    estimated: bool,
     note: Option<String>,
     payment_method: Option<String>,
     cheque: Option<String>,
@@ -68,6 +71,7 @@ pub(crate) struct FutureOverride {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ScheduleSeries {
+    estimated: bool,
     note: Option<String>,
     payment_method: Option<String>,
     pub(crate) account_id: String,
@@ -85,14 +89,17 @@ fn validate_payment(schedule: &Schedule) -> Result<(), String> {
     validate_cheque(schedule.cheque.as_deref())?;
     if !matches!(
         schedule.payment_method.as_deref(),
-        None | Some("cheque" | "bank_transfer" | "direct_debit")
-    ) || schedule.cheque.as_ref().is_some_and(|n| {
-        !n.trim().is_empty() && schedule.payment_method.as_deref() != Some("cheque")
-    }) || (schedule.kind == "transfer"
-        && schedule
-            .payment_method
-            .as_deref()
-            .is_some_and(|m| m != "bank_transfer"))
+        None | Some("cheque" | "bank_transfer" | "direct_debit" | "automatic" | "income_payment")
+    ) || (schedule.payment_method.as_deref() == Some("income_payment")
+        && schedule.kind != "credit")
+        || schedule.cheque.as_ref().is_some_and(|n| {
+            !n.trim().is_empty() && schedule.payment_method.as_deref() != Some("cheque")
+        })
+        || (schedule.kind == "transfer"
+            && schedule
+                .payment_method
+                .as_deref()
+                .is_some_and(|m| m != "bank_transfer" && m != "automatic"))
     {
         return Err("Méthode de paiement ou numéro de chèque invalide.".into());
     }
@@ -130,7 +137,8 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
                     st.destination_account_id, lim.remaining_count, lim.end_date,
                     CASE WHEN o.schedule_id IS NOT NULL THEN o.payment_method ELSE s.payment_method END,
                     CASE WHEN o.schedule_id IS NOT NULL THEN o.cheque ELSE s.cheque END, s.payment_method,
-                    CASE WHEN o.schedule_id IS NOT NULL THEN o.note ELSE s.note END, s.note
+                    CASE WHEN o.schedule_id IS NOT NULL THEN o.note ELSE s.note END, s.note,
+                    EXISTS(SELECT 1 FROM schedule_estimates e WHERE e.schedule_id=s.id)
              FROM schedules s
              LEFT JOIN schedule_limits lim ON lim.schedule_id = s.id
              LEFT JOIN schedule_overrides o ON o.schedule_id = s.id
@@ -150,6 +158,7 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
                 next_due: row.get(4)?,
                 frequency: row.get(5)?,
                 amount: row.get(6)?,
+                estimated: row.get(24)?,
                 kind: row.get(7)?,
                 destination_account_id: row.get(15)?,
                 remaining_count: row.get(17)?,
@@ -159,6 +168,7 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
                 note: row.get(22)?,
                 future_overrides: Vec::new(),
                 series: Some(ScheduleSeries {
+                    estimated: row.get(24)?,
                     note: row.get(23)?,
                     payment_method: row.get(21)?,
                     account_id: row.get(8)?,
@@ -190,6 +200,7 @@ fn list_schedules_in_db(connection: &Connection) -> Result<Vec<Schedule>, String
         schedule.future_overrides = future
             .query_map([&schedule.id], |r| {
                 Ok(FutureOverride {
+                    estimated: schedule.estimated,
                     original_due: r.get(0)?,
                     account_id: r.get(1)?,
                     label: r.get(2)?,
@@ -568,6 +579,18 @@ pub(crate) fn save_schedule_in_db(
     if changed == 0 {
         return Err("Échéance introuvable.".into());
     }
+    tx.execute(
+        "DELETE FROM schedule_estimates WHERE schedule_id=?1",
+        [&schedule.id],
+    )
+    .map_err(database_error)?;
+    if schedule.estimated {
+        tx.execute(
+            "INSERT INTO schedule_estimates (schedule_id) VALUES (?1)",
+            [&schedule.id],
+        )
+        .map_err(database_error)?;
+    }
     tx.execute("INSERT INTO schedule_limits (schedule_id, remaining_count, end_date) VALUES (?1, ?2, ?3) ON CONFLICT(schedule_id) DO UPDATE SET remaining_count=excluded.remaining_count, end_date=excluded.end_date", params![schedule.id, schedule.remaining_count, schedule.end_date]).map_err(database_error)?;
     tx.execute(
         "DELETE FROM schedule_transfers WHERE schedule_id=?1",
@@ -666,6 +689,16 @@ pub(crate) fn record_schedule_in_db(
          FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id = s.id WHERE s.id = ?2",
         params![transaction_id, id, note],
     ).map_err(database_error)?;
+    }
+    let frequency: Frequency = tx
+        .query_row("SELECT frequency FROM schedules WHERE id=?1", [id], |row| {
+            row.get(0)
+        })
+        .map_err(database_error)?;
+    if frequency == Frequency::Once {
+        tx.execute("DELETE FROM schedules WHERE id=?1", [id])
+            .map_err(database_error)?;
+        return tx.commit().map_err(database_error);
     }
     tx.execute(
         "UPDATE schedules

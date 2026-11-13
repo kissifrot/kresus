@@ -6,6 +6,7 @@ export const FREQUENCY = {
   QUARTERLY: "Trimestrielle",
   SEMIANNUAL: "Semestrielle",
   ANNUAL: "Annuelle",
+  ONCE: "Une seule fois",
 } as const;
 
 export type Frequency = (typeof FREQUENCY)[keyof typeof FREQUENCY];

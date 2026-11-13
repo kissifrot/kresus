@@ -5,6 +5,7 @@ import { Buffer } from "buffer";
 import {
   cents,
   decodeMoney,
+  isVoidedMoneyOperation,
   inspect,
   rc4,
   readPostedTransfers,
@@ -22,6 +23,14 @@ describe("Money reader", () => {
       "bbf316e8d940af0ad3",
     );
   });
+  it("recognizes only standalone cancelled operations", () => {
+    const entry = { grftt: 256, hacctLink: null, hsec: null, act: -1 };
+    expect(isVoidedMoneyOperation(entry)).toBe(true);
+    expect(isVoidedMoneyOperation({ ...entry, grftt: 258 })).toBe(false);
+    expect(isVoidedMoneyOperation({ ...entry, hacctLink: 2 })).toBe(false);
+    expect(isVoidedMoneyOperation({ ...entry, hsec: 1 })).toBe(false);
+  });
+
   it("resolves posted pairs and rejects broken or ambiguous Money transfers", () => {
     const accounts = [{ hacct: 10 }, { hacct: 20 }];
     const debit = { htrn: 1, frq: -1, hacct: 10, hacctLink: 20, amt: "-10.00", grftt: 2 };
@@ -96,6 +105,219 @@ describe("Money reader", () => {
       expect(result.skippedSchedules[0]).toContain("Échéance Money 1");
       expect(result.skippedSchedules[0]).toContain("Tiers inconnu");
     }
+    const estimated = readMoneySchedules(
+      [{ ...base, cEstInst: 0 }],
+      [template],
+      [],
+      [{ hacct: 2 }],
+      [],
+      () => "Divers",
+    );
+    expect(estimated.schedules).toHaveLength(1);
+    expect(estimated.schedules[0]?.estimated).toBe(true);
+    const limited = {
+      ...base,
+      st: 1,
+      iinstNextUnpaid: 3,
+      cInstMax: 4,
+      dtMax: new Date("2027-01-31T00:00:00Z"),
+    };
+    const history = { ...limited, hbill: 2, hbillHead: 1, iinst: 4, st: 3 };
+    const ambiguous = readMoneySchedules(
+      [limited, history],
+      [template],
+      [],
+      [{ hacct: 2 }],
+      [],
+      () => "Divers",
+    );
+    expect(ambiguous.schedules).toHaveLength(0);
+    expect(ambiguous.skippedSchedules).toHaveLength(1);
+    expect(ambiguous.skippedSchedules[0]).toContain("série limitée avec historique");
+  });
+  it("imports the current version of started unlimited series once", () => {
+    const head = {
+      hbill: 10,
+      hbillHead: 10,
+      st: 1,
+      frq: 3,
+      cFrqInst: 1,
+      dt: new Date("2002-05-21T00:00:00Z"),
+      dtMax: new Date("2200-12-31T00:00:00Z"),
+      cInstMax: -1,
+      iinst: 0,
+      iinstNextUnpaid: 294,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 1,
+      cEstInst: -1,
+    };
+    const version = {
+      ...head,
+      hbill: 11,
+      iinst: 292,
+      lHtrn: 2,
+      dt: new Date("2026-09-30T00:00:00Z"),
+    };
+    const older = { ...version, hbill: 12, iinst: 284, dt: new Date("2026-01-31T00:00:00Z") };
+    const template = {
+      hacct: 2,
+      amt: "2581.75",
+      frq: 3,
+      hsec: null,
+      act: -1,
+      hacctLink: null,
+      grftt: 2097152,
+    };
+    const result = readMoneySchedules(
+      [head, version, older],
+      [
+        { ...template, htrn: 1 },
+        { ...template, htrn: 2 },
+      ],
+      [],
+      [{ hacct: 2 }],
+      [],
+      () => "Divers",
+    );
+    expect(result.schedules).toHaveLength(1);
+    expect(result.schedules[0]).toMatchObject({
+      id: 10,
+      nextDue: "2026-11-30",
+      anchorDay: 31,
+      amount: 258175,
+      estimated: false,
+    });
+    expect(result.skippedSchedules).toHaveLength(0);
+  });
+  it("reconstructs started monthly transfers and quarterly and annual series", () => {
+    const head = {
+      hbill: 1,
+      hbillHead: 1,
+      st: 1,
+      frq: 3,
+      cFrqInst: 1,
+      dt: new Date("2022-03-31T00:00:00Z"),
+      dtMax: new Date("2200-12-31T00:00:00Z"),
+      cInstMax: -1,
+      iinst: 0,
+      iinstNextUnpaid: 56,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 1,
+      cEstInst: -1,
+    };
+    const debit = {
+      htrn: 1,
+      hacct: 2,
+      hacctLink: 3,
+      amt: "-50.00",
+      frq: 3,
+      hsec: null,
+      act: -1,
+      grftt: 2097154,
+    };
+    const credit = {
+      htrn: 2,
+      hacct: 3,
+      hacctLink: 2,
+      amt: "50.00",
+      frq: 3,
+      hsec: null,
+      act: -1,
+      grftt: 2097158,
+    };
+    const read = (bills: any[], entries: any[], links: any[] = []) =>
+      readMoneySchedules(bills, entries, links, [{ hacct: 2 }, { hacct: 3 }], [], () => "Divers");
+    const link = { htrnFrom: 2, htrnLink: 1 };
+    expect(read([head], [debit, credit], [link]).schedules[0]).toMatchObject({
+      nextDue: "2026-11-30",
+      anchorDay: 31,
+      kind: "transfer",
+      destinationAccountId: 3,
+    });
+    expect(read([head], [debit, credit], []).schedules).toHaveLength(0);
+    const annual = { ...head, frq: 5, dt: new Date("2020-10-09T00:00:00Z"), iinstNextUnpaid: 6 };
+    const annualVersion = {
+      ...annual,
+      hbill: 2,
+      iinst: 5,
+      dt: new Date("2025-10-09T00:00:00Z"),
+      lHtrn: 3,
+    };
+    const annualEntry = {
+      ...debit,
+      htrn: 3,
+      frq: 5,
+      hacctLink: null,
+      grftt: 2097152,
+      amt: "-196.90",
+      grfstem: 2050,
+      grfEntryMethods: 1,
+      fPrint: false,
+    };
+    expect(read([annual, annualVersion], [annualEntry]).schedules[0]).toMatchObject({
+      nextDue: "2026-10-09",
+      frequency: "Annuelle",
+      paymentMethod: "cheque",
+    });
+    const quarterly = {
+      ...head,
+      frq: 4,
+      dt: new Date("2018-10-09T00:00:00Z"),
+      iinstNextUnpaid: 32,
+    };
+    const quarterVersion = {
+      ...quarterly,
+      hbill: 2,
+      iinst: 10,
+      dt: new Date("2021-06-08T00:00:00Z"),
+      lHtrn: 4,
+      cEstInst: 0,
+    };
+    const quarterEntry = { ...annualEntry, htrn: 4, frq: 4, amt: "23.98" };
+    expect(read([quarterly, quarterVersion], [quarterEntry]).schedules[0]).toMatchObject({
+      nextDue: "2026-12-08",
+      frequency: "Trimestrielle",
+      estimated: true,
+      amount: 2398,
+    });
+  });
+  it("imports only pending one-time Money entries", () => {
+    const bill = {
+      hbill: 1,
+      hbillHead: 1,
+      st: 3,
+      frq: 0,
+      cFrqInst: 1,
+      dt: new Date("2026-12-28T00:00:00Z"),
+      dtMax: new Date("2026-12-28T00:00:00Z"),
+      cInstMax: 1,
+      iinst: 0,
+      iinstNextUnpaid: 0,
+      iinstLastSkipped: -1,
+      cDaysAutoEnter: -1,
+      lHtrn: 1,
+      cEstInst: -1,
+    };
+    const template = {
+      htrn: 1,
+      hacct: 2,
+      amt: "-530.00",
+      frq: 0,
+      hsec: null,
+      act: -1,
+      hacctLink: null,
+      grftt: 2097152,
+    };
+    const read = (row: typeof bill) =>
+      readMoneySchedules([row], [template], [], [{ hacct: 2 }], [], () => "Divers");
+    expect(read(bill).schedules[0]).toMatchObject({
+      frequency: "Une seule fois",
+      nextDue: "2026-12-28",
+      amount: -53000,
+    });
+    expect(read({ ...bill, st: 1 }).schedules).toHaveLength(0);
   });
   it("imports the verified twice-monthly Money transfer and rejects unverified variants", () => {
     // Synthetic records retain only the fields needed by the observed Money encoding.
@@ -124,7 +346,16 @@ describe("Money reader", () => {
       act: -1,
       grftt: 2097154,
     };
-    const credit = { htrn: 8, hacct: 3, hacctLink: 2, amt: "100.00" };
+    const credit = {
+      htrn: 8,
+      hacct: 3,
+      hacctLink: 2,
+      amt: "100.00",
+      frq: 3,
+      grftt: 2097158,
+      hsec: null,
+      act: -1,
+    };
     const read = (value: typeof bill, entries = [debit, credit]) =>
       readMoneySchedules(
         [value],
@@ -392,6 +623,25 @@ describe("Money reader", () => {
         result.warnings.some((warning) => warning.includes("méthode de paiement non reconnue")),
       ).toBe(expected === null);
     }
+    for (const [flag, estimate, amount, expected] of [
+      [2052, -1, "-12.00", "automatic"],
+      [4, 0, "-12.00", "automatic"],
+      [2052, -1, "12.00", "income_payment"],
+      [4, 0, "12.00", "income_payment"],
+      [2050, -1, "12.00", null],
+      [4, -1, "-12.00", null],
+      [2176, -1, "-12.00", null],
+    ] as const) {
+      const result = readMoneySchedules(
+        [{ ...bill, cEstInst: estimate }],
+        [{ ...source, grfstem: flag, amt: amount }],
+        [],
+        [{ hacct: 2 }],
+        [],
+        () => "Divers",
+      );
+      expect(result.schedules[0]?.paymentMethod).toBe(expected);
+    }
   });
   const sample = resolve("tests/fixtures/money-reference.mny");
   it("reads the local Money sample and its exact account balance", () => {
@@ -501,7 +751,7 @@ describe("Money reader", () => {
     expect(preview.schedules.find((schedule) => schedule.id === 9)).toMatchObject({
       label: "Test méthode prélèv",
       amount: -12300,
-      paymentMethod: null,
+      paymentMethod: "automatic",
     });
     expect(preview.schedules.find((schedule) => schedule.id === 5)).toMatchObject({
       nextDue: "2026-11-19",

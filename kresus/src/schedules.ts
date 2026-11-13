@@ -93,6 +93,8 @@ function renderScheduleRow(schedule: CalendarOccurrence, showOverdue: boolean): 
         cheque: "Chèque",
         bank_transfer: "Virement automatique",
         direct_debit: "Prélèvement",
+        automatic: "Prélèvt/Virement auto.",
+        income_payment: "Versement",
       }[schedule.paymentMethod]
     : "";
   const date = new Date(`${schedule.nextDue}T12:00:00`);
@@ -112,7 +114,7 @@ function renderScheduleRow(schedule: CalendarOccurrence, showOverdue: boolean): 
   return `<div class="schedule-row">
     <time><strong>${date.getDate()}</strong><small>${month}</small></time>
     <span class="schedule-row-copy"><strong>${escapeHtml(schedule.label)}</strong><small>${escapeHtml(schedule.category)} · ${escapeHtml(account?.name ?? "Compte")}${destinationLabel}${paymentLabel}</small>${schedule.note ? `<small>${escapeHtml(schedule.note)}</small>` : ""}</span>
-    <span class="schedule-amount ${schedule.kind}">${sign}${euro(Math.abs(schedule.amount))}<small>${escapeHtml(schedule.frequency)}</small></span>
+    <span class="schedule-amount ${schedule.kind}">${sign}${euro(Math.abs(schedule.amount))}<small>${escapeHtml(schedule.frequency)}${schedule.estimated ? " · Montant estimé" : ""}</small></span>
     <div class="schedule-row-actions">${actions}<button class="secondary-button schedule-delete" data-delete-schedule="${escapeHtml(schedule.id)}">Supprimer</button></div>
   </div>`;
 }
@@ -127,7 +129,8 @@ function renderScheduleDialog(): string {
         <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><button type="button" class="secondary-button add-category">+ Catégorie</button></div>
         <div class="form-row"><label>Type<select name="kind"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer">Virement</option></select></label>
         <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required></label></div>
-        <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label></div>
+        <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option><option value="automatic">Prélèvt/Virement auto.</option><option value="income_payment">Versement</option></select></label><label class="schedule-cheque" hidden>N° de chèque (cette occurrence)<input name="cheque" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7 chiffres"></label></div>
+        <label><input type="checkbox" name="estimated"> Montant estimé pour la série</label>
         <label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label>
         <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" required></label>
         <label>Périodicité<select name="frequency">${Object.values(FREQUENCY)
@@ -230,9 +233,14 @@ function renderScheduleView(showOverdue: boolean) {
     const transfer =
       (scheduleForm.elements.namedItem("kind") as HTMLSelectElement).value === "transfer";
     const method = scheduleForm.elements.namedItem("paymentMethod") as HTMLSelectElement;
+    const credit =
+      (scheduleForm.elements.namedItem("kind") as HTMLSelectElement).value === "credit";
     // Imported transfers can have an unknown Money payment method.
     for (const option of method.options)
-      option.disabled = transfer && ["cheque", "direct_debit"].includes(option.value);
+      option.disabled =
+        (transfer && ["cheque", "direct_debit"].includes(option.value)) ||
+        (option.value === "income_payment" && !credit);
+    if (!credit && method.value === "income_payment") method.value = "";
     if (transfer && ["cheque", "direct_debit"].includes(method.value))
       method.value = "bank_transfer";
     const cheque = scheduleForm.elements.namedItem("cheque") as HTMLInputElement;
@@ -264,19 +272,26 @@ function renderScheduleView(showOverdue: boolean) {
         (scheduleForm.elements.namedItem("scope") as HTMLSelectElement).value === "occurrence");
     scheduleForm.querySelector<HTMLElement>(".schedule-exceptions-warning")!.hidden =
       occurrenceOnly || !editingSchedule?.futureOverrides?.length;
+    (scheduleForm.elements.namedItem("estimated") as HTMLInputElement).disabled = occurrenceOnly;
+    const once =
+      (scheduleForm.elements.namedItem("frequency") as HTMLSelectElement).value === FREQUENCY.ONCE;
     const type = (scheduleForm.elements.namedItem("limitType") as HTMLSelectElement).value;
-    scheduleForm.querySelector<HTMLElement>(".schedule-limit")!.hidden = occurrenceOnly;
+    scheduleForm.querySelector<HTMLElement>(".schedule-limit")!.hidden = occurrenceOnly || once;
     for (const [name, selector, active] of [
       ["remainingCount", ".schedule-count", type === "count"],
       ["endDate", ".schedule-end", type === "date"],
     ] as const) {
       scheduleForm.querySelector<HTMLElement>(selector)!.hidden = !active;
       const input = scheduleForm.elements.namedItem(name) as HTMLInputElement;
-      input.disabled = occurrenceOnly || !active;
-      input.required = !occurrenceOnly && active;
+      input.disabled = occurrenceOnly || once || !active;
+      input.required = !occurrenceOnly && !once && active;
     }
   }
   (scheduleForm.elements.namedItem("limitType") as HTMLSelectElement).addEventListener(
+    "change",
+    updateLimitFields,
+  );
+  (scheduleForm.elements.namedItem("frequency") as HTMLSelectElement).addEventListener(
     "change",
     updateLimitFields,
   );
@@ -309,6 +324,8 @@ function renderScheduleView(showOverdue: boolean) {
       schedule?.nextDue ??
         `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`,
     );
+    (scheduleForm.elements.namedItem("estimated") as HTMLInputElement).checked =
+      !!schedule?.estimated;
     if (schedule) {
       setValue("accountId", schedule.accountId);
       setValue("label", schedule.label);
@@ -428,6 +445,7 @@ function renderScheduleView(showOverdue: boolean) {
             frequency: String(values.get("frequency") ?? editingSchedule?.frequency),
             amount: kind === "credit" ? amount : -amount,
             kind,
+            estimated: values.has("estimated"),
             paymentMethod: String(values.get("paymentMethod") ?? "") || null,
             cheque: cheque || null,
             note: String(values.get("note") ?? "").trim() || null,

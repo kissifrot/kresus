@@ -11,6 +11,7 @@ fn schedule(date: &str, frequency: &str) -> Schedule {
         next_due: date.into(),
         frequency: frequency.parse().unwrap(),
         amount: -4275,
+        estimated: false,
         kind: "debit".into(),
         destination_account_id: None,
         remaining_count: None,
@@ -21,6 +22,76 @@ fn schedule(date: &str, frequency: &str) -> Schedule {
         series: None,
         future_overrides: vec![],
     }
+}
+
+#[test]
+fn income_payment_is_preserved_for_credit_and_rejected_for_debit() {
+    let mut db = database();
+    let mut item = schedule("2028-01-15", "Mensuelle");
+    item.amount = 4275;
+    item.kind = "credit".into();
+    item.payment_method = Some("income_payment".into());
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    let mut saved = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(saved.payment_method.as_deref(), Some("income_payment"));
+    saved.amount = -4275;
+    saved.kind = "debit".into();
+    assert!(save_schedule_in_db(&mut db, saved, Some("series")).is_err());
+}
+
+#[test]
+fn automatic_money_method_is_accepted_and_preserved_for_a_transfer() {
+    let mut db = database();
+    let mut item = recurring_transfer();
+    item.payment_method = Some("automatic".into());
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    let saved = list_schedules_in_db(&db)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == "test-schedule")
+        .unwrap();
+    assert_eq!(saved.payment_method.as_deref(), Some("automatic"));
+    save_schedule_in_db(&mut db, saved, Some("series")).unwrap();
+}
+
+#[test]
+fn one_time_schedule_records_one_operation_and_is_removed() {
+    let mut db = database();
+    let item = schedule("2026-12-28", "Une seule fois");
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    record_schedule_in_db(&mut db, "test-schedule", "one-time-entry").unwrap();
+    let result: (i64, i64) = db.query_row("SELECT (SELECT count(*) FROM schedules WHERE id='test-schedule'), (SELECT amount_cents FROM transactions WHERE id='one-time-entry')", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+    assert_eq!(result, (0, -4275));
+    assert!(record_schedule_in_db(&mut db, "test-schedule", "duplicate").is_err());
+}
+
+#[test]
+fn estimated_series_is_saved_and_kept_after_recording() {
+    let mut db = database();
+    let mut item = schedule("2028-01-15", "Mensuelle");
+    item.estimated = true;
+    save_schedule_in_db(&mut db, item, None).unwrap();
+    assert!(
+        list_schedules_in_db(&db)
+            .unwrap()
+            .iter()
+            .find(|s| s.id == "test-schedule")
+            .unwrap()
+            .estimated
+    );
+    record_schedule_in_db(&mut db, "test-schedule", "estimated-entry").unwrap();
+    assert!(
+        list_schedules_in_db(&db)
+            .unwrap()
+            .iter()
+            .find(|s| s.id == "test-schedule")
+            .unwrap()
+            .estimated
+    );
 }
 
 #[test]

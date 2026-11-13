@@ -58,6 +58,8 @@ struct MoneySchedule {
     amount: i64,
     kind: String,
     #[serde(default)]
+    estimated: bool,
+    #[serde(default)]
     payment_method: Option<String>,
     #[serde(default)]
     anchor_day: Option<i64>,
@@ -374,17 +376,18 @@ fn import_into_database(
         }
         if !matches!(
             schedule.payment_method.as_deref(),
-            None | Some("cheque" | "bank_transfer" | "direct_debit")
-        ) || (schedule.kind == "transfer"
-            && schedule
-                .payment_method
-                .as_deref()
-                .is_some_and(|m| m != "bank_transfer"))
+            None | Some(
+                "cheque" | "bank_transfer" | "direct_debit" | "automatic" | "income_payment"
+            )
+        ) || (schedule.payment_method.as_deref() == Some("income_payment")
+            && schedule.kind != "credit")
+            || (schedule.kind == "transfer"
+                && schedule
+                    .payment_method
+                    .as_deref()
+                    .is_some_and(|m| m != "bank_transfer" && m != "automatic"))
         {
             return Err("Méthode de paiement Money invalide.".into());
-        }
-        if schedule.frequency == Frequency::Annual {
-            return Err("Périodicité Money non prise en charge.".into());
         }
         // Reject an invalid twice-monthly phase even if a preview was altered.
         if schedule.frequency == Frequency::TwiceMonthly {
@@ -422,6 +425,13 @@ fn import_into_database(
             &schedule.kind
         };
         tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![id,format!("money-account-{}",schedule.account_id),schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method]).map_err(database_error)?;
+        if schedule.estimated {
+            tx.execute(
+                "INSERT INTO schedule_estimates (schedule_id) VALUES (?1)",
+                [&id],
+            )
+            .map_err(database_error)?;
+        }
         // A partially recorded Money series retains its original day across short months.
         let day: i64 = tx
             .query_row(

@@ -1,6 +1,114 @@
 use super::*;
 
 #[test]
+fn imports_income_payment_for_credit_and_rejects_it_on_debit() {
+    let mut preview = fixture();
+    preview.schedules.push(MoneySchedule {
+        id: 70,
+        account_id: 1,
+        destination_account_id: None,
+        label: "Salaire".into(),
+        category: "Divers".into(),
+        next_due: "2026-12-01".into(),
+        frequency: Frequency::Monthly,
+        amount: 200000,
+        kind: "credit".into(),
+        estimated: false,
+        payment_method: Some("income_payment".into()),
+        anchor_day: None,
+        remaining_count: None,
+        end_date: None,
+    });
+    let selected = [MoneySelection {
+        id: 1,
+        kind: "Compte courant".into(),
+    }];
+    let mut db = Connection::open_in_memory().unwrap();
+    import_into_database(&mut db, &preview, &selected).unwrap();
+    let value: String = db
+        .query_row(
+            "SELECT payment_method FROM schedules WHERE id='money-schedule-70'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(value, "income_payment");
+    preview.schedules[0].kind = "debit".into();
+    preview.schedules[0].amount = -200000;
+    let mut invalid = Connection::open_in_memory().unwrap();
+    assert!(import_into_database(&mut invalid, &preview, &selected).is_err());
+}
+
+#[test]
+fn imported_overdue_annual_schedule_keeps_due_date_and_advances_one_year() {
+    let mut preview = fixture();
+    preview.schedules.push(MoneySchedule {
+        id: 91,
+        account_id: 1,
+        destination_account_id: None,
+        label: "BWT".into(),
+        category: "Divers".into(),
+        next_due: "2026-10-09".into(),
+        frequency: Frequency::Annual,
+        amount: -19690,
+        kind: "debit".into(),
+        estimated: false,
+        payment_method: Some("cheque".into()),
+        anchor_day: Some(9),
+        remaining_count: None,
+        end_date: None,
+    });
+    let mut db = Connection::open_in_memory().unwrap();
+    import_into_database(
+        &mut db,
+        &preview,
+        &[MoneySelection {
+            id: 1,
+            kind: "Compte courant".into(),
+        }],
+    )
+    .unwrap();
+    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-91", "annual-overdue")
+        .unwrap();
+    let result: (String, String, i64) = db.query_row("SELECT next_due, (SELECT operation_date FROM transactions WHERE id='annual-overdue'), (SELECT amount_cents FROM transactions WHERE id='annual-overdue') FROM schedules WHERE id='money-schedule-91'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+    assert_eq!(result, ("2027-10-09".into(), "2026-10-09".into(), -19690));
+}
+
+#[test]
+fn imported_one_time_schedule_records_once() {
+    let mut preview = fixture();
+    preview.schedules.push(MoneySchedule {
+        id: 99,
+        account_id: 1,
+        destination_account_id: None,
+        label: "Trésor".into(),
+        category: "Divers".into(),
+        next_due: "2026-12-28".into(),
+        frequency: Frequency::Once,
+        amount: -53000,
+        kind: "debit".into(),
+        estimated: false,
+        payment_method: None,
+        anchor_day: Some(28),
+        remaining_count: None,
+        end_date: Some("2026-12-28".into()),
+    });
+    let mut db = Connection::open_in_memory().unwrap();
+    import_into_database(
+        &mut db,
+        &preview,
+        &[MoneySelection {
+            id: 1,
+            kind: "Compte courant".into(),
+        }],
+    )
+    .unwrap();
+    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-99", "once").unwrap();
+    let result: (i64, i64) = db.query_row("SELECT (SELECT amount_cents FROM transactions WHERE id='once'), (SELECT count(*) FROM schedules WHERE id='money-schedule-99')", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+    assert_eq!(result, (-53000, 0));
+}
+
+#[test]
 fn money_file_size_limit_accepts_large_files_and_rejects_above_64_mib() {
     let path = crate::test_support::temporary_database_path();
     let file = fs::File::create(&path.0).unwrap();
@@ -103,6 +211,7 @@ fn imports_verified_payment_method_and_rejects_invalid_values() {
         frequency: Frequency::Monthly,
         amount: -1200,
         kind: "debit".into(),
+        estimated: true,
         payment_method: Some("cheque".into()),
         anchor_day: None,
         remaining_count: None,
@@ -126,6 +235,14 @@ fn imports_verified_payment_method_and_rejects_invalid_values() {
         )
         .unwrap();
     assert_eq!(method.as_deref(), Some("cheque"));
+    let estimated: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM schedule_estimates WHERE schedule_id='money-schedule-9')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(estimated);
     preview.schedules[0].payment_method = Some("invalid".into());
     let mut invalid = Connection::open_in_memory().unwrap();
     assert!(
@@ -432,7 +549,8 @@ fn imported_transfer_series_requires_both_accounts_and_records_linked_operations
         frequency: Frequency::EveryTwoMonths,
         amount: -10000,
         kind: "transfer".into(),
-        payment_method: None,
+        estimated: false,
+        payment_method: Some("automatic".into()),
         anchor_day: None,
         remaining_count: None,
         end_date: None,
@@ -475,6 +593,14 @@ fn imported_transfer_series_requires_both_accounts_and_records_linked_operations
         ],
     )
     .unwrap();
+    let method: String = db
+        .query_row(
+            "SELECT payment_method FROM schedules WHERE id='money-schedule-8'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(method, "automatic");
     crate::schedules::record_schedule_in_db(&mut db, "money-schedule-8", "import-transfer")
         .unwrap();
     let values: (String, i64, i64) = db.query_row("SELECT next_due, (SELECT amount_cents FROM transactions WHERE id='import-transfer-debit'), (SELECT amount_cents FROM transactions WHERE id='import-transfer-credit') FROM schedules WHERE id='money-schedule-8'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
@@ -510,6 +636,7 @@ fn imported_twice_monthly_transfer_creates_linked_entries_and_advances() {
         frequency: Frequency::TwiceMonthly,
         amount: -10000,
         kind: "transfer".into(),
+        estimated: false,
         payment_method: None,
         anchor_day: Some(15),
         remaining_count: None,
@@ -548,6 +675,7 @@ fn imported_semiannual_debit_persists_and_advances_every_six_months() {
         frequency: Frequency::Semiannual,
         amount: -10000,
         kind: "debit".into(),
+        estimated: false,
         payment_method: None,
         anchor_day: Some(13),
         remaining_count: None,
@@ -592,6 +720,7 @@ fn imported_quarterly_debit_advances_by_three_months() {
         frequency: Frequency::Quarterly,
         amount: -10000,
         kind: "debit".into(),
+        estimated: false,
         payment_method: Some("cheque".into()),
         anchor_day: Some(6),
         remaining_count: None,
@@ -633,6 +762,7 @@ fn imported_schedule_limits_are_atomic_and_enforced() {
             frequency: Frequency::Monthly,
             amount: -1200,
             kind: "debit".into(),
+            estimated: false,
             payment_method: None,
             anchor_day: None,
             remaining_count,
@@ -694,6 +824,7 @@ fn imported_started_series_preserves_month_end_anchor() {
         frequency: Frequency::Monthly,
         amount: -1200,
         kind: "debit".into(),
+        estimated: false,
         payment_method: None,
         anchor_day: Some(31),
         remaining_count: None,
@@ -764,6 +895,7 @@ fn invalid_imported_schedule_limits_roll_back_the_import() {
             frequency: Frequency::Monthly,
             amount: -1200,
             kind: "debit".into(),
+            estimated: false,
             payment_method: None,
             anchor_day: None,
             remaining_count,

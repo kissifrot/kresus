@@ -31,6 +31,7 @@ fn open_existing_database(path: &Path) -> Result<Connection, String> {
     writable
         .execute_batch(include_str!("schedule_future_schema.sql"))
         .map_err(database_error)?;
+    writable.execute_batch("CREATE TABLE IF NOT EXISTS schedule_estimates (schedule_id TEXT PRIMARY KEY REFERENCES schedules(id) ON DELETE CASCADE)").map_err(database_error)?;
     migrate_schedule_payment(&writable).map_err(database_error)?;
     migrate_transaction_reference(&writable).map_err(database_error)?;
     Ok(writable)

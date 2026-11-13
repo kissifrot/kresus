@@ -208,14 +208,90 @@ export function readMoneySchedules(
     nextDue: string;
     frequency: Frequency;
     amount: number;
+    estimated: boolean;
     kind: string;
-    paymentMethod: "cheque" | null;
+    paymentMethod: "cheque" | "automatic" | "income_payment" | null;
     endDate: string | null;
     anchorDay: number;
   }[] = [];
   const warnings: string[] = [];
   const skippedSchedules: string[] = [];
-  for (const bill of bills) {
+  const heads = new Set(bills.filter((b) => b.hbill === b.hbillHead).map((b) => b.hbill));
+  for (const original of bills) {
+    // Child records are versions of a series, not independent recurring schedules.
+    if (original.hbill !== original.hbillHead && heads.has(original.hbillHead)) continue;
+    let bill = original;
+    let reconstructed = false;
+    const versions = bills.filter(
+      (b) =>
+        b.hbillHead === original.hbill &&
+        b.hbill !== original.hbill &&
+        Number.isInteger(b.iinst) &&
+        b.iinst <= original.iinstNextUnpaid,
+    );
+    if (
+      original.hbill === original.hbillHead &&
+      original.st === 1 &&
+      original.cInstMax === -1 &&
+      original.dtMax instanceof Date &&
+      !Number.isNaN(original.dtMax.getTime()) &&
+      original.dtMax.toISOString().slice(0, 10) === "2200-12-31" &&
+      original.iinstNextUnpaid > 0 &&
+      original.iinstLastSkipped === -1 &&
+      original.cDaysAutoEnter === -1 &&
+      ((original.frq === 3 && [0.5, 1].includes(original.cFrqInst)) ||
+        (original.frq === 4 && original.cFrqInst === 1) ||
+        (original.frq === 5 && original.cFrqInst === 1))
+    ) {
+      const candidates = [original, ...versions].sort((a, b) => b.iinst - a.iinst);
+      const latest = candidates[0]!;
+      const model = transactions.find((t) => t.htrn === latest.lHtrn);
+      const interval =
+        original.frq === 4 ? 3 : original.frq === 5 ? 12 : original.cFrqInst === 0.5 ? 2 : 1;
+      if (
+        latest.dt instanceof Date &&
+        !Number.isNaN(latest.dt.getTime()) &&
+        latest.frq === original.frq &&
+        latest.cFrqInst === original.cFrqInst &&
+        model &&
+        (latest.iinst < original.iinstNextUnpaid || latest.st === 3) &&
+        !candidates.some((v) => v !== latest && v.iinst === latest.iinst) &&
+        [-1, 0].includes(latest.cEstInst)
+      ) {
+        // A prior 31st disambiguates a recent 30th that falls at month end.
+        const lastDay = new Date(
+          Date.UTC(latest.dt.getUTCFullYear(), latest.dt.getUTCMonth() + 1, 0),
+        ).getUTCDate();
+        const anchor =
+          latest.dt.getUTCDate() === lastDay &&
+          candidates.some((v) => v.dt instanceof Date && v.dt.getUTCDate() === 31)
+            ? 31
+            : latest.dt.getUTCDate();
+        const anchorDate = new Date(latest.dt);
+        anchorDate.setUTCDate(1);
+        anchorDate.setUTCMonth(
+          anchorDate.getUTCMonth() + (original.iinstNextUnpaid - latest.iinst) * interval,
+        );
+        anchorDate.setUTCDate(
+          Math.min(
+            anchor,
+            new Date(
+              Date.UTC(anchorDate.getUTCFullYear(), anchorDate.getUTCMonth() + 1, 0),
+            ).getUTCDate(),
+          ),
+        );
+        reconstructed = true;
+        bill = {
+          ...original,
+          st: 3,
+          iinstNextUnpaid: 0,
+          lHtrn: latest.lHtrn,
+          dt: anchorDate,
+          cEstInst: latest.cEstInst,
+          importAnchorDay: anchor,
+        };
+      }
+    }
     const source = transactions.find((item) => item.htrn === bill.lHtrn);
     // Keep enough context to locate a skipped series in Money, even if its model is missing.
     const payee = payees.find((p) => p.hpay === (source?.lHpay ?? source?.hpay));
@@ -230,24 +306,48 @@ export function readMoneySchedules(
           }).format(bill.dt)
         : "date inconnue";
     const description = `Échéance Money ${bill.hbill} · ${String(payee?.szFull ?? "Tiers inconnu").trim()} · ${String(account?.szFull ?? "Compte inconnu").trim()} · ${date}`;
+    // A limited series with separate versions can contain later or altered occurrences.
+    // Its head's unpaid index alone does not establish whether it is still active.
+    if (
+      original.cInstMax > 0 &&
+      original.iinstNextUnpaid > 0 &&
+      bills.some((item) => item.hbillHead === original.hbill && item.hbill !== original.hbill)
+    ) {
+      skippedSchedules.push(
+        `${description} : série limitée avec historique ; statut actif et prochaine occurrence à vérifier.`,
+      );
+      continue;
+    }
     const interval = Number(bill.cFrqInst);
     const frequency =
-      bill.frq === 3
-        ? (
-            {
-              0.5: FREQUENCY.EVERY_TWO_MONTHS,
-              1: FREQUENCY.MONTHLY,
-              2: FREQUENCY.TWICE_MONTHLY,
-            } as Record<number, Frequency>
-          )[interval]
-        : bill.frq === 4 && interval === 1
-          ? FREQUENCY.QUARTERLY
-          : bill.frq === 5 && interval === 2
-            ? FREQUENCY.SEMIANNUAL
-            : undefined;
+      bill.frq === 0 && interval === 1 && bill.cInstMax === 1
+        ? FREQUENCY.ONCE
+        : bill.frq === 3
+          ? (
+              {
+                0.5: FREQUENCY.EVERY_TWO_MONTHS,
+                1: FREQUENCY.MONTHLY,
+                2: FREQUENCY.TWICE_MONTHLY,
+              } as Record<number, Frequency>
+            )[interval]
+          : bill.frq === 4 && interval === 1
+            ? FREQUENCY.QUARTERLY
+            : bill.frq === 5 && interval === 2
+              ? FREQUENCY.SEMIANNUAL
+              : bill.frq === 5 && interval === 1 && reconstructed
+                ? FREQUENCY.ANNUAL
+                : undefined;
     // Money uses distinct codes for the observed quarterly and semiannual series.
     const months =
-      frequency === FREQUENCY.QUARTERLY ? 3 : frequency === FREQUENCY.SEMIANNUAL ? 6 : interval;
+      frequency === FREQUENCY.ANNUAL
+        ? 12
+        : frequency === FREQUENCY.QUARTERLY
+          ? 3
+          : frequency === FREQUENCY.SEMIANNUAL
+            ? 6
+            : frequency === FREQUENCY.EVERY_TWO_MONTHS
+              ? 2
+              : interval;
     const endDate = verifiedScheduleLimit(bill.dt, bill.dtMax, bill.cInstMax, months);
     // Only the 15th/month-end, unstarted and unlimited transfer was observed.
     const verifiedTwiceMonthly =
@@ -259,6 +359,10 @@ export function readMoneySchedules(
         source?.hacctLink != null);
     const verifiedLongPeriod =
       (frequency !== FREQUENCY.QUARTERLY && frequency !== FREQUENCY.SEMIANNUAL) ||
+      (reconstructed &&
+        frequency === FREQUENCY.QUARTERLY &&
+        endDate === null &&
+        source?.hacctLink == null) ||
       (endDate === null &&
         source?.hacctLink == null &&
         source?.amt != null &&
@@ -320,15 +424,21 @@ export function readMoneySchedules(
     }
     let destinationAccountId: number | null = null;
     if (source.hacctLink != null) {
-      const link = transfers.find(
+      const matches = transfers.filter(
         (item) => item.htrnFrom === source.htrn || item.htrnLink === source.htrn,
       );
+      const link = matches.length === 1 ? matches[0] : undefined;
       const other = transactions.find(
         (item) => item.htrn === (link?.htrnFrom === source.htrn ? link?.htrnLink : link?.htrnFrom),
       );
       if (
         amount >= 0 ||
         !other ||
+        source.grftt !== 2097154 ||
+        other.grftt !== 2097158 ||
+        other.frq !== source.frq ||
+        other.hsec != null ||
+        other.act !== -1 ||
         other.hacct !== source.hacctLink ||
         other.hacctLink !== source.hacct ||
         cents(other.amt) !== -amount ||
@@ -339,19 +449,40 @@ export function readMoneySchedules(
       }
       destinationAccountId = source.hacctLink;
     }
-    // The only verified non-transfer signature comes from the supplied cheque example.
-    // Unrecognised flags must not be guessed: Money has other payment methods.
+    if (bill.cEstInst != null && ![-1, 0].includes(bill.cEstInst)) {
+      skippedSchedules.push(`${description} : statut d’estimation Money non reconnu.`);
+      continue;
+    }
+    // Preserve Money's combined automatic-payment label without guessing its subtype.
+    // Signatures are limited to the observed debit and transfer examples.
     const paymentMethod =
-      destinationAccountId == null &&
       amount < 0 &&
-      source.grfstem === 2050 &&
       source.grfEntryMethods === 1 &&
-      source.fPrint === false
-        ? "cheque"
-        : null;
+      source.fPrint === false &&
+      ((source.grfstem === 2052 && bill.cEstInst === -1) ||
+        (source.grfstem === 4 && bill.cEstInst === 0))
+        ? "automatic"
+        : destinationAccountId == null &&
+            amount < 0 &&
+            source.grfstem === 2050 &&
+            source.grfEntryMethods === 1 &&
+            source.fPrint === false
+          ? "cheque"
+          : destinationAccountId == null &&
+              amount > 0 &&
+              source.grfEntryMethods === 1 &&
+              source.fPrint === false &&
+              ((source.grfstem === 2052 && bill.cEstInst === -1) ||
+                (source.grfstem === 4 && bill.cEstInst === 0))
+            ? "income_payment"
+            : null;
     if (!paymentMethod)
       warnings.push(
         `Échéance Money ${bill.hbill} : méthode de paiement non reconnue ; à vérifier après import.`,
+      );
+    if (reconstructed)
+      warnings.push(
+        `${description} : date et jour de référence déduits des versions Money ; vérifiez-les dans l’aperçu.`,
       );
     schedules.push({
       id: bill.hbill,
@@ -360,9 +491,10 @@ export function readMoneySchedules(
       label: String(payee?.szFull ?? "").trim() || "Échéance sans tiers",
       category: categoryLabel(source.hcat),
       nextDue,
-      anchorDay: bill.dt.getUTCDate(),
+      anchorDay: bill.importAnchorDay ?? bill.dt.getUTCDate(),
       frequency,
       amount,
+      estimated: bill.cEstInst === 0,
       kind: destinationAccountId != null ? "transfer" : amount > 0 ? "credit" : "debit",
       paymentMethod,
       endDate,
@@ -370,6 +502,11 @@ export function readMoneySchedules(
   }
   if (schedules.length) warnings.push("Les notes des échéances Money ne sont pas importées.");
   return { schedules, warnings, skippedSchedules };
+}
+
+// The standalone flag 256 marks cancelled entries in the observed Money file.
+export function isVoidedMoneyOperation(t: Row): boolean {
+  return t.grftt === 256 && t.hacctLink === null && t.hsec === null && t.act === -1;
 }
 
 export function inspect(buffer: Buffer) {
@@ -416,8 +553,10 @@ export function inspect(buffer: Buffer) {
       ? `${String(parent?.szFull ?? "").trim()} · ${String(category.szFull ?? "").trim()}`
       : String(category.szFull ?? "").trim();
   };
-  const operations = tx
-    .filter((t) => bank.some((a) => a.hacct === t.hacct) && t.frq === -1)
+  const posted = tx.filter((t) => bank.some((a) => a.hacct === t.hacct) && t.frq === -1);
+  const voidedCount = posted.filter(isVoidedMoneyOperation).length;
+  const operations = posted
+    .filter((t) => !isVoidedMoneyOperation(t))
     .map((t) => {
       if (
         t.hsec !== null ||
@@ -459,6 +598,9 @@ export function inspect(buffer: Buffer) {
     skippedSchedules: scheduleResult.skippedSchedules,
     transfers,
     warnings: [
+      ...(voidedCount
+        ? [`${voidedCount} opération(s) annulée(s) dans Money ne sont pas importées.`]
+        : []),
       ...(accounts.length > bank.length
         ? [
             `${accounts.length - bank.length} compte(s) non pris en charge ou incomplets sont exclus, notamment les placements.`,
