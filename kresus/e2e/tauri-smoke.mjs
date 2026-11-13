@@ -486,7 +486,43 @@ try {
     );
     if (Math.max(...controlSizes) - Math.min(...controlSizes) > 1)
       throw new Error(`Contrôles du registre désalignés à ${width} × ${height} : ${controlSizes}`);
+    // The page controls must remain aligned and separate from the register summary.
+    const pagination = await execute(`
+      const footer = document.querySelector('.table-footer').getBoundingClientRect();
+      const summary = document.querySelector('.table-footer > span').getBoundingClientRect();
+      const controls = [...document.querySelectorAll('.pagination button, .pagination input')].map(el => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height, clipped: el.scrollWidth > el.clientWidth + 1 };
+      });
+      const p = document.querySelector('.pagination').getBoundingClientRect();
+      return { footer: {left: footer.left, right: footer.right}, summary: {right: summary.right, bottom: summary.bottom}, pagination: {left: p.left, top: p.top, right: p.right}, controls };
+    `);
+    if (
+      pagination.pagination.left < pagination.footer.left - 1 ||
+      pagination.pagination.right > pagination.footer.right + 1 ||
+      (pagination.summary.right > pagination.pagination.left &&
+        pagination.summary.bottom > pagination.pagination.top) ||
+      pagination.controls.some((control) => control.clipped) ||
+      Math.max(...pagination.controls.map((control) => control.height)) -
+        Math.min(...pagination.controls.map((control) => control.height)) >
+        1 ||
+      Math.max(...pagination.controls.map((control) => control.top)) -
+        Math.min(...pagination.controls.map((control) => control.top)) >
+        1
+    )
+      throw new Error(
+        `Pagination mal disposée à ${width} × ${height} : ${JSON.stringify(pagination)}`,
+      );
     await screenshot(`registre-${width}x${height}`);
+    await execute("document.querySelector('.table-footer').scrollIntoView({block: 'center'})");
+    await waitFor(
+      () =>
+        execute(
+          "const r = document.querySelector('.table-footer').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight",
+        ),
+      "Pagination visible",
+    );
+    await screenshot(`pagination-${width}x${height}`);
     await execute("document.querySelector('#transaction-filter').focus()");
     await tabTo("tbody tr[data-transaction]", 3);
     await key("\uE007");
@@ -539,6 +575,13 @@ try {
     () => click("#household-nav"),
     async () => (await text(".page-heading h1")) === "Vue d’ensemble",
   );
+  for (const [width, height] of [
+    [900, 620],
+    [1280, 820],
+  ]) {
+    await request("POST", `/session/${session}/window/rect`, { width, height });
+    await screenshot(`foyer-${width}x${height}`);
+  }
   await action(
     "Échéances",
     () => click("#schedules-nav"),
@@ -549,6 +592,13 @@ try {
     () => click("#categories-nav"),
     async () => (await text(".page-heading h1")) === "Catégories",
   );
+  for (const [width, height] of [
+    [900, 620],
+    [1280, 820],
+  ]) {
+    await request("POST", `/session/${session}/window/rect`, { width, height });
+    await screenshot(`categories-${width}x${height}`);
+  }
   await action(
     "Rapport de dépenses",
     () => click("#spending-nav"),
@@ -556,6 +606,13 @@ try {
       (await text(".page-heading h1")) === "Répartition des dépenses" &&
       !(await text(".spending-panel")).includes("Chargement"),
   );
+  for (const [width, height] of [
+    [900, 620],
+    [1280, 820],
+  ]) {
+    await request("POST", `/session/${session}/window/rect`, { width, height });
+    await screenshot(`rapport-${width}x${height}`);
+  }
   // Work exclusively in the isolated temporary database created above.
   await click(".add-account");
   await fill("#account-form", {
@@ -1233,6 +1290,10 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
     await execute(
       "document.querySelectorAll('.money-import-dialog input[name=account]')[1].click()",
     );
+    await execute(
+      "document.querySelector('.money-import-dialog button[type=submit]').scrollIntoView({block: 'nearest'})",
+    );
+    await screenshot("import-money-apres-erreur");
     await click('.money-import-dialog button[type="submit"]');
     await waitFor(
       async () =>
