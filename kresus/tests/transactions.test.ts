@@ -255,6 +255,48 @@ describe("transaction register", () => {
     expect(cell("html").querySelector("ref")).toBeNull();
   });
 
+  it("shows padded Money references on both sides of an imported transfer", async () => {
+    await openRegister({
+      accounts: [
+        { id: "one", name: "Principal", kind: "Compte courant", openingBalance: 100, bank: "" },
+        { id: "two", name: "Épargne", kind: "Épargne", openingBalance: 200, bank: "" },
+      ],
+      transactions: [
+        {
+          id: "d",
+          accountId: "one",
+          date: "2027-01-15",
+          label: "Virement vers Épargne",
+          category: "Divers",
+          amount: -10,
+          transferId: "transfer",
+          reference: "0   100000001",
+        },
+        {
+          id: "c",
+          accountId: "two",
+          date: "2027-01-15",
+          label: "Virement depuis Principal",
+          category: "Divers",
+          amount: 10,
+          transferId: "transfer",
+          reference: "0     2000012",
+        },
+      ],
+    });
+    expect(document.querySelector(".cheque-cell")?.textContent).toBe("100000001");
+    click('tr[data-transaction="d"]');
+    await vi.waitFor(() => expect(document.querySelector(".transfer-editor")).not.toBeNull());
+    const form = document.querySelector<HTMLFormElement>(".transfer-editor")!;
+    expect(field(form, "debitReference").value).toBe("100000001");
+    expect(field(form, "creditReference").value).toBe("2000012");
+    click(".transfer-editor .cancel-editor");
+    click('[data-account="two"]');
+    await vi.waitFor(() =>
+      expect(document.querySelector(".cheque-cell")?.textContent).toBe("2000012"),
+    );
+  });
+
   it("requires confirmation before deleting an ordinary operation", async () => {
     const invoke = await openRegister();
     const button = document.querySelector<HTMLButtonElement>('[data-delete="debit"]')!;

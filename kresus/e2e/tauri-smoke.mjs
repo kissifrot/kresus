@@ -379,6 +379,24 @@ try {
     )
       throw new Error(`Formulaire tronqué à ${width} × ${height} : ${JSON.stringify(layout)}`);
     await screenshot(`formulaire-${width}x${height}`);
+    if (width === 900) {
+      // Stress a long label and larger text to catch min-content overflow.
+      const stressed = await execute(`
+        const style = document.createElement('style');
+        style.textContent = '#schedule-form .form-row label { font-size: 16px }';
+        document.head.append(style);
+        const label = document.querySelector('#schedule-form .schedule-reference');
+        const original = label.firstChild.textContent;
+        label.firstChild.textContent = 'Référence_de_l_occurrence_avec_un_libellé_particulièrement_long';
+        const d = document.querySelector('#schedule-dialog');
+        const result = {scroll: d.scrollWidth, client: d.clientWidth};
+        label.firstChild.textContent = original;
+        style.remove();
+        return result;
+      `);
+      if (stressed.scroll > stressed.client + 1)
+        throw new Error(`Formulaire tronqué avec texte agrandi : ${JSON.stringify(stressed)}`);
+    }
     // At reduced height, keyboard focus must scroll the submit button into view.
     await execute("document.querySelector('#schedule-dialog button[type=submit]').focus()");
     const submitVisible = await execute(
@@ -415,7 +433,7 @@ try {
         "[name=date]",
         "[name=amount]",
         "[name=category]",
-        "[name=cheque]",
+        "[name=reference]",
         "[name=note]",
       ],
       cancel: ".dialog-cancel",
@@ -442,6 +460,8 @@ try {
   for (const field of [
     "[name=sourceId]",
     "[name=destinationId]",
+    "[name=debitReference]",
+    "[name=creditReference]",
     "[name=date]",
     "[name=amount]",
     "[name=category]",
@@ -770,7 +790,7 @@ try {
   await fill("#transaction-form", {
     label: "Achat recette",
     amount: "12.34",
-    cheque: "0012345",
+    reference: "0012345",
     note: "Commentaire initial",
   });
   // Clipboard access is opt-in and must use a private Xvfb display.
@@ -1029,12 +1049,12 @@ try {
   );
   if (!futureOriginal) throw new Error("Prévision annuelle introuvable");
   await click(`[data-edit-future="${scheduleId}"][data-original-due="${futureOriginal}"]`);
-  await fill("#schedule-form", { paymentMethod: "cheque", cheque: "0012345", amount: "15.00" });
+  await fill("#schedule-form", { paymentMethod: "cheque", reference: "0012345", amount: "15.00" });
   await submitSchedule();
   await waitFor(async () => !(await visible("#schedule-dialog[open]")), "Modification future");
   await click(`[data-edit-future="${scheduleId}"][data-original-due="${futureOriginal}"]`);
   const futureValues = await execute(
-    "const f=document.querySelector('#schedule-form'); return [f.elements.amount.value,f.elements.cheque.value]",
+    "const f=document.querySelector('#schedule-form'); return [f.elements.amount.value,f.elements.reference.value]",
   );
   if (futureValues[0] !== "15,00" || futureValues[1] !== "0012345")
     throw new Error("Modification future non conservée");
@@ -1126,7 +1146,7 @@ try {
     limitType: "count",
     remainingCount: "2",
     paymentMethod: "cheque",
-    cheque: "0012345",
+    reference: "0012345",
   });
   await submitSchedule();
   await waitFor(

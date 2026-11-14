@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Buffer } from "buffer";
+import { displayReference } from "../src/format";
 import {
   cents,
   decodeMoney,
@@ -22,6 +23,12 @@ describe("Money reader", () => {
     expect(rc4(Buffer.from("Key"), Buffer.from("Plaintext")).toString("hex")).toBe(
       "bbf316e8d940af0ad3",
     );
+  });
+  it("removes only the observed Money prefix and preserves leading zeros", () => {
+    expect(displayReference("0     0000123")).toBe("0000123");
+    expect(displayReference("0   000000001")).toBe("000000001");
+    expect(displayReference("0 123")).toBe("0 123");
+    expect(displayReference("0  ABC1234567")).toBe("0  ABC1234567");
   });
   it("recognizes only standalone cancelled operations", () => {
     const entry = { grftt: 256, hacctLink: null, hsec: null, act: -1 };
@@ -653,15 +660,15 @@ describe("Money reader", () => {
       -364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -2500, 10000, 10000, 10000,
     ]);
     expect(preview.operations.find((operation) => operation.id === 21)).toMatchObject({
-      reference: "0      200001",
+      reference: "200001",
       note: "",
     });
     expect(preview.operations.find((operation) => operation.id === 22)).toMatchObject({
-      reference: "0      200002",
+      reference: "200002",
       note: "Une note",
     });
     expect(preview.operations.find((operation) => operation.id === 19)).toMatchObject({
-      reference: "0   100000001",
+      reference: "100000001",
     });
     const current = preview.accounts.find((account) => account.name === "Compte courant")!;
     const saving = preview.accounts.find((account) => account.name === "Livret A")!;

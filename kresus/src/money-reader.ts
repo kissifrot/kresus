@@ -5,6 +5,7 @@ import createHash from "create-hash";
 import { Buffer } from "buffer";
 import MDBReader from "mdb-reader";
 import { FREQUENCY, type Frequency } from "./frequency";
+import { displayReference } from "./format";
 
 type Row = Record<string, any>;
 // mdb-reader’s browser build expects the standard Buffer global.
@@ -572,8 +573,8 @@ export function inspect(buffer: Buffer) {
         throw new Error("Une opération de montant nul ne peut pas être importée.");
       const payee = payees.find((p) => p.hpay === (t.lHpay ?? t.hpay));
       const note = String(t.mMemo ?? "").trim();
-      // Preserve the full Money reference without inferring a cheque number.
-      const reference = String(t.szId ?? "").trim() || null;
+      // Strip only Money's observed padding, preserving zeros within the number.
+      const reference = displayReference(String(t.szId ?? "")) || null;
       return {
         id: t.htrn,
         accountId: t.hacct,

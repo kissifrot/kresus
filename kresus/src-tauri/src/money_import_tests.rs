@@ -456,14 +456,14 @@ fn both_accounts() -> Vec<MoneySelection> {
 #[test]
 fn imports_references_independently_of_notes_cheques_and_transfer_sides() {
     let mut preview = posted_transfer_fixture();
-    preview.operations[0].reference = Some("0      200001".into());
+    preview.operations[0].reference = Some("0000123".into());
     preview.operations[0].note = "Une note".into();
     preview
         .operations
         .iter_mut()
         .find(|op| op.id == 10)
         .unwrap()
-        .reference = Some("0   100000001".into());
+        .reference = Some("000000001".into());
     let mut db = Connection::open_in_memory().unwrap();
     import_into_database(&mut db, &preview, &both_accounts()).unwrap();
     let values: (Option<String>, Option<String>, Option<String>) = db
@@ -475,10 +475,10 @@ fn imports_references_independently_of_notes_cheques_and_transfer_sides() {
         .unwrap();
     assert_eq!(
         values,
-        (Some("0      200001".into()), Some("Une note".into()), None)
+        (Some("0000123".into()), Some("Une note".into()), None)
     );
     let pair: (Option<String>, Option<String>) = db.query_row("SELECT d.reference,c.reference FROM transfers t JOIN transactions d ON d.id=t.debit_id JOIN transactions c ON c.id=t.credit_id WHERE t.id='money-transfer-10-11'", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
-    assert_eq!(pair, (Some("0   100000001".into()), None));
+    assert_eq!(pair, (Some("000000001".into()), None));
 }
 
 #[test]
