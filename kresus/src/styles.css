@@ -633,10 +633,12 @@ h1 {
 }
 #transaction-search-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 /* Match the search and filter controls to the shared secondary-button height. */
 .panel-actions #transaction-search,
+.panel-actions #transaction-search-scope,
 .panel-actions #transaction-filter {
   height: 37px;
   border-radius: 6px;
@@ -708,6 +710,9 @@ table {
   width: 100%;
   min-width: 850px;
 }
+.search-results {
+  min-width: 620px;
+}
 thead {
   height: 37px;
   background: #fafbfa;
@@ -742,6 +747,9 @@ tbody tr {
 tr[data-transaction]:focus-visible {
   outline: 2px solid #287754;
   outline-offset: -2px;
+}
+tr[data-transaction].located {
+  background: #edf5ef;
 }
 tbody tr:last-child {
   border-bottom: 0;
@@ -971,6 +979,16 @@ dialog::backdrop {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.account-heading {
+  gap: 12px;
+}
+.account-heading .page-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.account-heading .page-actions button {
+  white-space: nowrap;
 }
 .page-actions button:disabled {
   opacity: 0.5;
@@ -1907,6 +1925,123 @@ tr[data-transaction].editing {
     flex-wrap: wrap;
   }
 }
+.statement-reconciliation {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: #f8fbf8;
+  border: 1px solid #d8e8dd;
+  border-radius: 8px;
+  box-shadow: 0 3px 10px #202a2210;
+}
+.statement-reconciliation-heading,
+.statement-reconciliation-fields,
+.statement-reconciliation-totals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 18px;
+}
+.statement-reconciliation-heading {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.statement-reconciliation-heading h2 {
+  font:
+    700 14px Manrope,
+    sans-serif;
+}
+.statement-reconciliation-fields label {
+  display: grid;
+  gap: 4px;
+}
+.statement-reconciliation-fields label,
+.statement-reconciliation-totals dt {
+  font-size: 12px;
+}
+#reconciliation-amount {
+  width: 136px;
+}
+.statement-reconciliation-totals {
+  margin: 0;
+}
+.statement-reconciliation-totals dd {
+  margin: 4px 0 0;
+  color: #344037;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+#reconciliation-gap[data-balanced] {
+  color: #287754;
+}
+.statement-reconciliation .editor-error:empty {
+  display: none;
+}
+.bank-import-status {
+  margin-bottom: 14px;
+  color: #344037;
+}
+.bank-import-status:empty,
+.bank-import-dialog .editor-error:empty {
+  display: none;
+}
+.bank-import-dialog {
+  width: min(920px, calc(100% - 32px));
+  max-height: 90vh;
+  padding: 20px;
+}
+.bank-import-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bank-import-dialog p {
+  font-size: 13px;
+}
+.bank-import-source {
+  display: grid;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.bank-import-table {
+  max-height: 42vh;
+  border: 1px solid #edf0ed;
+  border-radius: 6px;
+}
+.bank-import-table table {
+  min-width: 560px;
+  table-layout: fixed;
+  font-size: 13px;
+}
+.bank-import-table th:first-child,
+.bank-import-table th:nth-child(3) {
+  width: 112px;
+}
+.bank-import-table th:last-child {
+  width: 42%;
+}
+.bank-import-table td {
+  padding-block: 8px;
+}
+.bank-import-table td small {
+  display: block;
+  margin-top: 3px;
+  color: #667169;
+}
+.bank-import-label {
+  overflow-wrap: anywhere;
+}
+.bank-import-decision select {
+  width: 100%;
+}
+.bank-import-dialog .table-footer,
+.bank-import-dialog .dialog-actions {
+  flex-wrap: wrap;
+}
 .money-import-dialog {
   width: min(720px, 95vw);
   max-height: 85vh;
@@ -2096,13 +2231,9 @@ tr[data-transaction].editing {
   .account-heading {
     align-items: flex-start;
     flex-direction: column;
-    gap: 12px;
   }
   .account-heading .page-actions {
-    flex-wrap: wrap;
-  }
-  .account-heading .page-actions button {
-    white-space: nowrap;
+    justify-content: flex-start;
   }
 }
 

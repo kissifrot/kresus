@@ -1,10 +1,12 @@
 mod accounts;
+mod bank_import;
 mod categories;
 mod database;
 mod file_open;
 mod frequency;
 mod menu;
 mod money_import;
+mod ofx;
 mod schedules;
 #[cfg(test)]
 mod test_support;
@@ -15,6 +17,7 @@ use database::{AppState, initialize_database};
 use rusqlite::Connection;
 use std::{fs, sync::Mutex};
 use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -37,15 +40,31 @@ pub fn run() {
                 args, &cwd,
             ))));
             let connection = Connection::open(&default_path)?;
-            initialize_database(&connection)?;
+            if let Err(error) = initialize_database(&connection) {
+                let handle = app.handle().clone();
+                app.dialog()
+                    .message(format!(
+                        "{error}\n\nBase habituelle : {}",
+                        default_path.display()
+                    ))
+                    .title("Impossible d’ouvrir la base habituelle")
+                    .kind(MessageDialogKind::Error)
+                    .show(move |_| handle.exit(1));
+                return Ok(());
+            }
             app.manage(AppState {
                 database: Mutex::new(connection),
                 default_path,
                 money_preview: Mutex::new(None),
+                bank_preview: Mutex::new(None),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            bank_import::preview_bank_statement,
+            bank_import::discard_bank_statement,
+            bank_import::import_bank_statement,
+            bank_import::reconciliation_balance,
             money_import::choose_money_file,
             money_import::set_money_preview,
             money_import::import_money,
@@ -58,7 +77,7 @@ pub fn run() {
             database::use_default_database,
             accounts::list_accounts,
             accounts::create_account,
-            accounts::update_account_number,
+            accounts::update_account,
             categories::list_categories,
             categories::create_category,
             categories::rename_category,
@@ -66,6 +85,7 @@ pub fn run() {
             categories::merge_category,
             transactions::list_transactions,
             transactions::list_register,
+            transactions::search_operations,
             transactions::balance_history,
             transactions::forecast_transactions,
             transactions::list_payees,

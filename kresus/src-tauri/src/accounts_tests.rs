@@ -8,7 +8,7 @@ fn account_number_is_optional_text_and_can_be_changed_or_cleared() {
     new_account.account_number = Some("  00012 AB  ".into());
     create_account_in_db(&db, new_account).unwrap();
     let current = || {
-        list_accounts_in_db(&db)
+        list_accounts_in_db(&db, "2027-01-01")
             .unwrap()
             .into_iter()
             .find(|account| account.id == "numbered")
@@ -40,14 +40,15 @@ fn current_balances_include_all_operations_for_each_account() {
     create_account_in_db(&db, account("with-operations", "Compte courant", 100.0)).unwrap();
     create_account_in_db(&db, account("empty", "Épargne", -12.5)).unwrap();
     db.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, amount_cents, reconciled) VALUES ('one', 'with-operations', '2027-01-01', 'Credit', 'Other', 5025, 1), ('two', 'with-operations', '2027-01-02', 'Debit', 'Other', -7550, 0)", []).unwrap();
-    let accounts = list_accounts_in_db(&db).unwrap();
+    let accounts = list_accounts_in_db(&db, "2027-01-01").unwrap();
     let populated = accounts
         .iter()
         .find(|item| item.id == "with-operations")
         .unwrap();
     let empty = accounts.iter().find(|item| item.id == "empty").unwrap();
     assert_eq!(populated.opening_balance, 10000);
-    assert_eq!(populated.current_balance, 7475);
+    assert_eq!(populated.current_balance, 15025);
+    assert_eq!(populated.balance_with_future, 7475);
     assert_eq!(empty.current_balance, -1250);
 }
 

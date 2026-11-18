@@ -1,5 +1,5 @@
 use crate::database::{AppState, database_error};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -17,24 +17,36 @@ pub struct Account {
     pub(crate) bank: String,
     pub(crate) account_number: Option<String>,
     #[serde(default, skip_deserializing)]
+    pub(crate) archived: bool,
+    #[serde(default, skip_deserializing)]
     pub(crate) current_balance: i64,
+    #[serde(default, skip_deserializing)]
+    pub(crate) balance_with_future: i64,
 }
 
 #[tauri::command]
 /// Returns opening and current balances in cents for all accounts.
-pub fn list_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, String> {
+pub fn list_accounts(
+    today: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Account>, String> {
     let connection = state
         .database
         .lock()
         .map_err(|_| "La base de données est indisponible.".to_string())?;
-    list_accounts_in_db(&connection)
+    list_accounts_in_db(&connection, &today)
 }
 
-pub(crate) fn list_accounts_in_db(connection: &Connection) -> Result<Vec<Account>, String> {
-    // Sum the stored integer cents, including unreconciled operations.
-    let mut statement = connection.prepare("SELECT a.id, a.name, a.kind, a.opening_balance_cents, a.bank, a.account_number, a.opening_balance_cents + COALESCE(SUM(t.amount_cents), 0) FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id GROUP BY a.id ORDER BY a.kind, a.name").map_err(database_error)?;
+pub(crate) fn list_accounts_in_db(
+    connection: &Connection,
+    today: &str,
+) -> Result<Vec<Account>, String> {
+    // The current balance uses the same local date cutoff as the forecast.
+    let mut statement = connection.prepare("SELECT a.id, a.name, a.kind, a.opening_balance_cents, a.bank, a.account_number, ar.account_id IS NOT NULL,
+        a.opening_balance_cents + COALESCE(SUM(t.amount_cents) FILTER (WHERE t.operation_date <= ?1), 0),
+        a.opening_balance_cents + COALESCE(SUM(t.amount_cents), 0) FROM accounts a LEFT JOIN archived_accounts ar ON ar.account_id=a.id LEFT JOIN transactions t ON t.account_id = a.id GROUP BY a.id ORDER BY a.kind, a.name").map_err(database_error)?;
     let rows = statement
-        .query_map([], |row| {
+        .query_map([today], |row| {
             Ok(Account {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -42,7 +54,9 @@ pub(crate) fn list_accounts_in_db(connection: &Connection) -> Result<Vec<Account
                 opening_balance: row.get(3)?,
                 bank: row.get(4)?,
                 account_number: row.get(5)?,
-                current_balance: row.get(6)?,
+                archived: row.get(6)?,
+                current_balance: row.get(7)?,
+                balance_with_future: row.get(8)?,
             })
         })
         .map_err(database_error)?;
@@ -91,33 +105,59 @@ fn normalize_account_number(value: Option<&str>) -> Result<Option<&str>, String>
     Ok(value)
 }
 
-#[tauri::command]
-pub fn update_account_number(
-    id: String,
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSettings {
+    name: String,
+    bank: String,
     account_number: Option<String>,
+    archived: bool,
+}
+
+#[tauri::command]
+pub fn update_account(
+    id: String,
+    settings: AccountSettings,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let connection = state
+    let mut connection = state
         .database
         .lock()
         .map_err(|_| "La base de données est indisponible.".to_string())?;
-    update_account_number_in_db(&connection, &id, account_number.as_deref())
+    update_account_in_db(&mut connection, &id, &settings)
 }
 
-fn update_account_number_in_db(
-    connection: &Connection,
+fn update_account_in_db(
+    db: &mut Connection,
     id: &str,
-    account_number: Option<&str>,
+    settings: &AccountSettings,
 ) -> Result<(), String> {
-    let account_number = normalize_account_number(account_number)?;
-    let changed = connection
-        .execute(
-            "UPDATE accounts SET account_number=?1 WHERE id=?2",
-            params![account_number, id],
-        )
-        .map_err(database_error)?;
-    if changed == 0 {
-        return Err("Compte introuvable.".into());
+    let name = settings.name.trim();
+    let bank = settings.bank.trim();
+    let account_number = settings.account_number.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    if name.is_empty() {
+        return Err("Saisissez un nom de compte.".into());
     }
-    Ok(())
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(database_error)?;
+    let (old_name, old_bank, old_number): (String, String, Option<String>) = tx.query_row(
+        "SELECT name,bank,account_number FROM accounts WHERE id=?1",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).optional().map_err(database_error)?.ok_or("Compte introuvable.")?;
+    crate::text_limits::validate_name_length(name, name == old_name)?;
+    crate::text_limits::validate_name_length(bank, bank == old_bank)?;
+    if let Some(number) = account_number {
+        crate::text_limits::validate_name_length(number, Some(number) == old_number.as_deref())?;
+    }
+    tx.execute(
+        "UPDATE accounts SET name=?1, bank=?2, account_number=?3 WHERE id=?4",
+        params![name, bank, account_number, id],
+    ).map_err(database_error)?;
+    if settings.archived {
+        tx.execute("INSERT OR IGNORE INTO archived_accounts (account_id) VALUES (?1)", [id])
+            .map_err(database_error)?;
+    } else {
+        tx.execute("DELETE FROM archived_accounts WHERE account_id=?1", [id]).map_err(database_error)?;
+    }
+    tx.commit().map_err(database_error)
 }

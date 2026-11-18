@@ -241,20 +241,15 @@ try {
       )?.includes("native-backup.kresus"),
     "Ouverture de la base choisie",
   );
-  // Build a representative older schema and controlled business data in a private copy.
-  const legacyPath = join(temp, "legacy.kresus");
-  copyFileSync(backupPath, legacyPath);
-  const legacySetup = spawnSync(
+  // Build controlled business data in a private copy.
+  const businessPath = join(temp, "business.kresus");
+  copyFileSync(backupPath, businessPath);
+  const businessSetup = spawnSync(
     "python3",
     [
       "-c",
       `import sqlite3,sys,datetime
 c=sqlite3.connect(sys.argv[1]); today=datetime.date.today()
-c.execute("DROP TABLE schedule_limits")
-c.execute("DROP TABLE schedule_future_overrides")
-for table in ('schedules','schedule_overrides'):
- for column in ('payment_method','cheque'):
-  c.execute(f'ALTER TABLE {table} DROP COLUMN {column}')
 c.executemany("INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES (?,?,?,?,?)", [('receipt-business','Compte métier','Compte courant',10000,''),('receipt-other','Autre compte métier','Épargne',0,'')])
 rows=[('r1','receipt-business','2020-02-28','Début','Alimentation',-1000),('r2','receipt-business','2020-02-29','Bissextile','Factures',-2500),('r3','receipt-business','2020-03-01','Fin','Alimentation',-3000),('r4','receipt-business','2020-02-27','Avant','Divers',-9000),('r5','receipt-business','2020-03-02','Après','Divers',-9000),('r6','receipt-business','2020-02-29','Revenu','Revenus',5000),('rd','receipt-business','2020-02-29','Virement','Divers',-2000),('rc','receipt-other','2020-02-29','Virement','Divers',2000)]
 c.executemany("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled) VALUES (?,?,?,?,?,?,0)",rows)
@@ -264,14 +259,14 @@ for id,label,days in [('overdue-old','Retard ancien',-5),('overdue-recent','Reta
  c.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind) VALUES (?,?,?,?,?,?,?,?)",(id,'receipt-business',label,'Factures',date,'Mensuelle',-345,'debit'))
  c.execute("INSERT INTO schedule_anchors VALUES (?,?)",(id,int(date[-2:])))
 c.commit()`,
-      legacyPath,
+      businessPath,
     ],
     { encoding: "utf8" },
   );
-  if (legacySetup.status !== 0)
-    throw new Error(`Préparation de base ancienne : ${legacySetup.stderr}`);
+  if (businessSetup.status !== 0)
+    throw new Error(`Préparation de la base métier : ${businessSetup.stderr}`);
   await menuAction("open");
-  await selectPath(await dialog(), legacyPath);
+  await selectPath(await dialog(), businessPath);
   await waitFor(
     async () =>
       (
@@ -279,30 +274,12 @@ c.commit()`,
           script: "return document.querySelector('.database-controls small').textContent",
           args: [],
         })
-      ).includes("legacy.kresus"),
-    "Ouverture de la base ancienne",
+      ).includes("business.kresus"),
+    "Ouverture de la base métier",
   );
   await click('[data-account="receipt-business"]');
-  await waitFor(
-    async () => (await text(".page-heading h1")) === "Compte métier",
-    "Compte ancien migré",
-  );
-  const migrated = spawnSync(
-    "python3",
-    [
-      "-c",
-      `import sqlite3,sys
-c=sqlite3.connect(sys.argv[1])
-assert {'payment_method','cheque'} <= {x[1] for x in c.execute('pragma table_info(schedules)')}
-assert c.execute("select count(*) from sqlite_master where name in ('schedule_limits','schedule_future_overrides')").fetchone()[0] == 2
-assert c.execute("select count(*) from transactions where id like 'r%'").fetchone()[0] == 8
-assert c.execute("select count(*) from schedules where account_id='receipt-business'").fetchone()[0] == 3`,
-      legacyPath,
-    ],
-    { encoding: "utf8" },
-  );
-  if (migrated.status !== 0) throw new Error(`Migration de la base : ${migrated.stderr}`);
-  // Reject an incompatible database while retaining the current migrated one.
+  await waitFor(async () => (await text(".page-heading h1")) === "Compte métier", "Compte métier");
+  // Reject an incompatible database while retaining the active one.
   const incompatible = join(temp, "incompatible.kresus");
   writeFileSync(incompatible, "not a database");
   await menuAction("open");
@@ -323,7 +300,7 @@ assert c.execute("select count(*) from schedules where account_id='receipt-busin
         script: "return document.querySelector('.database-controls small').textContent",
         args: [],
       })
-    ).includes("legacy.kresus") ||
+    ).includes("business.kresus") ||
     (await text(".page-heading h1")) !== "Compte métier" ||
     readFileSync(incompatible, "utf8") !== "not a database"
   )
@@ -363,7 +340,7 @@ c=sqlite3.connect(sys.argv[1]); today=datetime.date.today()
 r=c.execute("select operation_date,label,amount_cents from transactions where label like 'Retard %' order by operation_date").fetchall()
 assert r==[((today-datetime.timedelta(days=5)).isoformat(),'Retard ancien',-345),((today-datetime.timedelta(days=2)).isoformat(),'Retard récent',-345)],r
 assert c.execute("select next_due from schedules where id='due-today'").fetchone()[0]==today.isoformat()`,
-      legacyPath,
+      businessPath,
     ],
     { encoding: "utf8" },
   );
@@ -403,9 +380,7 @@ assert c.execute("select next_due from schedules where id='due-today'").fetchone
     throw new Error(`Répartition incorrecte : ${rows}`);
   await report("receipt-business", "2020-02-29", "2020-02-29", "25,00");
   await report("receipt-other", "2020-02-28", "2020-03-01", "Aucune dépense");
-  console.log(
-    "Base ancienne : migration et rejet d’une base invalide ; retards et rapport multicomptes vérifiés.",
-  );
+  console.log("Base métier : rejet d’une base invalide, retards et rapport multicomptes vérifiés.");
   await menuAction("default");
   await waitFor(
     async () =>

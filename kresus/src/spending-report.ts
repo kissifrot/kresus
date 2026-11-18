@@ -106,7 +106,7 @@ export function renderSpendingReport(period: Period = currentMonth(), entries?: 
       if (!form.isConnected) return;
       setSelectedAccount(account);
       await refreshTransactions();
-      renderSpendingReport({ start, end }, entries);
+      if (form.isConnected) renderSpendingReport({ start, end }, entries);
     } catch (reason) {
       error.textContent = `Impossible de charger les opérations : ${String(reason)}`;
       button.disabled = false;

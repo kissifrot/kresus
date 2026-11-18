@@ -1,4 +1,30 @@
 use super::*;
+use crate::test_support::record_next_schedule;
+
+#[test]
+fn stale_record_request_cannot_consume_the_following_occurrence() {
+    let mut db = database();
+    save_schedule_in_db(&mut db, schedule("2027-01-31", "Mensuelle"), None).unwrap();
+    save_schedule_in_db(
+        &mut db,
+        schedule("2027-02-28", "Mensuelle"),
+        Some("occurrence"),
+    )
+    .unwrap();
+    let dates = ("2027-01-31", "2027-02-28");
+    record_schedule_in_db(&mut db, "test-schedule", dates, "first").unwrap();
+    assert_eq!(next_date(&db), "2027-02-28");
+    assert!(record_schedule_in_db(&mut db, "test-schedule", dates, "second").is_err());
+    assert_eq!(next_date(&db), "2027-02-28");
+    assert!(
+        !db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM transactions WHERE id='second')",
+            [],
+            |row| row.get::<_, bool>(0)
+        )
+        .unwrap()
+    );
+}
 use crate::database::initialize_database;
 use crate::test_support::{database, initialize_test_accounts, temporary_database_path};
 
@@ -63,10 +89,10 @@ fn one_time_schedule_records_one_operation_and_is_removed() {
     let mut db = database();
     let item = schedule("2026-12-28", "Une seule fois");
     save_schedule_in_db(&mut db, item, None).unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "one-time-entry").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "one-time-entry").unwrap();
     let result: (i64, i64) = db.query_row("SELECT (SELECT count(*) FROM schedules WHERE id='test-schedule'), (SELECT amount_cents FROM transactions WHERE id='one-time-entry')", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
     assert_eq!(result, (0, -4275));
-    assert!(record_schedule_in_db(&mut db, "test-schedule", "duplicate").is_err());
+    assert!(record_next_schedule(&mut db, "test-schedule", "duplicate").is_err());
 }
 
 #[test]
@@ -83,7 +109,7 @@ fn estimated_series_is_saved_and_kept_after_recording() {
             .unwrap()
             .estimated
     );
-    record_schedule_in_db(&mut db, "test-schedule", "estimated-entry").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "estimated-entry").unwrap();
     assert!(
         list_schedules_in_db(&db)
             .unwrap()
@@ -164,7 +190,7 @@ fn recorded_recurrences_match_shared_calendar_cases() {
                 index + 1
             );
             let operation_id = format!("shared-{index}");
-            record_schedule_in_db(&mut db, "test-schedule", &operation_id).unwrap();
+            record_next_schedule(&mut db, "test-schedule", &operation_id).unwrap();
             let recorded: String = db
                 .query_row(
                     "SELECT operation_date FROM transactions WHERE id=?1",
@@ -201,7 +227,7 @@ fn deleting_series_removes_overrides_but_keeps_recorded_transfers_after_reopenin
         let mut db = Connection::open(&path.0).unwrap();
         initialize_test_accounts(&db);
         save_schedule_in_db(&mut db, recurring_transfer(), None).unwrap();
-        record_schedule_in_db(&mut db, "test-schedule", "already-recorded").unwrap();
+        record_next_schedule(&mut db, "test-schedule", "already-recorded").unwrap();
         save_schedule_in_db(&mut db, recurring_transfer(), Some("occurrence")).unwrap();
         delete_schedule_in_db(&db, "test-schedule").unwrap();
         assert!(delete_schedule_in_db(&db, "test-schedule").is_err());
@@ -261,7 +287,7 @@ fn recurring_transfer_records_linked_operations_and_advances_on_leap_year() {
         loaded.series.unwrap().destination_account_id.as_deref(),
         Some("sylvie")
     );
-    record_schedule_in_db(&mut db, "test-schedule", "recurring-transfer").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "recurring-transfer").unwrap();
     let amounts: (i64, i64) = db.query_row("SELECT (SELECT amount_cents FROM transactions WHERE id='recurring-transfer-debit'), (SELECT amount_cents FROM transactions WHERE id='recurring-transfer-credit')", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
     assert_eq!(amounts, (-4275, 4275));
     let accounts: (String, String) = db.query_row("SELECT d.account_id,c.account_id FROM transfers t JOIN transactions d ON d.id=t.debit_id JOIN transactions c ON c.id=t.credit_id WHERE t.id='recurring-transfer'", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
@@ -294,8 +320,8 @@ fn one_time_transfer_override_and_series_following_it_are_independent() {
         loaded.series.unwrap().destination_account_id.as_deref(),
         Some("sylvie")
     );
-    record_schedule_in_db(&mut db, "test-schedule", "first-transfer").unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "second-transfer").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "first-transfer").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "second-transfer").unwrap();
     let first: (String, i64) = db
         .query_row(
             "SELECT account_id,amount_cents FROM transactions WHERE id='first-transfer-credit'",
@@ -332,8 +358,8 @@ fn replacing_an_occurrence_type_does_not_change_the_series_type() {
         .unwrap();
     assert_eq!(loaded.kind, "debit");
     assert_eq!(loaded.series.unwrap().kind, "transfer");
-    record_schedule_in_db(&mut db, "test-schedule", "regular").unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "next-transfer").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "regular").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "next-transfer").unwrap();
     let count: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM transfers WHERE id IN ('regular','next-transfer')",
@@ -355,7 +381,7 @@ fn failed_recurring_transfer_rolls_back_both_movements_and_due_date() {
     assert!(save_schedule_in_db(&mut db, missing, None).is_err());
     save_schedule_in_db(&mut db, recurring_transfer(), None).unwrap();
     db.execute_batch("CREATE TRIGGER reject_recurring_credit BEFORE INSERT ON transactions WHEN NEW.id='fail-credit' BEGIN SELECT RAISE(ABORT, 'failure'); END;").unwrap();
-    assert!(record_schedule_in_db(&mut db, "test-schedule", "fail").is_err());
+    assert!(record_next_schedule(&mut db, "test-schedule", "fail").is_err());
     let count: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM transactions WHERE id IN ('fail-debit','fail-credit')",
@@ -380,7 +406,7 @@ fn changing_transfer_series_updates_following_occurrences_and_removes_override()
     updated.frequency = Frequency::Quarterly;
     save_schedule_in_db(&mut db, updated, Some("series")).unwrap();
     for id in ["changed-first", "changed-second"] {
-        record_schedule_in_db(&mut db, "test-schedule", id).unwrap();
+        record_next_schedule(&mut db, "test-schedule", id).unwrap();
     }
     let total: i64 = db.query_row("SELECT SUM(amount_cents) FROM transactions WHERE id IN ('changed-first-credit','changed-second-credit') AND account_id='livret-michel'", [], |r| r.get(0)).unwrap();
     assert_eq!(total, 15000);
@@ -392,7 +418,7 @@ fn failed_due_date_advance_rolls_back_link_and_both_transfer_sides() {
     let mut db = database();
     save_schedule_in_db(&mut db, recurring_transfer(), None).unwrap();
     db.execute_batch("CREATE TRIGGER fail_transfer_advance BEFORE UPDATE ON schedules BEGIN SELECT RAISE(ABORT, 'failure'); END;").unwrap();
-    assert!(record_schedule_in_db(&mut db, "test-schedule", "rollback").is_err());
+    assert!(record_next_schedule(&mut db, "test-schedule", "rollback").is_err());
     let count: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM transactions WHERE id IN ('rollback-debit','rollback-credit')",
@@ -421,7 +447,7 @@ fn annual_leap_day_returns_after_non_leap_years() {
         ("c", "2027-02-28"),
         ("d", "2028-02-29"),
     ] {
-        record_schedule_in_db(&mut db, "test-schedule", id).unwrap();
+        record_next_schedule(&mut db, "test-schedule", id).unwrap();
         assert_eq!(next_date(&db), expected);
     }
 }
@@ -435,13 +461,13 @@ fn monthly_end_of_month_preserves_day_and_crosses_year() {
         ("b", "2027-03-31"),
         ("c", "2027-04-30"),
     ] {
-        record_schedule_in_db(&mut db, "test-schedule", id).unwrap();
+        record_next_schedule(&mut db, "test-schedule", id).unwrap();
         assert_eq!(next_date(&db), expected);
     }
     let mut year_end = schedule("2027-12-31", "Mensuelle");
     year_end.id = "year-end".into();
     save_schedule_in_db(&mut db, year_end, None).unwrap();
-    record_schedule_in_db(&mut db, "year-end", "year-op").unwrap();
+    record_next_schedule(&mut db, "year-end", "year-op").unwrap();
     let next: String = db
         .query_row(
             "SELECT next_due FROM schedules WHERE id = 'year-end'",
@@ -463,7 +489,7 @@ fn schedules_advance_by_their_period() {
     ] {
         let mut db = database();
         save_schedule_in_db(&mut db, schedule("2027-01-31", frequency), None).unwrap();
-        record_schedule_in_db(&mut db, "test-schedule", "operation").unwrap();
+        record_next_schedule(&mut db, "test-schedule", "operation").unwrap();
         assert_eq!(next_date(&db), expected, "frequency: {frequency}");
     }
 }
@@ -476,14 +502,14 @@ fn occurrence_override_is_recorded_once_and_series_is_preserved() {
     override_schedule.amount = -1005;
     override_schedule.label = "Exceptional".into();
     save_schedule_in_db(&mut db, override_schedule, Some("occurrence")).unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "first").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "first").unwrap();
     let recorded: (String, String, i64, i64) = db.query_row("SELECT operation_date, label, amount_cents, reconciled FROM transactions WHERE id = 'first'", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).unwrap();
     assert_eq!(
         recorded,
         ("2027-02-02".into(), "Exceptional".into(), -1005, 0)
     );
     assert_eq!(next_date(&db), "2027-02-28");
-    record_schedule_in_db(&mut db, "test-schedule", "second").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "second").unwrap();
     let original: (String, i64) = db
         .query_row(
             "SELECT label, amount_cents FROM transactions WHERE id = 'second'",
@@ -509,7 +535,7 @@ fn series_update_replaces_override_and_changes_following_occurrences() {
     updated.amount = 12345;
     updated.kind = "credit".into();
     save_schedule_in_db(&mut db, updated, Some("series")).unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "updated").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "updated").unwrap();
     let amount: i64 = db
         .query_row(
             "SELECT amount_cents FROM transactions WHERE id = 'updated'",
@@ -536,7 +562,7 @@ fn series_changes_persist_after_reopening_and_apply_to_later_operations() {
         let mut db = Connection::open(&path.0).unwrap();
         initialize_test_accounts(&db);
         save_schedule_in_db(&mut db, schedule("2027-01-15", "Mensuelle"), None).unwrap();
-        record_schedule_in_db(&mut db, "test-schedule", "before-edit").unwrap();
+        record_next_schedule(&mut db, "test-schedule", "before-edit").unwrap();
         let mut edited = schedule("2027-02-28", "Trimestrielle");
         edited.account_id = "sylvie".into();
         edited.label = "Updated".into();
@@ -569,7 +595,7 @@ fn series_changes_persist_after_reopening_and_apply_to_later_operations() {
         ("after-two", "2027-05-28", "2027-08-28"),
         ("after-three", "2027-08-28", "2027-11-28"),
     ] {
-        record_schedule_in_db(&mut db, "test-schedule", id).unwrap();
+        record_next_schedule(&mut db, "test-schedule", id).unwrap();
         let operation: (String, String, String, String, i64, i64) = db.query_row(
             "SELECT account_id, operation_date, label, category, amount_cents, reconciled FROM transactions WHERE id = ?1", [id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
@@ -619,7 +645,7 @@ fn invalid_series_update_preserves_existing_series_and_override() {
         )
         .unwrap();
     assert_eq!(due, "2027-02-02");
-    record_schedule_in_db(&mut db, "test-schedule", "after-failure").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "after-failure").unwrap();
     assert_eq!(next_date(&db), "2027-02-28");
 }
 
@@ -634,7 +660,7 @@ fn failed_recording_keeps_schedule_and_override_unchanged() {
     )
     .unwrap();
     db.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents) VALUES ('occupied','ccp','2027-01-01','Existing operation','Divers',100)", []).unwrap();
-    assert!(record_schedule_in_db(&mut db, "test-schedule", "occupied").is_err());
+    assert!(record_next_schedule(&mut db, "test-schedule", "occupied").is_err());
     assert_eq!(next_date(&db), "2027-01-31");
     let due: String = db
         .query_row(
@@ -651,7 +677,7 @@ fn failure_advancing_schedule_rolls_back_inserted_operation() {
     let mut db = database();
     save_schedule_in_db(&mut db, schedule("2027-01-31", "Mensuelle"), None).unwrap();
     db.execute_batch("CREATE TRIGGER fail_advance BEFORE UPDATE ON schedules BEGIN SELECT RAISE(ABORT, 'simulated failure'); END;").unwrap();
-    assert!(record_schedule_in_db(&mut db, "test-schedule", "rolled-back").is_err());
+    assert!(record_next_schedule(&mut db, "test-schedule", "rolled-back").is_err());
     let count: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM transactions WHERE id = 'rolled-back'",
@@ -692,7 +718,7 @@ fn counted_series_consumes_overrides_and_keeps_recorded_operations() {
         Some("occurrence"),
     )
     .unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "limited-1").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "limited-1").unwrap();
     let loaded = list_schedules_in_db(&db)
         .unwrap()
         .into_iter()
@@ -702,7 +728,7 @@ fn counted_series_consumes_overrides_and_keeps_recorded_operations() {
         (loaded.next_due.as_str(), loaded.remaining_count),
         ("2028-02-29", Some(1))
     );
-    record_schedule_in_db(&mut db, "test-schedule", "limited-2").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "limited-2").unwrap();
     assert!(
         list_schedules_in_db(&db)
             .unwrap()
@@ -726,12 +752,12 @@ fn end_date_is_inclusive_and_invalid_update_is_rejected() {
     let mut item = schedule("2028-01-31", "Mensuelle");
     item.end_date = Some("2028-02-29".into());
     save_schedule_in_db(&mut db, item, None).unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "date-1").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "date-1").unwrap();
     assert_eq!(next_date(&db), "2028-02-29");
     let mut invalid = schedule("2028-02-29", "Mensuelle");
     invalid.end_date = Some("2028-02-28".into());
     assert!(save_schedule_in_db(&mut db, invalid, Some("series")).is_err());
-    record_schedule_in_db(&mut db, "test-schedule", "date-2").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "date-2").unwrap();
     assert!(
         list_schedules_in_db(&db)
             .unwrap()
@@ -757,7 +783,7 @@ fn future_exception_survives_until_recorded_and_preserves_series() {
         .find(|s| s.id == "test-schedule")
         .unwrap();
     assert_eq!(item.future_overrides[0].original_due, "2028-02-29");
-    record_schedule_in_db(&mut db, "test-schedule", "january").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "january").unwrap();
     let item = list_schedules_in_db(&db)
         .unwrap()
         .into_iter()
@@ -768,7 +794,7 @@ fn future_exception_survives_until_recorded_and_preserves_series() {
         ("2028-03-02", "Exception")
     );
     assert!(item.future_overrides.is_empty());
-    record_schedule_in_db(&mut db, "test-schedule", "february").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "february").unwrap();
     let actual: (String, String, i64) = db
         .query_row(
             "SELECT operation_date,label,amount_cents FROM transactions WHERE id='february'",
@@ -791,8 +817,8 @@ fn future_transfer_override_obeys_limits_and_records_both_sides() {
     changed.next_due = "2028-03-01".into();
     assert!(update_future_in_db(&mut db, recurring_transfer(), "2028-03-31").is_err());
     update_future_in_db(&mut db, changed, "2028-02-29").unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "first").unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "second").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "first").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "second").unwrap();
     let credit: (String, String, i64) = db.query_row("SELECT account_id,operation_date,amount_cents FROM transactions WHERE id='second-credit'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
     assert_eq!(credit, ("livret-michel".into(), "2028-03-01".into(), 4275));
     assert!(
@@ -810,7 +836,7 @@ fn cheque_number_is_recorded_once_while_the_payment_method_stays_on_the_series()
     item.payment_method = Some("cheque".into());
     item.cheque = Some(" 0012345 ".into());
     save_schedule_in_db(&mut db, item, None).unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "one").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "one").unwrap();
     let item = list_schedules_in_db(&db)
         .unwrap()
         .into_iter()
@@ -818,7 +844,7 @@ fn cheque_number_is_recorded_once_while_the_payment_method_stays_on_the_series()
         .unwrap();
     assert_eq!(item.payment_method.as_deref(), Some("cheque"));
     assert_eq!(item.cheque, None);
-    record_schedule_in_db(&mut db, "test-schedule", "two").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "two").unwrap();
     let first: Option<String> = db
         .query_row(
             "SELECT reference FROM transactions WHERE id='one'",
@@ -847,7 +873,7 @@ fn future_cheque_override_is_promoted_without_changing_series_payment() {
     future.payment_method = Some("cheque".into());
     future.cheque = Some("0000042".into());
     update_future_in_db(&mut db, future, "2028-02-29").unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "first").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "first").unwrap();
     let item = list_schedules_in_db(&db)
         .unwrap()
         .into_iter()
@@ -861,7 +887,7 @@ fn future_cheque_override_is_promoted_without_changing_series_payment() {
         item.series.unwrap().payment_method.as_deref(),
         Some("direct_debit")
     );
-    record_schedule_in_db(&mut db, "test-schedule", "second").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "second").unwrap();
     let cheque: Option<String> = db
         .query_row(
             "SELECT reference FROM transactions WHERE id='second'",
@@ -910,8 +936,8 @@ fn occurrence_reference_accepts_text_and_is_recorded_once() {
     let mut future = schedule("2028-02-29", "Mensuelle");
     future.cheque = Some("x".repeat(51));
     assert!(update_future_in_db(&mut db, future, "2028-02-29").is_err());
-    record_schedule_in_db(&mut db, "test-schedule", "reference-first").unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "reference-next").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "reference-first").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "reference-next").unwrap();
     let reference: Option<String> = db
         .query_row(
             "SELECT reference FROM transactions WHERE id='reference-first'",
@@ -941,10 +967,10 @@ fn twice_monthly_advances_through_leap_february_and_limits() {
             .iter()
             .enumerate()
         {
-            record_schedule_in_db(&mut db, "test-schedule", &format!("semi-{i}")).unwrap();
+            record_next_schedule(&mut db, "test-schedule", &format!("semi-{i}")).unwrap();
             assert_eq!(&next_date(&db), expected);
         }
-        record_schedule_in_db(&mut db, "test-schedule", "semi-last").unwrap();
+        record_next_schedule(&mut db, "test-schedule", "semi-last").unwrap();
         assert_eq!(
             db.query_row(
                 "SELECT count(*) FROM schedules WHERE id='test-schedule'",
@@ -970,7 +996,7 @@ fn twice_monthly_validates_dates_and_future_overrides_with_limits() {
     assert!(
         update_future_in_db(&mut db, schedule("2028-03-15", "Bimensuelle"), "2028-03-15").is_err()
     );
-    record_schedule_in_db(&mut db, "test-schedule", "first-half").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "first-half").unwrap();
     let due: String = db
         .query_row(
             "SELECT due_date FROM schedule_overrides WHERE schedule_id='test-schedule'",
@@ -1000,7 +1026,7 @@ fn schedule_comments_follow_overrides_and_recorded_operations() {
         loaded.future_overrides[0].note.as_deref(),
         Some("Note ponctuelle")
     );
-    record_schedule_in_db(&mut db, "test-schedule", "comment-first").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "comment-first").unwrap();
     let loaded = list_schedules_in_db(&db)
         .unwrap()
         .into_iter()
@@ -1011,7 +1037,7 @@ fn schedule_comments_follow_overrides_and_recorded_operations() {
         loaded.series.unwrap().note.as_deref(),
         Some("Note de série  \n suite")
     );
-    record_schedule_in_db(&mut db, "test-schedule", "comment-second").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "comment-second").unwrap();
     let notes: Vec<String> = db
         .prepare("SELECT note FROM transactions WHERE id LIKE 'comment-%' ORDER BY operation_date")
         .unwrap()
@@ -1034,7 +1060,7 @@ fn recurring_transfer_comment_is_preserved_on_both_entries() {
     let mut item = recurring_transfer();
     item.note = Some("  Virement familial  ".into());
     save_schedule_in_db(&mut db, item, None).unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "transfer-note").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "transfer-note").unwrap();
     let notes: Vec<String> = db
         .prepare("SELECT note FROM transactions WHERE id LIKE 'transfer-note-%' ORDER BY id")
         .unwrap()
@@ -1064,8 +1090,8 @@ fn clearing_one_occurrence_comment_keeps_the_series_comment() {
         loaded.series.unwrap().note.as_deref(),
         Some("Commentaire récurrent")
     );
-    record_schedule_in_db(&mut db, "test-schedule", "cleared-note").unwrap();
-    record_schedule_in_db(&mut db, "test-schedule", "series-note").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "cleared-note").unwrap();
+    record_next_schedule(&mut db, "test-schedule", "series-note").unwrap();
     let second: String = db
         .query_row(
             "SELECT note FROM transactions WHERE id='series-note'",

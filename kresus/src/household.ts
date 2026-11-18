@@ -60,7 +60,7 @@ export function renderHousehold() {
       const account = accounts.find((item) => item.id === button.dataset.householdAccount);
       if (!account) return;
       setSelectedAccount(account);
-      await refreshTransactions();
+      await refreshTransactions({ showRegister: true });
     }),
   );
 }

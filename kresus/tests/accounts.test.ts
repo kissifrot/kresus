@@ -19,6 +19,37 @@ describe("accounts", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("keeps the household view when a pending register request finishes", async () => {
+    const invoke = await openRegister();
+    const original = invoke.getMockImplementation()!;
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "list_register") await pending;
+      return original(command, args);
+    });
+    click("#filter-unreconciled");
+    click("#household-nav");
+    finish();
+    await vi.waitFor(async () => {
+      await Promise.all(invoke.mock.results.map((result) => result.value));
+      expect(document.querySelector(".page-heading h1")?.textContent).toBe("Vue d’ensemble");
+    });
+  });
+
+  it("shows the current balance and a separate amount for future transactions", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 0, 1, 12));
+    await openRegister();
+    expect(document.querySelector(".balance-card > strong")?.textContent).toContain("80,00");
+    expect(document.querySelector(".balance-card")?.textContent).toMatch(
+      /Avec opérations futures · 130,00/,
+    );
+    expect(document.querySelector(".account-balance")?.textContent).toContain("80,00");
+  });
+
   it("starts with no accounts and opens the register after creating the first account", async () => {
     const invoke = await openRegister({ accounts: [], transactions: [] });
     expect(document.querySelector(".page-heading h1")?.textContent).toBe("Mes comptes");
@@ -205,11 +236,19 @@ describe("accounts", () => {
     expect(document.querySelectorAll(".schedule-row")).toHaveLength(6);
     expect(document.querySelector('[data-edit-schedule="0"]')).not.toBeNull();
     click('[data-record-schedule="0"]');
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("record_schedule", { id: "0" }));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("record_schedule", {
+        id: "0",
+        originalDue: "2027-01-01",
+        expectedDue: "2027-01-01",
+      }),
+    );
     await vi.waitFor(() => expect(document.querySelectorAll(".schedule-row")).toHaveLength(5));
   });
 
   it("opens the account list from the breadcrumb and navigates to a selected account", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 2, 1, 12));
     await openRegister({
       accounts: [
         {
@@ -251,6 +290,8 @@ describe("accounts", () => {
   });
 
   it("opens the household overview with per-type totals and links to accounts", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 2, 1, 12));
     await openRegister({
       accounts: [
         {

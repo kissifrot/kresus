@@ -26,30 +26,6 @@ fn new_database_starts_empty_and_an_empty_backup_can_be_opened() {
 }
 
 #[test]
-fn existing_database_without_demo_data_is_not_seeded() {
-    let db = Connection::open_in_memory().unwrap();
-    // Model a legacy installation, including a user account with no demo IDs.
-    db.execute_batch("CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, opening_balance_cents INTEGER NOT NULL, bank TEXT NOT NULL); INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES ('custom', 'Personnel', 'Compte courant', 100, '');").unwrap();
-    initialize_database(&db).unwrap();
-    let accounts: Vec<String> = db
-        .prepare("SELECT id FROM accounts")
-        .unwrap()
-        .query_map([], |row| row.get(0))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(accounts, vec!["custom"]);
-    let count: i64 = db
-        .query_row(
-            "SELECT (SELECT COUNT(*) FROM transactions) + (SELECT COUNT(*) FROM schedules)",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 0);
-}
-
-#[test]
 #[ignore = "manual performance reference; run with --ignored --nocapture"]
 fn performance_reference_10000_operations() {
     performance_reference(10_000, 3652);
@@ -99,7 +75,7 @@ fn performance_reference(count: usize, days: usize) {
         start.elapsed().as_secs_f64() * 1000.0
     );
     let start = Instant::now();
-    let accounts = list_accounts_in_db(&db).unwrap();
+    let accounts = list_accounts_in_db(&db, "2026-12-31").unwrap();
     println!(
         "Soldes des comptes : {:.1} ms",
         start.elapsed().as_secs_f64() * 1000.0
@@ -197,6 +173,7 @@ fn switching_databases_preserves_each_file_and_rejects_invalid_candidates() {
         database: Mutex::new(primary),
         default_path: first.0.clone(),
         money_preview: Mutex::new(None),
+        bank_preview: Mutex::new(None),
     };
     switch_database(&state, &second.0).unwrap();
     let name: String = state
@@ -294,41 +271,6 @@ fn restore_rejects_incompatible_database_without_touching_current_data() {
 }
 
 #[test]
-fn legacy_schedules_are_migrated_without_losing_data() {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("schema.sql")).unwrap();
-    db.execute_batch(include_str!("schedule_future_schema.sql"))
-        .unwrap();
-    db.execute("INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES ('old','Ancien','Compte courant',0,'')", []).unwrap();
-    db.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind) VALUES ('old-schedule','old','Loyer','Logement','2028-01-01','Mensuelle',-100,'debit')", []).unwrap();
-    initialize_database(&db).unwrap();
-    initialize_database(&db).unwrap();
-    let (label, method, cheque): (String, Option<String>, Option<String>) = db
-        .query_row(
-            "SELECT label,payment_method,cheque FROM schedules WHERE id='old-schedule'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(label, "Loyer");
-    assert_eq!((method, cheque), (None, None));
-    for table in [
-        "schedules",
-        "schedule_overrides",
-        "schedule_future_overrides",
-    ] {
-        let count: i64 = db
-            .query_row(
-                "SELECT count(*) FROM pragma_table_info(?1) WHERE name='note'",
-                [table],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count, 1, "{table}");
-    }
-}
-
-#[test]
 fn file_extension_rejects_other_sqlite_documents() {
     use super::validate_kresus_extension;
     use std::path::Path;
@@ -339,26 +281,38 @@ fn file_extension_rejects_other_sqlite_documents() {
 }
 
 #[test]
-fn opening_existing_database_adds_optional_columns_without_losing_data() {
+fn text_primary_keys_are_required() {
+    let db = Connection::open_in_memory().unwrap();
+    initialize_database(&db).unwrap();
+    let missing: i64 = db.query_row(
+        "SELECT COUNT(*) FROM sqlite_schema AS schema JOIN pragma_table_info(schema.name) AS field
+         WHERE schema.type='table' AND field.pk>0 AND field.type='TEXT' AND field.\"notnull\"=0",
+        [], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(missing, 0);
+    assert!(db.execute("INSERT INTO accounts(id,name,kind,opening_balance_cents,bank) VALUES (NULL,'Test','Compte courant',0,'')", []).is_err());
+}
+
+#[test]
+fn older_schema_is_rejected_without_changing_either_file() {
     let path = temporary_database_path();
-    let db = Connection::open(&path.0).unwrap();
-    initialize_test_accounts(&db);
-    db.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,note) VALUES ('t1','ccp','2027-01-01','Test','Divers',100,'Note conservée')", []).unwrap();
-    db.execute_batch("ALTER TABLE transactions DROP COLUMN reference; ALTER TABLE accounts DROP COLUMN account_number")
+    let old = Connection::open(&path.0).unwrap();
+    initialize_database(&old).unwrap();
+    old.execute_batch("PRAGMA user_version=1").unwrap();
+    let bytes = std::fs::read(&path.0).unwrap();
+    assert!(
+        initialize_database(&old)
+            .unwrap_err()
+            .contains("schéma Kresus incompatible")
+    );
+    drop(old);
+    assert!(super::open_existing_database(&path.0).is_err());
+    let mut current = Connection::open_in_memory().unwrap();
+    initialize_test_accounts(&current);
+    assert!(restore_from_path(&mut current, &path.0).is_err());
+    assert_eq!(std::fs::read(&path.0).unwrap(), bytes);
+    let count: i64 = current
+        .query_row("SELECT count(*) FROM accounts", [], |row| row.get(0))
         .unwrap();
-    drop(db);
-    let opened = super::open_existing_database(&path.0).unwrap();
-    let count: i64 = opened
-        .query_row(
-            "SELECT count(*) FROM transactions WHERE note='Note conservée' AND reference IS NULL",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 1);
-    let accounts = crate::accounts::list_accounts_in_db(&opened).unwrap();
-    let existing = accounts.iter().find(|account| account.id == "ccp").unwrap();
-    assert_eq!(existing.name, "Compte principal");
-    assert_eq!(existing.account_number, None);
-    initialize_database(&opened).unwrap();
+    assert_eq!(count, 3);
 }

@@ -364,6 +364,76 @@ describe("transaction register", () => {
     );
   });
 
+  it("combines filters across accounts and opens the matching row on its register page", async () => {
+    const accounts = [
+      { id: "one", name: "Compte principal", kind: "Compte courant", openingBalance: 0, bank: "" },
+      { id: "two", name: "Compte secondaire", kind: "Épargne", openingBalance: 0, bank: "" },
+    ];
+    const matching = {
+      date: "2027-01-10",
+      label: "Électricité",
+      category: "Divers",
+      reconciled: false,
+    };
+    const invoke = await openRegister({
+      accounts,
+      transactions: [
+        { ...matching, id: "first", accountId: "one", amount: 20 },
+        { ...matching, id: "target", accountId: "two", amount: -20 },
+        { ...matching, id: "outside", accountId: "one", amount: -20, date: "2027-02-01" },
+        { ...matching, id: "different", accountId: "one", amount: -30 },
+        ...Array.from({ length: 100 }, (_, index) => ({
+          ...matching,
+          id: `filler-${index}`,
+          accountId: "two",
+          label: "Autre",
+          amount: -20,
+        })),
+      ],
+    });
+
+    click("#amount-filter");
+    const amountForm = document.querySelector<HTMLFormElement>("#amount-filter-form")!;
+    field(amountForm, "exact").value = "20";
+    submit(amountForm);
+    await vi.waitFor(() =>
+      expect(document.querySelector("#amount-filter-quick-clear")).not.toBeNull(),
+    );
+
+    document.querySelector<HTMLInputElement>("#transaction-search")!.value = "électricité";
+    const scope = document.querySelector<HTMLSelectElement>("#transaction-search-scope")!;
+    scope.value = "all";
+    scope.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-search-result]")).toHaveLength(3),
+    );
+
+    click("#period-filter");
+    const periodForm = document.querySelector<HTMLFormElement>("#period-filter-form")!;
+    field(periodForm, "end").value = "2027-01-10";
+    submit(periodForm);
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-search-result]")).toHaveLength(2),
+    );
+    expect(document.querySelector("tbody")?.textContent).toContain("Compte principal");
+    expect(document.querySelector("tbody")?.textContent).toContain("Compte secondaire");
+    expect(invoke).toHaveBeenCalledWith("search_operations", {
+      page: 1,
+      search: "électricité",
+      amountRange: { min: 2000, max: 2000 },
+      dateRange: { start: null, end: "2027-01-10" },
+    });
+
+    click('[data-search-result="target"]');
+    await vi.waitFor(() =>
+      expect(document.activeElement).toMatchObject({ dataset: { transaction: "target" } }),
+    );
+    expect(document.querySelector<HTMLInputElement>("#page-input")?.value).toBe("2");
+    expect(document.querySelector("h1")?.textContent).toBe("Compte secondaire");
+    expect(document.querySelector("#amount-filter-quick-clear")).toBeNull();
+    expect(document.querySelector("#period-filter-quick-clear")).toBeNull();
+  });
+
   it("displays the active amount and clears it directly from the register", async () => {
     const invoke = await openRegister();
     click("#amount-filter");
@@ -527,6 +597,8 @@ describe("transaction register", () => {
   });
 
   it("distinguishes negative balances from zero and updates after an operation", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 2, 1, 12));
     await openRegister({
       accounts: [
         { id: "one", name: "Principal", kind: "Compte courant", openingBalance: 0, bank: "" },
@@ -650,7 +722,7 @@ describe("transaction register", () => {
       amount: i % 2 ? -0.1 : 0.2,
       reconciled: false,
     }));
-    await openRegister({ transactions: entries.reverse() });
+    await openRegister({ transactions: entries });
     expect(document.querySelectorAll("tr[data-transaction]")).toHaveLength(100);
     expect(document.querySelector("tbody tr")?.getAttribute("data-transaction")).toBe("id-204");
     expect(
@@ -735,6 +807,8 @@ describe("transaction register", () => {
   });
 
   it("creates a debit with a reference and refreshes the account balance", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 2, 1, 12));
     const invoke = await openRegister();
     click("#new-transaction");
     const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
@@ -954,6 +1028,8 @@ describe("transaction register", () => {
   });
 
   it("creates a linked transfer visible in both accounts and deletes both sides", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 2, 1, 12));
     const invoke = await openRegister({
       accounts: [
         { id: "one", name: "Principal", kind: "Compte courant", openingBalance: 100, bank: "" },
@@ -1030,6 +1106,8 @@ describe("transaction register", () => {
   });
 
   it("edits a linked transfer from the credited account and updates both balances", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 2, 1, 12));
     const invoke = await openRegister({
       accounts: [
         { id: "one", name: "Principal", kind: "Compte courant", openingBalance: 100, bank: "" },
@@ -1119,6 +1197,8 @@ describe("transaction register", () => {
   });
 
   it("shows current balances for all accounts and updates them after editing and deleting", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2027, 2, 1, 12));
     await openRegister({
       accounts: [
         { id: "one", name: "Principal", kind: "Compte courant", openingBalance: 100, bank: "" },

@@ -3,7 +3,6 @@ use crate::frequency::Frequency;
 use crate::transactions::{NewTransfer, insert_transfer_in_tx};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
 #[path = "schedules_tests.rs"]
@@ -625,24 +624,35 @@ pub(crate) fn save_schedule_in_db(
 
 #[tauri::command]
 /// Creates an unpointed operation and advances the schedule's next date.
-pub fn record_schedule(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let transaction_id = format!(
-        "schedule-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| "L'horloge système est indisponible.".to_string())?
-            .as_millis()
-    );
+pub fn record_schedule(
+    id: String,
+    original_due: String,
+    expected_due: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
     let mut connection = state
         .database
         .lock()
         .map_err(|_| "La base de données est indisponible.".to_string())?;
-    record_schedule_in_db(&mut connection, &id, &transaction_id)
+    let transaction_id: String = connection
+        .query_row(
+            "SELECT 'schedule-' || lower(hex(randomblob(16)))",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(database_error)?;
+    record_schedule_in_db(
+        &mut connection,
+        &id,
+        (&original_due, &expected_due),
+        &transaction_id,
+    )
 }
 
 pub(crate) fn record_schedule_in_db(
     connection: &mut Connection,
     id: &str,
+    expected: (&str, &str),
     transaction_id: &str,
 ) -> Result<(), String> {
     let tx = connection.transaction().map_err(database_error)?;
@@ -656,11 +666,12 @@ pub(crate) fn record_schedule_in_db(
          LEFT JOIN schedule_overrides o ON o.schedule_id = s.id
          LEFT JOIN schedule_transfers st ON st.schedule_id = s.id
          LEFT JOIN schedule_transfer_overrides ot ON ot.schedule_id = s.id
-         WHERE s.id = ?1",
-        [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+         WHERE s.id = ?1 AND s.next_due = ?2 AND COALESCE(o.due_date, s.next_due) = ?3",
+        params![id, expected.0, expected.1], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
     ).optional().map_err(database_error)?;
-    let (source, destination, date, label, category, cents) =
-        occurrence.ok_or_else(|| "Échéance introuvable.".to_string())?;
+    let (source, destination, date, label, category, cents) = occurrence.ok_or_else(|| {
+        "Cette occurrence a changé ou a déjà été enregistrée. Actualisez l’échéancier.".to_string()
+    })?;
     // An occurrence override can clear the series comment independently.
     let note: Option<String> = tx.query_row("SELECT CASE WHEN o.schedule_id IS NOT NULL THEN o.note ELSE s.note END FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id WHERE s.id=?1", [id], |row| row.get(0)).map_err(database_error)?;
     if let Some(destination) = destination {

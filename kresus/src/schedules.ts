@@ -37,7 +37,7 @@ export function renderOverdueSchedules() {
 // Both calendar views open the same occurrence editor.
 function occurrenceEditAttributes(item: CalendarOccurrence): string {
   return item.projected
-    ? `data-edit-future="${escapeHtml(item.id)}" data-original-due="${escapeHtml(item.originalDue!)}"`
+    ? `data-edit-future="${escapeHtml(item.id)}" data-original-due="${escapeHtml(item.originalDue)}"`
     : `data-edit-schedule="${escapeHtml(item.id)}"`;
 }
 
@@ -119,7 +119,7 @@ function renderScheduleRow(schedule: CalendarOccurrence, showOverdue: boolean): 
   const sign = schedule.kind === "credit" ? "+ " : schedule.kind === "transfer" ? "↔ " : "− ";
   const actions = schedule.projected
     ? `<span class="schedule-projected">Prévision</span><button class="schedule-record" ${occurrenceEditAttributes(schedule)}>Modifier</button>`
-    : `<button class="schedule-record" ${occurrenceEditAttributes(schedule)}>Modifier</button><button class="schedule-record" data-record-schedule="${escapeHtml(schedule.id)}">Enregistrer</button>`;
+    : `<button class="schedule-record" ${occurrenceEditAttributes(schedule)}>Modifier</button><button class="schedule-record" data-record-schedule="${escapeHtml(schedule.id)}" data-original-due="${escapeHtml(schedule.originalDue)}" data-expected-due="${escapeHtml(schedule.nextDue)}">Enregistrer</button>`;
   return `<div class="schedule-row">
     <time><strong>${date.getDate()}</strong><small>${month}</small></time>
     <span class="schedule-row-copy"><strong>${escapeHtml(schedule.label)}</strong><small>${escapeHtml(schedule.category)} · ${escapeHtml(account?.name ?? "Compte")}${destinationLabel}${paymentLabel}${referenceLabel}</small>${schedule.note ? `<small>${escapeHtml(schedule.note)}</small>` : ""}</span>
@@ -208,7 +208,7 @@ function renderScheduleView(showOverdue: boolean) {
   // Only pending occurrences can be recorded; projected dates are excluded.
   const overdueSchedules: CalendarOccurrence[] = schedules
     .filter((schedule) => schedule.nextDue < today)
-    .map((schedule) => ({ ...schedule, projected: false }))
+    .map((schedule) => ({ ...schedule, projected: false, originalDue: schedule.series.nextDue }))
     .sort((a, b) => a.nextDue.localeCompare(b.nextDue));
   const overdueCount = overdueSchedules.length;
   const displayedSchedules = showOverdue ? overdueSchedules : monthSchedules;
@@ -545,9 +545,13 @@ function renderScheduleView(showOverdue: boolean) {
       (button as HTMLButtonElement).disabled = true;
       let recorded = false;
       try {
-        await invoke("record_schedule", { id: button.dataset.recordSchedule });
+        await invoke("record_schedule", {
+          id: button.dataset.recordSchedule,
+          originalDue: button.dataset.originalDue,
+          expectedDue: button.dataset.expectedDue,
+        });
         recorded = true;
-        setAccounts(await invoke<Account[]>("list_accounts"));
+        setAccounts(await invoke<Account[]>("list_accounts", { today: localDate(new Date()) }));
         setSchedules(await invoke<Schedule[]>("list_schedules"));
         renderScheduleView(showOverdue);
       } catch (error) {

@@ -73,25 +73,27 @@ pub(crate) fn list_transactions_in_db(
     connection: &Connection,
     account_id: &str,
 ) -> Result<Vec<Transaction>, String> {
-    let mut statement = connection.prepare("SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque, t.amount_cents, t.reconciled, t.note, x.id, t.reference FROM transactions t LEFT JOIN transfers x ON x.debit_id=t.id OR x.credit_id=t.id WHERE t.account_id = ?1 ORDER BY t.operation_date, t.id").map_err(database_error)?;
+    let mut statement = connection.prepare("SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque, t.amount_cents, t.reconciled, t.note, x.id, t.reference FROM transactions t LEFT JOIN transfers x ON x.debit_id=t.id OR x.credit_id=t.id WHERE t.account_id = ?1 ORDER BY t.operation_date, t.entry_order").map_err(database_error)?;
     let rows = statement
-        .query_map([account_id], |row| {
-            Ok(Transaction {
-                id: row.get(0)?,
-                account_id: row.get(1)?,
-                date: row.get(2)?,
-                label: row.get(3)?,
-                category: row.get(4)?,
-                cheque: row.get(5)?,
-                amount: row.get(6)?,
-                reconciled: row.get::<_, i64>(7)? != 0,
-                note: row.get(8)?,
-                transfer_id: row.get(9)?,
-                reference: row.get(10)?,
-            })
-        })
+        .query_map([account_id], read_transaction)
         .map_err(database_error)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+}
+
+fn read_transaction(row: &rusqlite::Row<'_>) -> rusqlite::Result<Transaction> {
+    Ok(Transaction {
+        id: row.get(0)?,
+        account_id: row.get(1)?,
+        date: row.get(2)?,
+        label: row.get(3)?,
+        category: row.get(4)?,
+        cheque: row.get(5)?,
+        amount: row.get(6)?,
+        reconciled: row.get::<_, i64>(7)? != 0,
+        note: row.get(8)?,
+        transfer_id: row.get(9)?,
+        reference: row.get(10)?,
+    })
 }
 
 // The chart exchanges daily balances in integer cents.
@@ -156,7 +158,7 @@ fn forecast_transactions_in_db(
     }
     // Future-dated entries are kept out of the opening balance and returned separately.
     let balance = db.query_row("SELECT opening_balance_cents + COALESCE((SELECT SUM(amount_cents) FROM transactions WHERE account_id=?1 AND operation_date<=?2),0) FROM accounts WHERE id=?1", params![account_id,today], |r| r.get(0)).optional().map_err(database_error)?.ok_or_else(|| "Compte introuvable.".to_string())?;
-    let mut statement = db.prepare("SELECT operation_date,label,amount_cents FROM transactions WHERE account_id=?1 AND operation_date>?2 AND operation_date<=?3 ORDER BY operation_date,id").map_err(database_error)?;
+    let mut statement = db.prepare("SELECT operation_date,label,amount_cents FROM transactions WHERE account_id=?1 AND operation_date>?2 AND operation_date<=?3 ORDER BY operation_date,entry_order").map_err(database_error)?;
     let transactions = statement
         .query_map(params![account_id, today, end], |r| {
             Ok(ForecastTransaction {
@@ -230,6 +232,7 @@ pub struct RegisterRow {
     #[serde(flatten)]
     transaction: Transaction,
     running_balance: i64,
+    bank_date: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -265,6 +268,173 @@ pub(crate) struct RegisterRanges {
     dates: Option<DateRange>,
 }
 
+const OPERATIONS_PAGE_SIZE: i64 = 100;
+
+// Compare both signs in cents without taking the absolute value of a stored integer.
+const OPERATION_SEARCH_PREDICATE: &str = "(?4 IS NULL OR operation_date >= ?4)
+     AND (?5 IS NULL OR operation_date <= ?5)
+     AND (?2 IS NULL OR amount_cents <= -?2 OR amount_cents >= ?2)
+     AND (?3 IS NULL OR amount_cents BETWEEN -?3 AND ?3)
+     AND (?1 = '' OR text_contains(label,?1) OR text_contains(category,?1)
+          OR text_contains(cheque,?1) OR text_contains(note,?1) OR text_contains(reference,?1))";
+
+type OperationSearch = (
+    String,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+);
+
+fn prepare_operation_search(
+    db: &Connection,
+    search: &str,
+    ranges: RegisterRanges,
+) -> Result<OperationSearch, String> {
+    let AmountRange { min, max } = ranges.amount.unwrap_or_default();
+    if min.is_some_and(|value| value < 0)
+        || max.is_some_and(|value| value < 0)
+        || matches!((min, max), (Some(min), Some(max)) if min > max)
+    {
+        return Err("Intervalle de montants invalide.".into());
+    }
+    let DateRange { start, end } = ranges.dates.unwrap_or_default();
+    if matches!((&start, &end), (Some(start), Some(end)) if start > end) {
+        return Err("La date de début doit précéder la date de fin ou lui être égale.".into());
+    }
+    if start.is_some() || end.is_some() {
+        let valid_dates: bool = db
+            .query_row(
+                "SELECT (?1 IS NULL OR COALESCE(length(?1)=10 AND ?1>='0001-01-01' AND date(?1, '+0 days')=?1, 0))
+                    AND (?2 IS NULL OR COALESCE(length(?2)=10 AND ?2>='0001-01-01' AND date(?2, '+0 days')=?2, 0))",
+                params![start, end],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if !valid_dates {
+            return Err("Date de début ou de fin invalide.".into());
+        }
+    }
+    // SQLite's built-in case folding is ASCII-only; preserve Unicode case matching.
+    db.create_scalar_function(
+        "text_contains",
+        2,
+        rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| {
+            let value = ctx.get::<Option<String>>(0)?.unwrap_or_default();
+            let needle = ctx.get::<String>(1)?;
+            Ok(value.to_lowercase().contains(&needle))
+        },
+    )
+    .map_err(database_error)?;
+    Ok((search.trim().to_lowercase(), min, max, start, end))
+}
+
+fn operation_page_count(count: i64) -> i64 {
+    ((count + OPERATIONS_PAGE_SIZE - 1) / OPERATIONS_PAGE_SIZE).max(1)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationSearchPage {
+    rows: Vec<Transaction>,
+    filtered_count: i64,
+    page: i64,
+    page_count: i64,
+}
+
+#[tauri::command]
+pub fn search_operations(
+    page: i64,
+    search: String,
+    amount_range: Option<AmountRange>,
+    date_range: Option<DateRange>,
+    state: tauri::State<'_, AppState>,
+) -> Result<OperationSearchPage, String> {
+    let db = state
+        .database
+        .lock()
+        .map_err(|_| "La base de données est indisponible.".to_string())?;
+    search_operations_in_db(
+        &db,
+        page,
+        &search,
+        RegisterRanges {
+            amount: amount_range,
+            dates: date_range,
+        },
+    )
+}
+
+fn search_operations_in_db(
+    db: &Connection,
+    page: i64,
+    search: &str,
+    ranges: RegisterRanges,
+) -> Result<OperationSearchPage, String> {
+    if !(1..=10_000_000).contains(&page) {
+        return Err("Page invalide.".into());
+    }
+    let (search, min, max, start, end) = prepare_operation_search(db, search, ranges)?;
+    let filtered_count = db
+        .query_row(
+            &format!("SELECT COUNT(*) FROM transactions WHERE {OPERATION_SEARCH_PREDICATE}"),
+            params![search, min, max, start, end],
+            |row| row.get(0),
+        )
+        .map_err(database_error)?;
+    let page_count = operation_page_count(filtered_count);
+    let page = page.min(page_count);
+    let mut statement = db
+        .prepare(&format!(
+            "SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque,
+                t.amount_cents, t.reconciled, t.note, x.id, t.reference
+         FROM transactions t
+         LEFT JOIN transfers x ON x.debit_id=t.id OR x.credit_id=t.id
+         WHERE {OPERATION_SEARCH_PREDICATE}
+         ORDER BY t.operation_date DESC, t.entry_order DESC
+         LIMIT {OPERATIONS_PAGE_SIZE} OFFSET ?6"
+        ))
+        .map_err(database_error)?;
+    let rows = statement
+        .query_map(
+            params![
+                search,
+                min,
+                max,
+                start,
+                end,
+                (page - 1) * OPERATIONS_PAGE_SIZE
+            ],
+            read_transaction,
+        )
+        .map_err(database_error)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(database_error)?;
+    Ok(OperationSearchPage {
+        rows,
+        filtered_count,
+        page,
+        page_count,
+    })
+}
+
+fn operation_register_page(db: &Connection, account_id: &str, id: &str) -> Result<i64, String> {
+    let newer: i64 = db
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM transactions newer
+                 WHERE newer.account_id = t.account_id
+                   AND (newer.operation_date, newer.entry_order) > (t.operation_date,t.entry_order))
+         FROM transactions t WHERE t.id = ?1 AND t.account_id = ?2",
+            params![id, account_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?
+        .ok_or_else(|| "Cette opération n’est plus disponible dans ce compte.".to_string())?;
+    Ok(newer / OPERATIONS_PAGE_SIZE + 1)
+}
+
 #[tauri::command]
 /// Loads one filtered register page and account-wide summaries in cents.
 pub fn list_register(
@@ -275,12 +445,17 @@ pub fn list_register(
     search: Option<String>,
     amount_range: Option<AmountRange>,
     date_range: Option<DateRange>,
+    transaction_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<RegisterPage, String> {
     let connection = state
         .database
         .lock()
         .map_err(|_| "La base de données est indisponible.".to_string())?;
+    let page = match transaction_id {
+        Some(id) => operation_register_page(&connection, &account_id, &id)?,
+        None => page,
+    };
     list_register_in_db(
         &connection,
         &account_id,
@@ -304,39 +479,15 @@ pub(crate) fn list_register_in_db(
     search: &str,
     ranges: RegisterRanges,
 ) -> Result<RegisterPage, String> {
-    let AmountRange { min, max } = ranges.amount.unwrap_or_default();
-    if min.is_some_and(|value| value < 0)
-        || max.is_some_and(|value| value < 0)
-        || matches!((min, max), (Some(min), Some(max)) if min > max)
-    {
-        return Err("Intervalle de montants invalide.".into());
-    }
-    let DateRange { start, end } = ranges.dates.unwrap_or_default();
-    let (start, end) = (start.as_deref(), end.as_deref());
-    if matches!((start, end), (Some(start), Some(end)) if start > end) {
-        return Err("La date de début doit précéder la date de fin ou lui être égale.".into());
-    }
-    if start.is_some() || end.is_some() {
-        let valid_dates: bool = db
-            .query_row(
-                "SELECT (?1 IS NULL OR COALESCE(length(?1)=10 AND ?1>='0001-01-01' AND date(?1, '+0 days')=?1, 0))
-                    AND (?2 IS NULL OR COALESCE(length(?2)=10 AND ?2>='0001-01-01' AND date(?2, '+0 days')=?2, 0))",
-                params![start, end],
-                |row| row.get(0),
-            )
-            .map_err(database_error)?;
-        if !valid_dates {
-            return Err("Date de début ou de fin invalide.".into());
-        }
-    }
+    let (search, min, max, start, end) = prepare_operation_search(db, search, ranges)?;
     let predicate = match filter {
         "all" => "1",
         "unreconciled" => "reconciled = 0",
         "reconciled" => "reconciled = 1",
         "debit" => "amount_cents < 0",
         "credit" => "amount_cents > 0",
-        "month-debit" => "amount_cents < 0 AND substr(operation_date,1,7)=?2",
-        "month-credit" => "amount_cents > 0 AND substr(operation_date,1,7)=?2",
+        "month-debit" => "amount_cents < 0 AND substr(operation_date,1,7)=?7",
+        "month-credit" => "amount_cents > 0 AND substr(operation_date,1,7)=?7",
         _ => return Err("Filtre invalide.".into()),
     };
     if page < 1
@@ -352,38 +503,17 @@ pub(crate) fn list_register_in_db(
     {
         return Err("Page ou mois invalide.".into());
     }
-    // SQLite's built-in case folding is ASCII-only; preserve Unicode case matching.
-    db.create_scalar_function(
-        "text_contains",
-        2,
-        rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
-        |ctx| {
-            let value = ctx.get::<Option<String>>(0)?.unwrap_or_default();
-            let needle = ctx.get::<String>(1)?;
-            Ok(value.to_lowercase().contains(&needle))
-        },
-    )
-    .map_err(database_error)?;
-    let search = search.trim().to_lowercase();
-    // Compare both signs in cents without taking the absolute value of a stored integer.
-    let predicate = format!(
-        "({predicate})
-         AND (?6 IS NULL OR operation_date >= ?6)
-         AND (?7 IS NULL OR operation_date <= ?7)
-         AND (?4 IS NULL OR amount_cents <= -?4 OR amount_cents >= ?4)
-         AND (?5 IS NULL OR amount_cents BETWEEN -?5 AND ?5)
-         AND (?3 = '' OR text_contains(label,?3) OR text_contains(category,?3) OR text_contains(cheque,?3) OR text_contains(note,?3) OR text_contains(reference,?3))"
-    );
+    let predicate = format!("({predicate}) AND {OPERATION_SEARCH_PREDICATE}");
     let sql = format!(
         "SELECT COUNT(*),
                 COALESCE(SUM(CASE WHEN {predicate} THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(reconciled = 0), 0),
-                COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?2 AND amount_cents > 0 THEN amount_cents ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?2 AND amount_cents < 0 THEN amount_cents ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?2 AND amount_cents > 0 THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?2 AND amount_cents < 0 THEN 1 ELSE 0 END), 0)
+                COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?7 AND amount_cents > 0 THEN amount_cents ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?7 AND amount_cents < 0 THEN amount_cents ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?7 AND amount_cents > 0 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?7 AND amount_cents < 0 THEN 1 ELSE 0 END), 0)
          FROM transactions
-         WHERE account_id = ?1"
+         WHERE account_id = ?6"
     );
     let (
         total_count,
@@ -396,7 +526,7 @@ pub(crate) fn list_register_in_db(
     ): (i64, i64, i64, i64, i64, i64, i64) = db
         .query_row(
             &sql,
-            params![account_id, month, search, min, max, start, end],
+            params![search, min, max, start, end, account_id, month],
             |r| {
                 Ok((
                     r.get(0)?,
@@ -410,71 +540,61 @@ pub(crate) fn list_register_in_db(
             },
         )
         .map_err(database_error)?;
-    let page_count = ((filtered_count + 99) / 100).max(1);
+    let page_count = operation_page_count(filtered_count);
     let page = page.min(page_count);
     // Select the visible page first, then calculate balances over its complete
     // unfiltered span. Hidden rows between visible entries still affect balances.
     let sql = format!(
         "WITH selected AS MATERIALIZED (
-           SELECT id, operation_date FROM transactions
-           WHERE account_id=?1 AND {predicate}
-           ORDER BY operation_date DESC, id DESC LIMIT 100 OFFSET ?8
+           SELECT id, operation_date, entry_order FROM transactions
+           WHERE account_id=?6 AND {predicate}
+           ORDER BY operation_date DESC, entry_order DESC LIMIT {OPERATIONS_PAGE_SIZE} OFFSET ?8
          ), bounds AS (
            SELECT
-             (SELECT operation_date FROM selected ORDER BY operation_date, id LIMIT 1) AS first_date,
-             (SELECT id FROM selected ORDER BY operation_date, id LIMIT 1) AS first_id,
-             (SELECT operation_date FROM selected ORDER BY operation_date DESC, id DESC LIMIT 1) AS last_date,
-             (SELECT id FROM selected ORDER BY operation_date DESC, id DESC LIMIT 1) AS last_id
+             (SELECT operation_date FROM selected ORDER BY operation_date, entry_order LIMIT 1) AS first_date,
+             (SELECT entry_order FROM selected ORDER BY operation_date, entry_order LIMIT 1) AS first_order,
+             (SELECT operation_date FROM selected ORDER BY operation_date DESC, entry_order DESC LIMIT 1) AS last_date,
+             (SELECT entry_order FROM selected ORDER BY operation_date DESC, entry_order DESC LIMIT 1) AS last_order
          ), baseline AS (
            SELECT a.opening_balance_cents + COALESCE((
              SELECT SUM(amount_cents) FROM transactions, bounds
-             WHERE account_id=?1 AND (operation_date,id)<(bounds.first_date,bounds.first_id)
-           ),0) AS amount FROM accounts a WHERE a.id=?1
+             WHERE account_id=?6 AND (operation_date,entry_order)<(bounds.first_date,bounds.first_order)
+           ),0) AS amount FROM accounts a WHERE a.id=?6
          ), history AS (
            SELECT t.*, baseline.amount + SUM(t.amount_cents) OVER (
-                      ORDER BY t.operation_date, t.id ROWS UNBOUNDED PRECEDING
+                      ORDER BY t.operation_date, t.entry_order ROWS UNBOUNDED PRECEDING
                   ) AS running_balance
            FROM transactions t CROSS JOIN bounds CROSS JOIN baseline
-           WHERE t.account_id=?1
-             AND (t.operation_date,t.id)>=(bounds.first_date,bounds.first_id)
-             AND (t.operation_date,t.id)<=(bounds.last_date,bounds.last_id)
+           WHERE t.account_id=?6
+             AND (t.operation_date,t.entry_order)>=(bounds.first_date,bounds.first_order)
+             AND (t.operation_date,t.entry_order)<=(bounds.last_date,bounds.last_order)
          )
          SELECT h.id, h.account_id, h.operation_date, h.label, h.category, h.cheque,
-                h.amount_cents, h.reconciled, h.note, x.id, h.running_balance, h.reference
+                h.amount_cents, h.reconciled, h.note, x.id, h.reference, h.running_balance, e.bank_date
          FROM history h
          JOIN selected s ON s.id=h.id
          LEFT JOIN transfers x ON x.debit_id = h.id OR x.credit_id = h.id
-         ORDER BY h.operation_date DESC, h.id DESC"
+         LEFT JOIN bank_statement_entries e ON e.transaction_id=h.id
+         ORDER BY h.operation_date DESC, h.entry_order DESC"
     );
     let mut statement = db.prepare(&sql).map_err(database_error)?;
     let rows = statement
         .query_map(
             params![
-                account_id,
-                month,
                 search,
                 min,
                 max,
                 start,
                 end,
-                (page - 1) * 100
+                account_id,
+                month,
+                (page - 1) * OPERATIONS_PAGE_SIZE
             ],
             |row| {
                 Ok(RegisterRow {
-                    transaction: Transaction {
-                        id: row.get(0)?,
-                        account_id: row.get(1)?,
-                        date: row.get(2)?,
-                        label: row.get(3)?,
-                        category: row.get(4)?,
-                        cheque: row.get(5)?,
-                        amount: row.get(6)?,
-                        reconciled: row.get::<_, i64>(7)? != 0,
-                        note: row.get(8)?,
-                        transfer_id: row.get(9)?,
-                        reference: row.get(11)?,
-                    },
-                    running_balance: row.get(10)?,
+                    transaction: read_transaction(row)?,
+                    running_balance: row.get(11)?,
+                    bank_date: row.get(12)?,
                 })
             },
         )
@@ -605,7 +725,7 @@ fn get_transfer_in_db(db: &Connection, id: &str) -> Result<NewTransfer, String> 
 }
 
 #[tauri::command]
-/// Atomically updates both sides while preserving each reconciliation flag.
+/// Atomically updates both sides, clearing reconciliation when an entry moves accounts.
 pub fn update_transfer(
     transfer: NewTransfer,
     state: tauri::State<'_, AppState>,
@@ -655,7 +775,7 @@ pub(crate) fn update_transfer_in_db(
             &transfer.credit_reference,
         ),
     ] {
-        let changed = tx.execute("UPDATE transactions SET account_id=?1, operation_date=?2, label=?3, category=?4, amount_cents=?5, note=?6, reference=CASE WHEN ?8 IS NULL THEN reference ELSE NULLIF(TRIM(?8),'') END WHERE id=?7", params![account,transfer.date,label,transfer.category.trim(),amount,transfer.note.trim(),id,reference]).map_err(database_error)?;
+        let changed = tx.execute("UPDATE transactions SET reconciled=CASE WHEN account_id=?1 THEN reconciled ELSE 0 END, account_id=?1, operation_date=?2, label=?3, category=?4, amount_cents=?5, note=?6, reference=CASE WHEN ?8 IS NULL THEN reference ELSE NULLIF(TRIM(?8),'') END WHERE id=?7", params![account,transfer.date,label,transfer.category.trim(),amount,transfer.note.trim(),id,reference]).map_err(database_error)?;
         if changed != 1 {
             return Err("Opération liée introuvable.".into());
         }
@@ -771,7 +891,7 @@ pub(crate) fn validate_cheque(cheque: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_transaction_amount(cents: i64) -> Result<(), String> {
+pub(crate) fn validate_transaction_amount(cents: i64) -> Result<(), String> {
     if cents == 0 || cents.unsigned_abs() > 100_000_000_000 {
         return Err("Montant d’opération invalide.".into());
     }

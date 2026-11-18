@@ -2,28 +2,26 @@ use super::*;
 use crate::test_support::database;
 
 #[test]
-fn migration_preserves_existing_labels_and_is_idempotent() {
+fn defaults_are_available_on_creation_and_are_not_recreated_on_open() {
     let db = database();
-    db.execute("DELETE FROM app_metadata WHERE key='categories_v1'", [])
+    assert_eq!(
+        db.query_row("SELECT name FROM categories WHERE id='other'", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .unwrap(),
+        "Divers"
+    );
+    db.execute("DELETE FROM categories WHERE id='other'", [])
         .unwrap();
-    db.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents) VALUES ('legacy','ccp','2027-01-01','Test','Factures · Électricité',100)", []).unwrap();
-    migrate_categories(&db).unwrap();
-    let count: i64 = db
-        .query_row("SELECT COUNT(*) FROM categories", [], |r| r.get(0))
-        .unwrap();
-    migrate_categories(&db).unwrap();
-    let after: i64 = db
-        .query_row("SELECT COUNT(*) FROM categories", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(count, after);
-    let labels: Vec<String> = {
-        let mut q=db.prepare("SELECT p.name || ' · ' || c.name FROM categories c JOIN categories p ON p.id=c.parent_id").unwrap();
-        q.query_map([], |r| r.get(0))
-            .unwrap()
-            .collect::<rusqlite::Result<_>>()
-            .unwrap()
-    };
-    assert!(labels.contains(&"Factures · Électricité".to_string()));
+    crate::database::initialize_database(&db).unwrap();
+    assert!(
+        !db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM categories WHERE id='other')",
+            [],
+            |row| row.get::<_, bool>(0)
+        )
+        .unwrap()
+    );
 }
 
 fn category(id: &str, name: &str, parent: Option<&str>) -> Category {

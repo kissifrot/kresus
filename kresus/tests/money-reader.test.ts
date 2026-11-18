@@ -653,6 +653,41 @@ describe("Money reader", () => {
     }
   });
   const sample = resolve("tests/fixtures/money-reference.mny");
+  it("keeps the Money spelling of Divers and rejects an operation dated before 1970", () => {
+    const source = Buffer.from(readFileSync(sample));
+    const reader = new MDBReader(decodeMoney(source));
+    const categories = reader.getTable("CAT");
+    const transactions = reader.getTable("TRN");
+    const categoryRows = categories.getData();
+    const existing = categoryRows.find(
+      (row) =>
+        row.hct === 0 && row.nLevel === 1 && String(row.szFull).trim().toLowerCase() === "divers",
+    );
+    if (existing) existing.szFull = "DIVERS";
+    else categoryRows.push({ hcat: 1_000_000, hct: 0, nLevel: 1, szFull: "DIVERS" });
+    const transactionRows = transactions.getData();
+    const operation = transactionRows.find((row) => row.htrn === 21)!;
+    operation.hcat = -1_000_000;
+    operation.dt = new Date("1970-01-01T00:00:00Z");
+    vi.spyOn(categories, "getData").mockReturnValue(categoryRows);
+    vi.spyOn(transactions, "getData").mockReturnValue(transactionRows);
+    const getTable = MDBReader.prototype.getTable;
+    const spy = vi.spyOn(MDBReader.prototype, "getTable").mockImplementation(function (
+      this: MDBReader,
+      name,
+    ) {
+      if (name === "CAT") return categories;
+      if (name === "TRN") return transactions;
+      return getTable.call(this, name);
+    });
+    try {
+      expect(inspect(source).operations.find((row) => row.id === 21)?.category).toBe("DIVERS");
+      operation.dt = new Date("1969-12-31T00:00:00Z");
+      expect(() => inspect(source)).toThrow("dates antérieures au 1er janvier 1970");
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it("reads a populated account number as text and leaves missing numbers empty", () => {
     const source = Buffer.from(readFileSync(sample));
     const accounts = new MDBReader(decodeMoney(source)).getTable("ACCT");

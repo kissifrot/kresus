@@ -230,10 +230,11 @@ fn invalid_or_failed_transfer_never_leaves_a_partial_operation() {
 }
 
 #[test]
-fn updating_transfer_changes_both_sides_and_preserves_reconciliation() {
+fn updating_transfer_resets_reconciliation_only_for_the_moved_entry() {
     let mut db = database();
     create_transfer_in_db(&mut db, transfer()).unwrap();
     toggle_transaction_in_db(&db, "transfer-debit").unwrap();
+    toggle_transaction_in_db(&db, "transfer-credit").unwrap();
     let loaded = get_transfer_in_db(&db, "transfer").unwrap();
     assert_eq!(
         (
@@ -244,19 +245,18 @@ fn updating_transfer_changes_both_sides_and_preserves_reconciliation() {
         ("ccp", "sylvie", 12345)
     );
     let mut changed = loaded;
-    changed.source_id = "sylvie".into();
-    changed.destination_id = "livret-michel".into();
+    changed.source_id = "livret-michel".into();
     changed.date = "2028-02-29".into();
     changed.amount = 7890;
     changed.category = "Alimentation".into();
     changed.note = "Updated".into();
     update_transfer_in_db(&mut db, changed).unwrap();
-    let debit = list_transactions_in_db(&db, "sylvie")
+    let debit = list_transactions_in_db(&db, "livret-michel")
         .unwrap()
         .into_iter()
         .find(|item| item.id == "transfer-debit")
         .unwrap();
-    let credit = list_transactions_in_db(&db, "livret-michel")
+    let credit = list_transactions_in_db(&db, "sylvie")
         .unwrap()
         .into_iter()
         .find(|item| item.id == "transfer-credit")
@@ -274,7 +274,7 @@ fn updating_transfer_changes_both_sides_and_preserves_reconciliation() {
         (debit.note.as_deref(), credit.note.as_deref()),
         (Some("Updated"), Some("Updated"))
     );
-    assert!(debit.reconciled && !credit.reconciled);
+    assert!(!debit.reconciled && credit.reconciled);
     assert_eq!(
         (debit.transfer_id.as_deref(), credit.transfer_id.as_deref()),
         (Some("transfer"), Some("transfer"))
@@ -889,19 +889,90 @@ fn balance_history_uses_daily_totals_and_prior_history_without_future_operations
 }
 
 #[test]
+fn register_orders_same_day_operations_by_entry_order_across_pages() {
+    let db = database();
+    create_account_in_db(&db, account("ordered", "Compte courant", 100.0)).unwrap();
+    for index in (0..101).rev() {
+        let mut item = operation(&format!("row-{index:03}"), "ordered", 1.0);
+        item.date = "2027-01-01".into();
+        create_transaction_in_db(&db, item).unwrap();
+    }
+    let first =
+        list_register_in_db(&db, "ordered", "all", 1, "2027-01", "", Default::default()).unwrap();
+    let second =
+        list_register_in_db(&db, "ordered", "all", 2, "2027-01", "", Default::default()).unwrap();
+    assert_eq!(first.rows[0].transaction.id, "row-000");
+    assert_eq!(first.rows[0].running_balance, 20100);
+    assert_eq!(second.rows[0].transaction.id, "row-100");
+    assert_eq!(second.rows[0].running_balance, 10100);
+    assert_eq!(
+        operation_register_page(&db, "ordered", "row-099").unwrap(),
+        1
+    );
+    assert_eq!(
+        operation_register_page(&db, "ordered", "row-100").unwrap(),
+        2
+    );
+    assert!(operation_register_page(&db, "ccp", "row-100").is_err());
+}
+
+#[test]
+fn operation_search_filters_and_paginates_across_accounts() {
+    let db = database();
+    let mut matching = operation("debit", "ccp", -20.0);
+    matching.note = Some("Électricité".into());
+    create_transaction_in_db(&db, matching).unwrap();
+    for index in 0..100 {
+        let mut matching = operation(&format!("credit-{index}"), "sylvie", 20.0);
+        matching.reference = Some("REF ÉLECTRICITÉ".into());
+        create_transaction_in_db(&db, matching).unwrap();
+    }
+    let mut outside = operation("outside", "sylvie", 20.0);
+    outside.date = "2027-01-16".into();
+    outside.label = "Électricité".into();
+    create_transaction_in_db(&db, outside).unwrap();
+    let mut different_amount = operation("different", "sylvie", 21.0);
+    different_amount.label = "Électricité".into();
+    create_transaction_in_db(&db, different_amount).unwrap();
+    let ranges = || RegisterRanges {
+        amount: Some(AmountRange {
+            min: Some(2_000),
+            max: Some(2_000),
+        }),
+        dates: Some(DateRange {
+            start: None,
+            end: Some("2027-01-15".into()),
+        }),
+    };
+
+    let first = search_operations_in_db(&db, 1, "  électricité  ", ranges()).unwrap();
+    assert_eq!(first.filtered_count, 101);
+    assert_eq!(first.page_count, 2);
+    assert_eq!(first.rows.len(), 100);
+    assert_eq!(first.rows[0].id, "credit-99");
+    assert_eq!(first.rows[0].account_id, "sylvie");
+
+    let second = search_operations_in_db(&db, 2, "électricité", ranges()).unwrap();
+    assert_eq!(second.page, 2);
+    assert_eq!(second.rows.len(), 1);
+    assert_eq!(second.rows[0].id, "debit");
+    assert_eq!(second.rows[0].account_id, "ccp");
+}
+
+#[test]
 fn balance_history_includes_each_side_of_a_transfer_in_its_account() {
     let mut db = database();
     let t = transfer();
     create_transfer_in_db(&mut db, t).unwrap();
     let source = balance_history_in_db(&db, "ccp", "2028-01-31").unwrap();
     let destination = balance_history_in_db(&db, "sylvie", "2028-01-31").unwrap();
-    let source_balance = crate::accounts::list_accounts_in_db(&db)
+    let source_balance = crate::accounts::list_accounts_in_db(&db, "2028-01-31")
         .unwrap()
         .into_iter()
         .find(|a| a.id == "ccp")
         .unwrap()
         .current_balance;
-    let destination_balance = crate::accounts::list_accounts_in_db(&db)
+    let destination_balance = crate::accounts::list_accounts_in_db(&db, "2028-01-31")
         .unwrap()
         .into_iter()
         .find(|a| a.id == "sylvie")

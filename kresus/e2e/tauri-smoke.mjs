@@ -44,12 +44,14 @@ const endpoint = `http://127.0.0.1:${port}`;
 const defaultMoneySample = resolve(root, "tests/fixtures/money-reference.mny");
 const moneySample = process.env.KRESUS_MONEY_SAMPLE ?? defaultMoneySample;
 const moneyDestination = join(temp, "import.kresus");
+const ofxSource = join(temp, "releve.ofx");
 const executable = process.env.TAURI_DRIVER || "tauri-driver";
 const driver = spawn(executable, ["--port", String(port), "--native-port", String(nativePort)], {
   env: {
     ...process.env,
     XDG_DATA_HOME: data,
     KRESUS_E2E_BACKUP: join(temp, "backup.kresus"),
+    KRESUS_E2E_OFX_SOURCE: ofxSource,
     ...(moneySample
       ? {
           KRESUS_E2E_MONEY_SOURCE: resolve(moneySample),
@@ -516,7 +518,7 @@ try {
       "Taille du registre",
     );
     const controlSizes = await execute(
-      `return ['#transaction-search','#transaction-search-form button','#transaction-filter'].map(selector => document.querySelector(selector).getBoundingClientRect().height)`,
+      `return ['#transaction-search','#transaction-search-scope','#transaction-search-form button','#transaction-filter'].map(selector => document.querySelector(selector).getBoundingClientRect().height)`,
     );
     if (Math.max(...controlSizes) - Math.min(...controlSizes) > 1)
       throw new Error(`Contrôles du registre désalignés à ${width} × ${height} : ${controlSizes}`);
@@ -961,6 +963,30 @@ try {
     ))
   )
     throw new Error("L’effacement direct du montant doit rendre le focus au bouton Montant.");
+  const purchaseId = await execute(
+    "return document.querySelector('tr[data-transaction]').dataset.transaction",
+  );
+  await execute("document.querySelector('.sidebar-accounts .account-item:not(.active)').click()");
+  await waitFor(
+    () =>
+      execute(
+        "return !!document.querySelector('#transaction-search') && !document.querySelector('tbody').textContent.includes('Achat recette')",
+      ),
+    "Ouverture d’un autre compte",
+  );
+  await execute(`document.querySelector('#transaction-search').value = 'Commentaire initial';
+    const scope = document.querySelector('#transaction-search-scope');
+    scope.value = 'all';
+    scope.dispatchEvent(new Event('change', { bubbles: true }));`);
+  await waitFor(() => visible("[data-search-result]"), "Recherche dans tous les comptes");
+  await click(`[data-search-result="${purchaseId}"]`);
+  await waitFor(
+    () =>
+      execute(
+        `return document.activeElement.dataset.transaction === ${JSON.stringify(purchaseId)}`,
+      ),
+    "Ouverture de l’opération dans son registre",
+  );
   await execute("document.querySelector('#transaction-filter').focus()");
   await key("\uE004");
   if (!(await execute("return document.activeElement.matches('tbody tr[data-transaction]')")))
@@ -1447,6 +1473,110 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
   );
   if (transferCheck.status !== 0) throw new Error("Virement récurrent : " + transferCheck.stderr);
   console.log("Virement récurrent : création manuelle et opérations liées vérifiées OK");
+
+  const postedDate = end.replaceAll("-", "");
+  writeFileSync(
+    ofxSource,
+    `<?xml version="1.0" encoding="UTF-8"?>
+<OFX><BANKMSGSRSV1><STMTTRNRS><STATUS><CODE>0</CODE></STATUS><STMTRS>
+<CURDEF>EUR</CURDEF>
+<BANKACCTFROM><BANKID>12345</BANKID><ACCTID>00123456789</ACCTID><ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTFROM>
+<BANKTRANLIST>
+<STMTTRN><DTPOSTED>${postedDate}</DTPOSTED><TRNAMT>-8.25</TRNAMT><FITID>matched</FITID><NAME>Virement bancaire OFX</NAME></STMTTRN>
+<STMTTRN><DTPOSTED>${postedDate}</DTPOSTED><TRNAMT>32.17</TRNAMT><FITID>added</FITID><NAME>Remboursement OFX</NAME><REFNUM>000123</REFNUM></STMTTRN>
+</BANKTRANLIST><LEDGERBAL><BALAMT>0.00</BALAMT><DTASOF>${postedDate}</DTASOF></LEDGERBAL>
+</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`,
+  );
+  await click(`[data-account="${receiptId}"]`);
+  await waitFor(async () => (await text(".page-heading h1")) === "Compte recette", "Compte OFX");
+  await click("#bank-import");
+  await waitFor(() => visible(".bank-import-dialog[open]"), "Aperçu du relevé OFX");
+  if (
+    !(await text(".bank-import-dialog")).includes("00123456789") ||
+    !(await text(".bank-import-dialog")).includes("Solde de clôture") ||
+    !(await execute("return document.querySelector('#bank-import-confirm').disabled"))
+  )
+    throw new Error(
+      "L’aperçu OFX doit afficher le compte du fichier et demander de vérifier le rapprochement.",
+    );
+  await execute(`
+    const choice = document.querySelector('[data-bank-line="0"]');
+    const match = [...choice.options].find(option => option.textContent.includes('Virement vers Compte courant'));
+    if (!match) throw new Error('Virement non suggéré');
+    choice.value = match.value;
+    choice.dispatchEvent(new Event('change', { bubbles: true }));
+  `);
+  await click("#bank-import-confirm");
+  await waitFor(
+    async () =>
+      (await text(".bank-import-status")).includes("1 opération ajoutée") &&
+      (await text("tbody")).includes("Remboursement OFX"),
+    "Import du relevé et actualisation du registre",
+  );
+  const ofxCheck = spawnSync(
+    "python3",
+    [
+      "-c",
+      `import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+rows=c.execute("SELECT e.fit_id,t.label,t.amount_cents,t.reconciled,t.reference FROM bank_statement_entries e JOIN transactions t ON t.id=e.transaction_id WHERE e.account_id=? ORDER BY e.fit_id", (sys.argv[2],)).fetchall()
+target_name=c.execute("SELECT name FROM accounts WHERE id='test-courant'").fetchone()[0]
+assert rows == [('added','Remboursement OFX',3217,1,'000123'),('matched','Virement vers '+target_name,-825,1,None)], rows
+assert c.execute("SELECT count(*) FROM transactions WHERE label='Virement bancaire OFX'").fetchone() == (0,)
+print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents) FROM transactions WHERE account_id=a.id AND reconciled=1 AND operation_date<=?),0) FROM accounts a WHERE id=?", (sys.argv[3],sys.argv[2])).fetchone()[0])`,
+      join(appData, "comptes.kresus"),
+      receiptId,
+      end,
+    ],
+    { encoding: "utf8" },
+  );
+  if (ofxCheck.status !== 0) throw new Error(`Écritures OFX incorrectes : ${ofxCheck.stderr}`);
+  const pointed = Number(ofxCheck.stdout.trim());
+  const euroText = (cents) =>
+    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" })
+      .format(cents / 100)
+      .replace(/\s/g, "");
+  const gapIs = async (amount) =>
+    (await text("#reconciliation-gap")).replace(/\s/g, "").startsWith(euroText(amount));
+  await waitFor(() => gapIs(-pointed), "Écart avec le solde OFX");
+  const prefilled = await execute(
+    "return [document.querySelector('#reconciliation-date').value, document.querySelector('#reconciliation-amount').value]",
+  );
+  if (prefilled[0] !== end || prefilled[1] !== "0,00")
+    throw new Error("Le solde OFX nul et sa date doivent être préremplis.");
+  const enterClosingBalance = (cents) =>
+    execute(`
+    const input = document.querySelector('#reconciliation-amount');
+    input.value = ${JSON.stringify((cents / 100).toFixed(2))};
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  `);
+  await enterClosingBalance(pointed + 1);
+  await waitFor(() => gapIs(1), "Écart d’un centime");
+  await enterClosingBalance(pointed);
+  await waitFor(() => visible("#reconciliation-gap[data-balanced]"), "Solde saisi équilibré");
+  const ofxOperation = await execute(`
+    return [...document.querySelectorAll('tr[data-transaction]')]
+      .find(row => row.textContent.includes('Remboursement OFX')).dataset.transaction;
+  `);
+  await click(`[data-reconcile="${ofxOperation}"]`);
+  await waitFor(() => gapIs(3217), "L’écart évolue au dépointage");
+  await click(`[data-reconcile="${ofxOperation}"]`);
+  await waitFor(() => visible("#reconciliation-gap[data-balanced]"), "Repointage au centime");
+  await click("#end-reconciliation");
+  await click("#start-reconciliation");
+  if ((await execute("return document.querySelector('#reconciliation-amount').value")) !== "")
+    throw new Error("Le rapprochement manuel doit autoriser la saisie d’un nouveau solde.");
+  await click("#end-reconciliation");
+  await click("#bank-import");
+  await waitFor(
+    async () => (await text("#bank-import-summary")).includes("2 doublons"),
+    "Réimport OFX et détection des doublons",
+  );
+  await click("#bank-import-balance");
+  await waitFor(() => gapIs(-pointed), "Vérification du solde d’un relevé déjà importé");
+  await click("#end-reconciliation");
+  console.log("Relevé OFX : aperçu, rapprochement, ajout, doublons et écart de clôture vérifiés");
+
   // The debug-only E2E build substitutes paths for native portal dialogs.
   if (moneySample) {
     if (!existsSync(moneySample)) throw new Error("Fichier Money de test introuvable.");

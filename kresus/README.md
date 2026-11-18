@@ -4,6 +4,12 @@ Application de bureau de gestion financière familiale pour les usages français
 
 La [spécification et l’état fonctionnel](../SPECIFICATION.md) décrivent les fonctionnalités réalisées, les règles métier, les limites et les besoins initiaux non encore réalisés. Les captures de référence sont dans [`references/`](../references/). Le document initial « Outil de Gestion de nos Comptes.docx » a été fourni séparément et n’est pas dans le dépôt.
 
+## Importer un relevé bancaire
+
+Ouvrez le registre du compte de destination et choisissez **Importer un relevé…**. Sélectionnez un fichier bancaire `.ofx` en euros contenant un seul compte. Vérifiez le compte et les lignes de l’aperçu. Pour une correspondance proposée, choisissez de rapprocher l’opération existante, d’ajouter une nouvelle écriture ou d’ignorer la ligne, puis confirmez. Les doublons identifiés sont écartés, et les opérations ajoutées ou rapprochées sont pointées.
+
+Le panneau **Rapprochement du relevé** reprend la date et le solde de clôture disponibles dans l’OFX. Vous pouvez modifier ces valeurs ou les saisir à partir de **Rapprocher un relevé** dans le registre. L’écart affiche la différence entre le solde du relevé et le solde des écritures pointées jusqu’à la clôture.
+
 ## Démarrage et construction
 
 Depuis ce dossier `kresus/`, qui contient `package.json` :
@@ -119,7 +125,7 @@ Le parcours complémentaire vérifie le raccourci natif d’ouverture et l’acc
 GDK_BACKEND=x11 XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP=GNOME xvfb-run -a dbus-run-session -- yarn test:e2e:native
 ```
 
-La session X11 et le bus D-Bus doivent être isolés : le script pilote les fenêtres au clavier. Le test cible les titres des sélecteurs GTK observés dans cet environnement ; d’autres portails ou bureaux peuvent présenter des variantes. Il vérifie aussi la confirmation de restauration, le rejet d’un fichier invalide, l’ouverture et la migration d’une base de test au schéma ancien, le refus d’une base incompatible, ainsi que des cas métier de retards et de rapport de dépenses sur deux comptes. Avec le fichier Money fictif versionné, il vérifie l’aperçu, l’annulation du choix de destination, puis la création effective et le contenu SQLite de la base importée. Le parcours standard vérifie de plus le refus d’une sauvegarde sur un fichier existant ; pour ce cas, le chemin est fourni par la compilation de test plutôt que par le sélecteur natif. La suite WebDriver standard vérifie aussi les parcours clavier de plusieurs formulaires, le registre et l’éditeur, ainsi que leur affichage et celui du formulaire d’échéance à 900 × 620, 1 100 × 700 et 1 280 × 820 pixels. Pour conserver des captures à inspecter, définir `KRESUS_E2E_SCREENSHOTS` avec un répertoire de destination avant le lancement.
+La session X11 et le bus D-Bus doivent être isolés : le script pilote les fenêtres au clavier. Le test cible les titres des sélecteurs GTK observés dans cet environnement ; d’autres portails ou bureaux peuvent présenter des variantes. Il vérifie aussi la confirmation de restauration, le rejet d’un fichier invalide, l’ouverture d’une base de test, le refus d’une base incompatible, ainsi que des cas métier de retards et de rapport de dépenses sur deux comptes. Avec le fichier Money fictif versionné, il vérifie l’aperçu, l’annulation du choix de destination, puis la création effective et le contenu SQLite de la base importée. Le parcours standard vérifie de plus le refus d’une sauvegarde sur un fichier existant ; pour ce cas, le chemin est fourni par la compilation de test plutôt que par le sélecteur natif. La suite WebDriver standard vérifie aussi les parcours clavier de plusieurs formulaires, le registre et l’éditeur, ainsi que leur affichage et celui du formulaire d’échéance à 900 × 620, 1 100 × 700 et 1 280 × 820 pixels. Pour conserver des captures à inspecter, définir `KRESUS_E2E_SCREENSHOTS` avec un répertoire de destination avant le lancement.
 
 ### Mesure de performance
 
@@ -181,7 +187,7 @@ Cette base extrême contient 50 000 opérations sur le compte courant et 10 000 
 
 La base SQLite `comptes.kresus` est créée dans le répertoire de données de l’application fourni par Tauri. Sous Linux, il s’agit généralement de `~/.local/share/com.kissifrot.kresus/`. Copier ce fichier lorsque l’application est arrêtée permet de le sauvegarder. La commande « Fichier → Ouvrir une base… » permet de sélectionner un autre fichier `.kresus` compatible, ouvert en lecture-écriture directement à son emplacement. Le nom du fichier actif apparaît dans la barre latérale ; « Revenir à la base habituelle » rétablit la base du répertoire utilisateur. Le choix ne persiste pas après redémarrage. Un double-clic sur un fichier `.kresus` lance Kresus ou transmet le fichier à la fenêtre existante ; la base est validée avant ouverture. Les installateurs déclarent cette association. Le double-clic et l’installation effective restent à valider sur Windows. Les fichiers qui ne portent pas l’extension `.kresus`, les bases incompatibles sont refusés ; aucun import Money ni génération de base volumineuse n’est effectué par cette commande. Les montants sont stockés, échangés entre Rust et TypeScript et calculés en centimes entiers ; les euros sont utilisés à la saisie et à l’affichage.
 
-Une nouvelle base démarre sans compte, opération ni échéance. Le premier écran permet de créer un compte ou d’importer un fichier Money. L’initialisation peut également migrer les anciennes opérations utilisateur enregistrées dans le stockage local du prototype. Les détails sont décrits dans la spécification.
+Une nouvelle base démarre sans compte, opération ni échéance. Le premier écran permet de créer un compte ou d’importer un fichier Money. Les bases issues d’un schéma incompatible sont refusées par la préversion. Les détails sont décrits dans la spécification.
 
 ## Organisation
 

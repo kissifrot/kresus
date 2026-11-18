@@ -4,7 +4,8 @@ import { FREQUENCY, type Frequency } from "./frequency";
 // Clamp to the last day of short months while retaining the intended day.
 export function occurrencesForMonth(schedule: Schedule, monthKey: string): CalendarOccurrence[] {
   const result: CalendarOccurrence[] = [];
-  if (schedule.nextDue.startsWith(monthKey)) result.push({ ...schedule, projected: false });
+  if (schedule.nextDue.startsWith(monthKey))
+    result.push({ ...schedule, projected: false, originalDue: schedule.series.nextDue });
   const months: Partial<Record<Frequency, number>> = {
     [FREQUENCY.MONTHLY]: 1,
     [FREQUENCY.EVERY_TWO_MONTHS]: 2,

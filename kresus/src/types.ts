@@ -9,6 +9,7 @@ export type Account = {
   kind: AccountKind;
   openingBalance: number;
   currentBalance: number;
+  balanceWithFuture: number;
   bank: string;
   accountNumber?: string | null;
 };
@@ -51,5 +52,5 @@ export type CalendarOccurrence = ScheduleSeries & {
   id: string;
   frequency: Frequency;
   projected: boolean;
-  originalDue?: string;
+  originalDue: string;
 };

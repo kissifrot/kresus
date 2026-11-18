@@ -78,16 +78,30 @@ export async function openRegister(
   }));
   // Model the commands in memory so the real interface can be exercised safely.
   const invoke = vi.fn(async (command: string, args?: Record<string, any>) => {
+    const matchesSearch = (item: Transaction) =>
+      (args?.amountRange?.min == null || Math.abs(item.amount) >= args.amountRange.min) &&
+      (args?.amountRange?.max == null || Math.abs(item.amount) <= args.amountRange.max) &&
+      (args?.dateRange?.start == null || item.date >= args.dateRange.start) &&
+      (args?.dateRange?.end == null || item.date <= args.dateRange.end) &&
+      (!args?.search ||
+        [item.label, item.category, item.cheque, item.note, item.reference].some((value) =>
+          value?.toLowerCase().includes(args.search.toLowerCase()),
+        ));
     switch (command) {
       case "list_accounts":
-        return accounts.map((account) => ({
-          ...account,
-          currentBalance:
-            account.openingBalance +
-            transactions
-              .filter((transaction) => transaction.accountId === account.id)
-              .reduce((sum, transaction) => sum + transaction.amount, 0),
-        }));
+        return accounts.map((account) => {
+          const movements = transactions.filter((item) => item.accountId === account.id);
+          return {
+            ...account,
+            currentBalance: movements
+              .filter((item) => item.date <= args?.today)
+              .reduce((sum, item) => sum + item.amount, account.openingBalance),
+            balanceWithFuture: movements.reduce(
+              (sum, item) => sum + item.amount,
+              account.openingBalance,
+            ),
+          };
+        });
       case "list_schedules":
         return schedules ?? [];
       case "record_schedule": {
@@ -108,25 +122,32 @@ export async function openRegister(
         return;
       case "list_transactions":
         return transactions.filter((transaction) => transaction.accountId === args?.accountId);
+      case "search_operations": {
+        const rows = transactions
+          .filter(matchesSearch)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .reverse();
+        const pageCount = Math.max(1, Math.ceil(rows.length / 100));
+        const page = Math.min(args!.page, pageCount);
+        return {
+          rows: rows.slice((page - 1) * 100, page * 100),
+          filteredCount: rows.length,
+          page,
+          pageCount,
+        };
+      }
       case "list_register": {
         const account = accounts.find((item) => item.id === args?.accountId)!;
         const all = transactions
           .filter((item) => item.accountId === account.id)
-          .sort((a, b) => a.date.localeCompare(b.date) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+          .sort((a, b) => a.date.localeCompare(b.date));
         let balance = account.openingBalance;
         const withBalance = all
           .map((item) => ({ ...item, runningBalance: (balance += item.amount) }))
           .reverse();
         const filtered = withBalance.filter(
           (item) =>
-            (args?.amountRange?.min == null || Math.abs(item.amount) >= args.amountRange.min) &&
-            (args?.amountRange?.max == null || Math.abs(item.amount) <= args.amountRange.max) &&
-            (args?.dateRange?.start == null || item.date >= args.dateRange.start) &&
-            (args?.dateRange?.end == null || item.date <= args.dateRange.end) &&
-            (!args?.search ||
-              [item.label, item.category, item.cheque, item.note, item.reference].some((value) =>
-                value?.toLowerCase().includes(args.search.toLowerCase()),
-              )) &&
+            matchesSearch(item) &&
             (args?.filter === "all" ||
               (args?.filter === "credit" && item.amount > 0) ||
               (args?.filter === "debit" && item.amount < 0) ||
@@ -142,8 +163,13 @@ export async function openRegister(
         const month = all.filter((item) => item.date.startsWith(args!.month));
         const credit = month.filter((item) => item.amount > 0),
           debit = month.filter((item) => item.amount < 0);
-        const pageCount = Math.max(1, Math.ceil(filtered.length / 100)),
-          page = Math.min(args!.page, pageCount);
+        const pageCount = Math.max(1, Math.ceil(filtered.length / 100));
+        const targetIndex = args?.transactionId
+          ? withBalance.findIndex((item) => item.id === args.transactionId)
+          : -1;
+        if (args?.transactionId && targetIndex < 0) throw new Error("Opération introuvable.");
+        const page =
+          targetIndex >= 0 ? Math.floor(targetIndex / 100) + 1 : Math.min(args!.page, pageCount);
         return {
           rows: filtered.slice((page - 1) * 100, page * 100),
           totalCount: all.length,

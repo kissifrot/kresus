@@ -14,44 +14,6 @@ pub struct Category {
     pub(crate) parent_id: Option<String>,
 }
 
-// Import existing text labels exactly once so old operations remain accessible.
-pub(crate) fn migrate_categories(db: &Connection) -> rusqlite::Result<()> {
-    let tx = db.unchecked_transaction()?;
-    let done: bool = tx.query_row(
-        "SELECT EXISTS(SELECT 1 FROM app_metadata WHERE key='categories_v1')",
-        [],
-        |r| r.get(0),
-    )?;
-    if done {
-        return tx.commit();
-    }
-    let labels: Vec<String> = {
-        let mut q = tx.prepare("SELECT category FROM transactions UNION SELECT category FROM schedules UNION SELECT category FROM schedule_overrides")?;
-        let rows = q.query_map([], |r| r.get(0))?;
-        rows.collect::<rusqlite::Result<_>>()?
-    };
-    for label in labels.iter().map(String::as_str).chain([
-        "Divers",
-        "Alimentation",
-        "Logement",
-        "Transports",
-        "Revenus",
-    ]) {
-        let (parent, child) = label
-            .split_once(" · ")
-            .map_or((label, None), |(p, c)| (p, Some(c)));
-        if parent.is_empty() {
-            continue;
-        }
-        tx.execute("INSERT OR IGNORE INTO categories (id,name,parent_id) VALUES (lower(hex(randomblob(16))),?1,NULL)", [parent])?;
-        if let Some(child) = child.filter(|name| !name.is_empty()) {
-            tx.execute("INSERT OR IGNORE INTO categories (id,name,parent_id) SELECT lower(hex(randomblob(16))),?1,id FROM categories WHERE parent_id IS NULL AND name = ?2 COLLATE NOCASE", params![child,parent])?;
-        }
-    }
-    tx.execute("INSERT INTO app_metadata VALUES ('categories_v1','1')", [])?;
-    tx.commit()
-}
-
 fn validate_name(name: &str) -> Result<&str, String> {
     let name = name.trim();
     if name.is_empty() || name.contains('·') {

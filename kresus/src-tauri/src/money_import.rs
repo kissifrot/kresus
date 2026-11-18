@@ -11,6 +11,7 @@ use std::{
 use tauri_plugin_dialog::DialogExt;
 
 const MAX_MONEY_FILE_BYTES: u64 = 64 * 1024 * 1024;
+const MIN_MONEY_DATE: &str = "1970-01-01";
 
 // Bound the read as well as checking metadata, in case the file grows during import.
 fn read_money_file(path: &Path) -> Result<Vec<u8>, String> {
@@ -221,6 +222,10 @@ pub async fn import_money(
             .database
             .lock()
             .map_err(|_| "Base indisponible.".to_string())?;
+        *state
+            .bank_preview
+            .lock()
+            .map_err(|_| "Aperçu indisponible.")? = None;
         *current = db;
         Ok::<(), String>(())
     })();
@@ -235,19 +240,41 @@ pub async fn import_money(
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+fn canonical_money_category<'a>(label: &'a str, fallback: &'a str) -> &'a str {
+    let label = label.trim();
+    if label.eq_ignore_ascii_case("Divers") {
+        fallback
+    } else {
+        label
+    }
+}
+
 fn import_into_database(
     db: &mut Connection,
     preview: &MoneyPreview,
     selection: &[MoneySelection],
 ) -> Result<(), String> {
+    if preview
+        .operations
+        .iter()
+        .any(|op| op.date.as_str() < MIN_MONEY_DATE)
+        || preview.schedules.iter().any(|schedule| {
+            schedule.next_due.as_str() < MIN_MONEY_DATE
+                || schedule
+                    .end_date
+                    .as_deref()
+                    .is_some_and(|end| end < MIN_MONEY_DATE)
+        })
+    {
+        return Err(
+            "L’import Money ne prend pas en charge les dates antérieures au 1er janvier 1970."
+                .into(),
+        );
+    }
     db.execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(database_error)?;
     let tx = db.transaction().map_err(database_error)?;
-    tx.execute_batch(include_str!("schema.sql"))
-        .map_err(database_error)?;
-    tx.execute_batch(include_str!("schedule_future_schema.sql"))
-        .map_err(database_error)?;
-    crate::database::migrate_schedule_payment(&tx).map_err(database_error)?;
+    crate::database::create_schema(&tx)?;
     let selected: HashMap<i64, &str> = selection.iter().map(|s| (s.id, s.kind.as_str())).collect();
     if selected.len() != selection.len()
         || selected.is_empty()
@@ -302,17 +329,18 @@ fn import_into_database(
         )
         .map_err(database_error)?;
     }
-    if !preview
+    let fallback = preview
         .categories
         .iter()
-        .any(|c| c.parent_id.is_none() && c.name.trim().eq_ignore_ascii_case("Divers"))
-    {
+        .find(|c| c.parent_id.is_none() && c.name.trim().eq_ignore_ascii_case("Divers"));
+    if fallback.is_none() {
         tx.execute(
             "INSERT INTO categories VALUES ('money-fallback','Divers',NULL)",
             [],
         )
         .map_err(database_error)?;
     }
+    let fallback = fallback.map_or("Divers", |category| category.name.trim());
     for account in &preview.accounts {
         if let Some(kind) = selected.get(&account.id) {
             tx.execute(
@@ -330,7 +358,7 @@ fn import_into_database(
     }
     for op in &preview.operations {
         if selected.contains_key(&op.account_id) {
-            tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note,reference) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![format!("money-transaction-{}",op.id),format!("money-account-{}",op.account_id),op.date,op.label.trim(),op.category.trim(),op.amount,op.reconciled,op.note.trim(),op.reference.as_deref().map(str::trim)]).map_err(database_error)?;
+            tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note,reference) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![format!("money-transaction-{}",op.id),format!("money-account-{}",op.account_id),op.date,op.label.trim(),canonical_money_category(&op.category, fallback),op.amount,op.reconciled,op.note.trim(),op.reference.as_deref().map(str::trim)]).map_err(database_error)?;
         }
     }
     for transfer in &preview.transfers {
@@ -355,16 +383,19 @@ fn import_into_database(
         }
     }
     for schedule in &preview.schedules {
-        if !selected.contains_key(&schedule.account_id) {
-            continue;
-        }
+        let source_selected = selected.contains_key(&schedule.account_id);
         if let Some(destination) = schedule.destination_account_id {
-            if !selected.contains_key(&destination) {
+            if source_selected != selected.contains_key(&destination) {
                 return Err(format!(
                     "Sélectionnez les deux comptes du virement récurrent « {} ».",
                     schedule.label
                 ));
             }
+        }
+        if !source_selected {
+            continue;
+        }
+        if let Some(destination) = schedule.destination_account_id {
             if schedule.kind != "transfer"
                 || schedule.amount >= 0
                 || destination == schedule.account_id
@@ -428,7 +459,7 @@ fn import_into_database(
         } else {
             &schedule.kind
         };
-        tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,NULLIF(TRIM(?10),''))", params![id,format!("money-account-{}",schedule.account_id),schedule.label.trim(),schedule.category.trim(),schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method,schedule.note.as_deref()]).map_err(database_error)?;
+        tx.execute("INSERT INTO schedules (id,account_id,label,category,next_due,frequency,amount_cents,kind,payment_method,note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,NULLIF(TRIM(?10),''))", params![id,format!("money-account-{}",schedule.account_id),schedule.label.trim(),canonical_money_category(&schedule.category, fallback),schedule.next_due,schedule.frequency,schedule.amount,stored_kind,schedule.payment_method,schedule.note.as_deref()]).map_err(database_error)?;
         if schedule.estimated {
             tx.execute(
                 "INSERT INTO schedule_estimates (schedule_id) VALUES (?1)",
@@ -468,8 +499,6 @@ fn import_into_database(
             .map_err(database_error)?;
         }
     }
-    tx.execute("INSERT INTO app_metadata VALUES ('categories_v1','1')", [])
-        .map_err(database_error)?;
     tx.commit().map_err(database_error)
 }
 

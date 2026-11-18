@@ -1993,6 +1993,8 @@ dependencies = [
 name = "kresus"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "quick-xml",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2001,6 +2003,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
+ "uuid",
 ]
 
 [[package]]

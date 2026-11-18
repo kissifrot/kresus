@@ -54,6 +54,21 @@ pub(crate) fn account(id: &str, kind: &str, balance: f64) -> Account {
         opening_balance: (balance * 100.0).round() as i64,
         bank: "  Bank  ".into(),
         account_number: None,
+        archived: false,
         current_balance: 0,
+        balance_with_future: 0,
     }
+}
+
+pub(crate) fn record_next_schedule(
+    db: &mut Connection,
+    id: &str,
+    transaction_id: &str,
+) -> Result<(), String> {
+    let (original_due, due): (String, String) = db.query_row(
+        "SELECT s.next_due, COALESCE(o.due_date, s.next_due) FROM schedules s LEFT JOIN schedule_overrides o ON o.schedule_id=s.id WHERE s.id=?1",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(crate::database::database_error)?;
+    crate::schedules::record_schedule_in_db(db, id, (&original_due, &due), transaction_id)
 }

@@ -34,7 +34,7 @@ fn imports_schedule_comment_and_copies_it_to_recorded_operation() {
         )
         .unwrap();
     assert_eq!(comment, "garantie santé");
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-80", "schedule-note-test")
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-80", "schedule-note-test")
         .unwrap();
     let recorded: String = db
         .query_row(
@@ -116,7 +116,7 @@ fn imported_overdue_annual_schedule_keeps_due_date_and_advances_one_year() {
         }],
     )
     .unwrap();
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-91", "annual-overdue")
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-91", "annual-overdue")
         .unwrap();
     let result: (String, String, i64) = db.query_row("SELECT next_due, (SELECT operation_date FROM transactions WHERE id='annual-overdue'), (SELECT amount_cents FROM transactions WHERE id='annual-overdue') FROM schedules WHERE id='money-schedule-91'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
     assert_eq!(result, ("2027-10-09".into(), "2026-10-09".into(), -19690));
@@ -152,7 +152,7 @@ fn imported_one_time_schedule_records_once() {
         }],
     )
     .unwrap();
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-99", "once").unwrap();
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-99", "once").unwrap();
     let result: (i64, i64) = db.query_row("SELECT (SELECT amount_cents FROM transactions WHERE id='once'), (SELECT count(*) FROM schedules WHERE id='money-schedule-99')", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
     assert_eq!(result, (-53000, 0));
 }
@@ -226,7 +226,9 @@ fn imports_selected_account_and_preserves_cents_categories_and_operations() {
         }],
     )
     .unwrap();
-    let account = crate::accounts::list_accounts_in_db(&db).unwrap().remove(0);
+    let account = crate::accounts::list_accounts_in_db(&db, "2028-12-31")
+        .unwrap()
+        .remove(0);
     assert_eq!(account.account_number.as_deref(), Some("000123 AB"));
     assert_eq!(
         (
@@ -248,6 +250,81 @@ fn imports_selected_account_and_preserves_cents_categories_and_operations() {
         )
         .unwrap();
     assert!(note.contains("1Carte"));
+}
+
+#[test]
+fn rejects_dates_before_1970_before_creating_the_schema() {
+    let mut preview = fixture();
+    preview.schedules = serde_json::from_value(serde_json::json!([{
+        "id": 1, "accountId": 1, "label": "Charge", "category": "Divers",
+        "nextDue": "1970-01-01", "endDate": "1970-01-01",
+        "frequency": "Mensuelle", "amount": -100, "kind": "debit"
+    }]))
+    .unwrap();
+    let selection = [MoneySelection {
+        id: 1,
+        kind: "Compte courant".into(),
+    }];
+    for field in 0..3 {
+        let mut invalid = preview.clone();
+        let old = "1969-12-31".to_string();
+        match field {
+            0 => invalid.operations[0].date = old,
+            1 => invalid.schedules[0].next_due = old,
+            _ => invalid.schedules[0].end_date = Some(old),
+        }
+        let mut db = Connection::open_in_memory().unwrap();
+        assert!(
+            import_into_database(&mut db, &invalid, &selection)
+                .unwrap_err()
+                .contains("1970")
+        );
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM sqlite_schema", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+    preview.operations[0].date = "1970-01-01".into();
+    let mut db = Connection::open_in_memory().unwrap();
+    import_into_database(&mut db, &preview, &selection).unwrap();
+}
+
+#[test]
+fn fallback_category_uses_the_imported_spelling_for_operations_and_schedules() {
+    let mut preview = fixture();
+    preview.categories.push(MoneyCategory {
+        id: 99,
+        name: "  DIVERS  ".into(),
+        parent_id: None,
+    });
+    preview.schedules = serde_json::from_value(serde_json::json!([{
+        "id": 1, "accountId": 1, "label": "Charge", "category": "Divers",
+        "nextDue": "2027-01-01", "frequency": "Mensuelle", "amount": -100, "kind": "debit"
+    }]))
+    .unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    import_into_database(
+        &mut db,
+        &preview,
+        &[MoneySelection {
+            id: 1,
+            kind: "Compte courant".into(),
+        }],
+    )
+    .unwrap();
+    for query in [
+        "SELECT name FROM categories WHERE id='money-cat-99'",
+        "SELECT category FROM transactions WHERE id='money-transaction-2'",
+        "SELECT category FROM schedules WHERE id='money-schedule-1'",
+    ] {
+        assert_eq!(
+            db.query_row(query, [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "DIVERS"
+        );
+    }
 }
 
 #[test]
@@ -491,7 +568,7 @@ fn synthetic_posted_transfers_preserve_both_operations_and_balances() {
     import_into_database(&mut db, &posted_transfer_fixture(), &both_accounts()).unwrap();
     let rows: (i64, i64, i64, i64, String, String) = db.query_row("SELECT d.amount_cents,c.amount_cents,d.reconciled,c.reconciled,d.note,c.note FROM transfers t JOIN transactions d ON d.id=t.debit_id JOIN transactions c ON c.id=t.credit_id WHERE t.id='money-transfer-10-11'", [], |r| Ok((r.get(0)?, r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).unwrap();
     assert_eq!(rows, (-10000, 10000, 1, 0, "Débit".into(), "Crédit".into()));
-    let accounts = crate::accounts::list_accounts_in_db(&db).unwrap();
+    let accounts = crate::accounts::list_accounts_in_db(&db, "2028-12-31").unwrap();
     assert_eq!(
         accounts
             .iter()
@@ -611,28 +688,27 @@ fn imported_transfer_series_requires_both_accounts_and_records_linked_operations
         remaining_count: None,
         end_date: None,
     });
-    let mut missing = Connection::open_in_memory().unwrap();
-    assert!(
-        import_into_database(
+    for id in [1, 2] {
+        let mut missing = Connection::open_in_memory().unwrap();
+        let error = import_into_database(
             &mut missing,
             &preview,
             &[MoneySelection {
-                id: 1,
-                kind: "Compte courant".into()
-            }]
+                id,
+                kind: "Compte courant".into(),
+            }],
         )
-        .is_err()
-    );
-    assert_eq!(
-        missing
+        .unwrap_err();
+        assert!(error.contains("Sélectionnez les deux comptes du virement récurrent"));
+        let tables: i64 = missing
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type='table'",
                 [],
-                |r| r.get::<_, i64>(0)
+                |r| r.get(0),
             )
-            .unwrap(),
-        0
-    );
+            .unwrap();
+        assert_eq!(tables, 0);
+    }
     let mut db = Connection::open_in_memory().unwrap();
     import_into_database(
         &mut db,
@@ -657,7 +733,7 @@ fn imported_transfer_series_requires_both_accounts_and_records_linked_operations
         )
         .unwrap();
     assert_eq!(method, "automatic");
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-8", "import-transfer")
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-8", "import-transfer")
         .unwrap();
     let values: (String, i64, i64) = db.query_row("SELECT next_due, (SELECT amount_cents FROM transactions WHERE id='import-transfer-debit'), (SELECT amount_cents FROM transactions WHERE id='import-transfer-credit') FROM schedules WHERE id='money-schedule-8'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
     assert_eq!(values, ("2028-03-31".into(), -10000, 10000));
@@ -702,10 +778,11 @@ fn imported_twice_monthly_transfer_creates_linked_entries_and_advances() {
     });
     let mut db = Connection::open_in_memory().unwrap();
     import_into_database(&mut db, &preview, &both_accounts()).unwrap();
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "semi-transfer").unwrap();
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-9", "semi-transfer")
+        .unwrap();
     let result: (String, i64, i64, i64) = db.query_row("SELECT next_due, (SELECT amount_cents FROM transactions WHERE id='semi-transfer-debit'), (SELECT amount_cents FROM transactions WHERE id='semi-transfer-credit'), (SELECT count(*) FROM transfers WHERE id='semi-transfer') FROM schedules WHERE id='money-schedule-9'", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
     assert_eq!(result, ("2026-10-31".into(), -10000, 10000, 1));
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "semi-next").unwrap();
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-9", "semi-next").unwrap();
     assert_eq!(
         db.query_row(
             "SELECT next_due FROM schedules WHERE id='money-schedule-9'",
@@ -757,7 +834,7 @@ fn imported_semiannual_debit_persists_and_advances_every_six_months() {
         ("semiannual-first", "2027-05-13"),
         ("semiannual-second", "2027-11-13"),
     ] {
-        crate::schedules::record_schedule_in_db(&mut db, "money-schedule-12", id).unwrap();
+        crate::test_support::record_next_schedule(&mut db, "money-schedule-12", id).unwrap();
         let value: (String, String, i64) = db.query_row(
             "SELECT frequency, next_due, (SELECT amount_cents FROM transactions WHERE id=?1) FROM schedules WHERE id='money-schedule-12'",
             [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -796,7 +873,7 @@ fn imported_quarterly_debit_advances_by_three_months() {
         }],
     )
     .unwrap();
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "quarterly-first")
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-9", "quarterly-first")
         .unwrap();
     let result: (String, String, i64) = db.query_row(
         "SELECT frequency, next_due, (SELECT amount_cents FROM transactions WHERE id='quarterly-first') FROM schedules WHERE id='money-schedule-9'",
@@ -839,7 +916,7 @@ fn imported_schedule_limits_are_atomic_and_enforced() {
             }],
         )
         .unwrap();
-        crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "limit-first")
+        crate::test_support::record_next_schedule(&mut db, "money-schedule-9", "limit-first")
             .unwrap();
         assert_eq!(
             db.query_row(
@@ -850,7 +927,8 @@ fn imported_schedule_limits_are_atomic_and_enforced() {
             .unwrap(),
             "2028-02-29"
         );
-        crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "limit-last").unwrap();
+        crate::test_support::record_next_schedule(&mut db, "money-schedule-9", "limit-last")
+            .unwrap();
         assert_eq!(
             db.query_row(
                 "SELECT count(*) FROM schedules WHERE id='money-schedule-9'",
@@ -916,7 +994,7 @@ fn imported_started_series_preserves_month_end_anchor() {
         }],
     )
     .unwrap();
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "first").unwrap();
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-9", "first").unwrap();
     assert_eq!(
         db.query_row(
             "SELECT next_due FROM schedules WHERE id='money-schedule-9'",
@@ -926,7 +1004,7 @@ fn imported_started_series_preserves_month_end_anchor() {
         .unwrap(),
         "2028-03-31"
     );
-    crate::schedules::record_schedule_in_db(&mut db, "money-schedule-9", "last").unwrap();
+    crate::test_support::record_next_schedule(&mut db, "money-schedule-9", "last").unwrap();
     assert_eq!(
         db.query_row(
             "SELECT count(*) FROM schedules WHERE id='money-schedule-9'",

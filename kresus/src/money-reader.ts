@@ -5,7 +5,7 @@ import createHash from "create-hash";
 import { Buffer } from "buffer";
 import MDBReader from "mdb-reader";
 import { FREQUENCY, type Frequency } from "./frequency";
-import { displayReference } from "./format";
+import { displayReference, MIN_CALENDAR_DATE } from "./format";
 
 type Row = Record<string, any>;
 // mdb-reader’s browser build expects the standard Buffer global.
@@ -527,8 +527,9 @@ export function inspect(buffer: Buffer) {
   const transfers = readPostedTransfers(rows("TRN_XFER"), tx, rows("BILL"), bank);
   const transferIds = new Set(transfers.flatMap((pair) => [pair.debitId, pair.creditId]));
   // Reject category trees that cannot be represented without losing information.
+  const importedCategories = categories.filter((c) => c.hct === 0 && c.nLevel > 0);
   const seen = new Set<string>();
-  for (const category of categories.filter((c) => c.hct === 0 && c.nLevel > 0)) {
+  for (const category of importedCategories) {
     const name = String(category.szFull ?? "").trim();
     const parent = categories.find((c) => c.hcat === category.hcatParent);
     if (
@@ -547,9 +548,14 @@ export function inspect(buffer: Buffer) {
       );
     seen.add(key);
   }
+  const fallbackCategory = importedCategories.find(
+    (category) =>
+      category.nLevel === 1 && String(category.szFull).trim().toLowerCase() === "divers",
+  );
+  const fallbackLabel = fallbackCategory ? String(fallbackCategory.szFull).trim() : "Divers";
   const label = (id: number) => {
     const category = categories.find((c) => c.hcat === id);
-    if (!category || category.nLevel === 0) return "Divers";
+    if (!category || category.nLevel === 0) return fallbackLabel;
     const parent = categories.find((c) => c.hcat === category.hcatParent);
     return category.nLevel === 2
       ? `${String(parent?.szFull ?? "").trim()} · ${String(category.szFull ?? "").trim()}`
@@ -595,6 +601,18 @@ export function inspect(buffer: Buffer) {
     payees,
     label,
   );
+  if (
+    operations.some((operation) => operation.date < MIN_CALENDAR_DATE) ||
+    scheduleResult.schedules.some(
+      (schedule) =>
+        schedule.nextDue < MIN_CALENDAR_DATE ||
+        (schedule.endDate != null && schedule.endDate < MIN_CALENDAR_DATE),
+    )
+  ) {
+    throw new Error(
+      "L’import Money ne prend pas en charge les dates antérieures au 1er janvier 1970.",
+    );
+  }
   return {
     schedules: scheduleResult.schedules,
     skippedSchedules: scheduleResult.skippedSchedules,
@@ -622,13 +640,11 @@ export function inspect(buffer: Buffer) {
         count: entries.length,
       };
     }),
-    categories: categories
-      .filter((c) => c.hct === 0 && c.nLevel > 0)
-      .map((c) => ({
-        id: c.hcat,
-        name: String(c.szFull).trim(),
-        parentId: c.nLevel === 2 ? c.hcatParent : null,
-      })),
+    categories: importedCategories.map((c) => ({
+      id: c.hcat,
+      name: String(c.szFull).trim(),
+      parentId: c.nLevel === 2 ? c.hcatParent : null,
+    })),
     operations,
   };
 }

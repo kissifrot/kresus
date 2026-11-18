@@ -28,6 +28,8 @@ def generate(path: Path, count: int, years: int = 10) -> None:
         with closing(sqlite3.connect(path)) as db, db:
             db.execute("PRAGMA foreign_keys = ON")
             db.executescript(SCHEMA.read_text(encoding="utf-8"))
+            for extension in ("account_archive_schema.sql", "bank_statement_schema.sql"):
+                db.executescript(SCHEMA.with_name(extension).read_text(encoding="utf-8"))
             db.executemany("INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES (?, ?, ?, ?, ?)", [
                 ("test-courant", "Compte courant — test", "Compte courant", 150000, "Banque fictive"),
                 ("test-epargne", "Livret — test", "Épargne", 500000, "Banque fictive"),
@@ -38,7 +40,6 @@ def generate(path: Path, count: int, years: int = 10) -> None:
                 ("transport", "Transports", None), ("leisure", "Loisirs", None),
                 ("revenue", "Revenus", None), ("other", "Divers", None),
             ])
-            db.execute("INSERT INTO app_metadata VALUES ('categories_v1', '1')")
             expenses = [
                 ("Marché des Halles", "Alimentation · Épicerie"), ("Supermarché du Centre", "Alimentation"),
                 ("Électricité fictive", "Factures"), ("Transports urbains", "Transports"),

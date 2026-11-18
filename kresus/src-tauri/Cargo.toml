@@ -28,6 +28,9 @@ serde_json = "1"
 rusqlite = { version = "0.43", features = ["bundled", "functions", "backup"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
+quick-xml = "0.42"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

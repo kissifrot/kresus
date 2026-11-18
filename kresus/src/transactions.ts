@@ -1,6 +1,13 @@
 import { REFERENCE_LIMIT, TEXT_NAME_LIMIT } from "./text-limits";
 import { invoke } from "@tauri-apps/api/core";
-import { transactions, accounts, selectedAccount, setTransactions, setAccounts } from "./state";
+import {
+  transactions,
+  accounts,
+  selectedAccount,
+  setTransactions,
+  setAccounts,
+  setSelectedAccount,
+} from "./state";
 import type { Account, Transaction } from "./types";
 import {
   escapeHtml,
@@ -40,18 +47,23 @@ const pageSize = 100;
 let transactionPage = 1;
 let pageAccountId: string | undefined;
 
-type RegisterPage = {
-  rows: (Transaction & { runningBalance: number })[];
-  totalCount: number;
+type OperationSearchPage = {
+  rows: Transaction[];
   filteredCount: number;
+  page: number;
+  pageCount: number;
+};
+
+type RegisterPage = Omit<OperationSearchPage, "rows"> & {
+  rows: (Transaction & { runningBalance: number; bankDate?: string | null })[];
+  totalCount: number;
   unreconciledCount: number;
   income: number;
   expenses: number;
   creditCount: number;
   debitCount: number;
-  page: number;
-  pageCount: number;
 };
+let searchPage: OperationSearchPage | undefined;
 let registerPage: RegisterPage | undefined;
 let requestVersion = 0;
 
@@ -61,6 +73,7 @@ export function resetRegister() {
   transactionPage = 1;
   pageAccountId = undefined;
   registerPage = undefined;
+  searchPage = undefined;
   transactionFilter = "all";
   transactionSearch = "";
   amountRange = null;
@@ -68,21 +81,22 @@ export function resetRegister() {
   setTransactions([]);
 }
 
-export function registerSummary() {
+export function registerSummary(allAccounts = false) {
   const accountId = selectedAccount?.id;
   const result = pageAccountId === accountId ? registerPage : undefined;
+  const account = accounts.find((item) => item.id === accountId);
+  const pagination = allAccounts ? searchPage : result;
   return {
     rows: result?.rows ?? [],
+    searchRows: searchPage?.rows ?? [],
     totalCount: result?.totalCount ?? 0,
     unreconciledCount: result?.unreconciledCount ?? 0,
-    balance:
-      accounts.find((account) => account.id === accountId)?.currentBalance ??
-      selectedAccount?.openingBalance ??
-      0,
-    filteredCount: result?.filteredCount ?? 0,
-    pageCount: result?.pageCount ?? 1,
-    page: result?.page ?? 1,
-    start: ((result?.page ?? 1) - 1) * pageSize,
+    balance: account?.currentBalance ?? selectedAccount?.openingBalance ?? 0,
+    balanceWithFuture: account?.balanceWithFuture,
+    filteredCount: pagination?.filteredCount ?? 0,
+    pageCount: pagination?.pageCount ?? 1,
+    page: pagination?.page ?? 1,
+    start: ((pagination?.page ?? 1) - 1) * pageSize,
     income: result?.income ?? 0,
     expenses: result?.expenses ?? 0,
     creditCount: result?.creditCount ?? 0,
@@ -115,7 +129,7 @@ function renderRegisterFilterDialog(id: string, title: string, fields: string) {
   </dialog>`;
 }
 
-export function renderAmountFilterDialog() {
+export function renderAmountFilterDialog(allAccounts = false) {
   return renderRegisterFilterDialog(
     "amount-filter",
     "Filtrer par montant",
@@ -125,7 +139,7 @@ export function renderAmountFilterDialog() {
         <label>Minimum (€)<input name="min" type="text" inputmode="decimal" placeholder="Sans minimum"></label>
         <label>Maximum (€)<input name="max" type="text" inputmode="decimal" placeholder="Sans maximum"></label>
       </div>
-      <p class="register-filter-help">Saisissez le montant sans signe. Pour choisir le sens, utilisez le filtre Débits ou Crédits.</p>`,
+      <p class="register-filter-help">Saisissez le montant sans signe.${allAccounts ? "" : " Pour choisir le sens, utilisez le filtre Débits ou Crédits."}</p>`,
   );
 }
 
@@ -312,16 +326,29 @@ export function bindTransactionFilter() {
       void refreshTransactions();
     });
   }
-  document
-    .querySelector<HTMLFormElement>("#transaction-search-form")
-    ?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      transactionSearch = document
-        .querySelector<HTMLInputElement>("#transaction-search")!
-        .value.trim();
-      transactionPage = 1;
-      void refreshTransactions();
+  const searchInput = document.querySelector<HTMLInputElement>("#transaction-search");
+  const scope = document.querySelector<HTMLSelectElement>("#transaction-search-scope");
+  const submitSearch = async () => {
+    transactionSearch = searchInput!.value.trim();
+    transactionPage = 1;
+    await refreshTransactions();
+  };
+  searchInput?.form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void submitSearch();
+  });
+  scope?.addEventListener("change", async () => {
+    await submitSearch();
+    if (document.activeElement === document.body)
+      document.getElementById("transaction-search-scope")?.focus();
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-search-result]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const result = searchPage?.rows.find((row) => row.id === button.dataset.searchResult);
+      const account = accounts.find((account) => account.id === result?.accountId);
+      if (result && account) void refreshTransactions({ target: { account, id: result.id } });
     });
+  });
   document
     .querySelector<HTMLSelectElement>("#transaction-filter")
     ?.addEventListener("change", (event) => {
@@ -553,10 +580,28 @@ export function bindTransactionActions() {
         `Enregistrement impossible : ${String(error)}`;
     }
   });
-  document.querySelectorAll<HTMLElement>("[data-reconcile]").forEach((button) =>
+  document.querySelectorAll<HTMLButtonElement>("[data-reconcile]").forEach((button) =>
     button.addEventListener("click", async () => {
-      await invoke("toggle_transaction_reconciliation", { id: button.dataset.reconcile });
-      await refreshTransactions();
+      const id = button.dataset.reconcile;
+      const hadFocus = document.activeElement === button;
+      button.disabled = true;
+      try {
+        await invoke("toggle_transaction_reconciliation", { id });
+        await refreshTransactions({ strict: true });
+        if (hadFocus && document.activeElement === document.body) {
+          Array.from(document.querySelectorAll<HTMLButtonElement>("[data-reconcile]"))
+            .find((next) => next.dataset.reconcile === id)
+            ?.focus({ preventScroll: true });
+        }
+      } catch (error) {
+        const feedback = button
+          .closest(".page-content")
+          ?.querySelector<HTMLElement>(".register-error");
+        if (feedback)
+          feedback.textContent = `Actualisation du pointage impossible. ${String(error)}`;
+      } finally {
+        button.disabled = false;
+      }
     }),
   );
   const deleteDialog = document.querySelector<HTMLDialogElement>("#delete-transaction-dialog")!;
@@ -603,14 +648,29 @@ function closeDialog() {
   document.querySelector<HTMLDialogElement>("#transaction-dialog")?.close();
 }
 // Reload after a mutation so the register reflects the database state.
-export async function refreshTransactions(strict = false) {
-  const accountId = selectedAccount?.id;
+export async function refreshTransactions({
+  strict = false,
+  showRegister = false,
+  target,
+}: { strict?: boolean; showRegister?: boolean; target?: { account: Account; id: string } } = {}) {
+  // Keep the cache fresh without replacing a view opened while the request was pending.
+  const view = document.querySelector(".page-content");
+  const sameView = () => document.querySelector(".page-content") === view;
+  const canRender = () =>
+    sameView() && (showRegister || view?.querySelector(".transactions-panel"));
+  const scope = view?.querySelector<HTMLSelectElement>("#transaction-search-scope");
+  const allAccounts = !target && !showRegister && scope?.value === "all";
+  const accountId = target?.account.id ?? selectedAccount?.id;
   if (accountId === undefined) {
     resetRegister();
-    render();
+    if (canRender()) render();
     return;
   }
-  if (pageAccountId !== accountId) {
+  if (
+    !target &&
+    !allAccounts &&
+    (pageAccountId !== accountId || (showRegister && scope?.value === "all"))
+  ) {
     pageAccountId = accountId;
     transactionPage = 1;
     registerPage = undefined;
@@ -619,50 +679,65 @@ export async function refreshTransactions(strict = false) {
     dateRange = null;
   }
   const version = ++requestVersion;
-  const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const criteria = { search: transactionSearch, amountRange, dateRange };
   try {
+    if (allAccounts) {
+      const result = await invoke<OperationSearchPage>("search_operations", {
+        ...criteria,
+        page: transactionPage,
+      });
+      if (version !== requestVersion || !canRender()) return;
+      searchPage = result;
+      transactionPage = result.page;
+      render(true);
+      return;
+    }
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const [updatedAccounts, result] = await Promise.all([
-      invoke<Account[]>("list_accounts"),
+      invoke<Account[]>("list_accounts", { today: localDate(now) }),
       invoke<RegisterPage>("list_register", {
         accountId,
-        filter: transactionFilter,
-        page: transactionPage,
         month,
-        search: transactionSearch,
-        amountRange,
-        dateRange,
+        ...(target
+          ? { filter: "all", page: 1, transactionId: target.id }
+          : { ...criteria, filter: transactionFilter, page: transactionPage }),
       }),
     ]);
     // A slower earlier request must not replace a newer page or account.
-    if (version !== requestVersion || selectedAccount?.id !== accountId) return;
+    if (version !== requestVersion || (target ? !canRender() : selectedAccount?.id !== accountId))
+      return;
+    if (target) {
+      resetRegister();
+      setSelectedAccount(
+        updatedAccounts.find((account) => account.id === accountId) ?? target.account,
+      );
+      pageAccountId = accountId;
+    }
     setAccounts(updatedAccounts);
     registerPage = result;
     transactionPage = result.page;
     setTransactions(result.rows);
-    render();
+    if (canRender()) {
+      render();
+      if (target) {
+        const row = Array.from(
+          document.querySelectorAll<HTMLTableRowElement>("tr[data-transaction]"),
+        ).find((item) => item.dataset.transaction === target.id);
+        row?.classList.add("located");
+        row?.focus();
+      }
+    }
   } catch (error) {
     if (version !== requestVersion) return;
     if (strict) throw error;
-    const target = document.querySelector<HTMLElement>(".register-error");
-    if (target) target.textContent = `Chargement des opérations impossible : ${String(error)}`;
-    else throw error;
-  }
-}
-// Import user-created entries from the prototype's browser storage once.
-export async function migrateBrowserTransactions() {
-  const legacyData = localStorage.getItem("kresus.transactions.v1");
-  if (!legacyData) return;
-  try {
-    const legacyTransactions = JSON.parse(legacyData) as Transaction[];
-    const imported = legacyTransactions.filter((transaction) => !/^t\d+$/.test(transaction.id));
-    for (const transaction of imported) {
-      await invoke("create_transaction", {
-        transaction: { ...transaction, amount: parseCents(String(transaction.amount)) },
-      });
-    }
-    localStorage.removeItem("kresus.transactions.v1");
-  } catch (error) {
-    console.error("La migration des anciennes opérations a échoué.", error);
+    if (!sameView()) return;
+    if (scope) scope.value = scope.dataset.renderedScope!;
+    const message = view?.querySelector<HTMLElement>(".register-error");
+    if (message)
+      message.textContent = target
+        ? `Ouverture de l’opération impossible : ${String(error)}`
+        : `Chargement des opérations impossible : ${String(error)}`;
+    else if (canRender()) throw error;
   }
 }

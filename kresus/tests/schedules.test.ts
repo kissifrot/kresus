@@ -543,7 +543,12 @@ describe("schedule calendar", () => {
     ).toBe("Ancienne");
     (document.querySelector(".schedule-close.secondary-button") as HTMLButtonElement).click();
     (rows[0].querySelector("[data-record-schedule]") as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("record_schedule", { id: "older" }));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "record_schedule",
+        expect.objectContaining({ id: "older" }),
+      ),
+    );
     await vi.waitFor(() =>
       expect(document.querySelector(".schedule-list")?.textContent).not.toContain("2025"),
     );
