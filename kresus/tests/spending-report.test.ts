@@ -73,6 +73,38 @@ describe("spending report", () => {
     expect(document.querySelector(".spending-total")?.textContent).toContain("7,00");
   });
 
+  it("attributes split parts to their categories with one net expense", async () => {
+    await openRegister({
+      transactions: [
+        {
+          id: "split",
+          accountId: "one",
+          date: "2027-01-15",
+          label: "Ventilation",
+          category: "",
+          amount: -100,
+          reconciled: true,
+          splits: [
+            { category: "Alimentation", amount: -80.01 },
+            { category: "Entretien", amount: -22.99 },
+            { category: "Remise", amount: 3 },
+          ],
+        },
+      ],
+    });
+    click("#spending-nav");
+    await vi.waitFor(() =>
+      expect(document.querySelector(".spending-total")?.textContent).toContain("100,00"),
+    );
+    const rows = Array.from(document.querySelectorAll(".spending-row"), (row) => row.textContent);
+    expect(rows).toEqual([
+      expect.stringMatching(/Alimentation.*80,01/),
+      expect.stringMatching(/Entretien.*22,99/),
+      expect.stringMatching(/Remise.*-3,00/),
+    ]);
+    expect(document.querySelectorAll(".spending-chart circle")).toHaveLength(2);
+  });
+
   it("handles empty and invalid periods without presenting misleading totals", async () => {
     await openRegister();
     click("#spending-nav");

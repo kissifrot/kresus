@@ -24,6 +24,7 @@ import { render } from "./accounts";
 import { bindCategoryCreation, categoryOptions } from "./categories";
 import { openTransferEditor } from "./transfers";
 import { loadPayeeSuggestions } from "./payees";
+import { bindSplitEditor, splitControls } from "./transaction-splits";
 
 type TransactionFilter =
   "all" | "unreconciled" | "reconciled" | "debit" | "credit" | "month-debit" | "month-credit";
@@ -423,13 +424,14 @@ export function bindTransactionActions() {
         <form class="transaction-editor">
           <label>Date<input name="date" type="date" min="${MIN_CALENDAR_DATE}" required value="${escapeHtml(item.date)}"></label>
           <label>Tiers<input name="label" list="edit-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
-          <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
+          <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(item.splits?.[0]?.category ?? item.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
           <label>Réf. / N° chèque<input name="reference" maxlength="${REFERENCE_LIMIT}" value="${escapeHtml(initialReference)}"></label>
           <label>Type<select name="type">
             <option value="debit" ${item.amount < 0 ? "selected" : ""}>Débit</option>
             <option value="credit" ${item.amount > 0 ? "selected" : ""}>Crédit</option>
           </select></label>
           <label>Montant (€)<input name="amount" type="text" inputmode="decimal" required value="${centsInput(Math.abs(item.amount))}"></label>
+          ${splitControls}
           <label class="editor-note">Commentaire<textarea name="note" rows="2" placeholder="Ajouter un commentaire (facultatif)">${escapeHtml(item.note ?? "")}</textarea></label>
           <div class="editor-actions">
             <button type="submit" class="primary-button">Enregistrer</button>
@@ -438,7 +440,9 @@ export function bindTransactionActions() {
           <p class="editor-error" role="alert"></p>
         </form>`;
       document.querySelector(".transactions-panel")!.after(editor);
-      bindCategoryCreation(editor.querySelector<HTMLFormElement>(".transaction-editor")!);
+      const form = editor.querySelector<HTMLFormElement>(".transaction-editor")!;
+      bindCategoryCreation(form);
+      const splits = bindSplitEditor(form, item.splits, Math.sign(item.amount));
       if (keyboard) editor.querySelector<HTMLInputElement>('input[name="label"]')?.focus();
       void loadPayeeSuggestions(
         editor.querySelector<HTMLDataListElement>("#edit-payee-suggestions")!,
@@ -451,7 +455,9 @@ export function bindTransactionActions() {
         const form = submitEvent.currentTarget as HTMLFormElement;
         const values = new FormData(form);
         try {
-          const amount = parsePositiveCents(String(values.get("amount")));
+          const amount =
+            parsePositiveCents(String(values.get("amount"))) *
+            (values.get("type") === "credit" ? 1 : -1);
           const reference = String(values.get("reference") ?? "").trim();
           await invoke("update_transaction", {
             transaction: {
@@ -459,11 +465,12 @@ export function bindTransactionActions() {
               accountId: item.accountId,
               date: String(values.get("date")),
               label: String(values.get("label")).trim(),
-              category: String(values.get("category")).trim(),
+              category: String(values.get("category") ?? "").trim(),
               cheque: null,
               note: String(values.get("note") ?? "").trim(),
               reference,
-              amount: values.get("type") === "credit" ? amount : -amount,
+              amount,
+              splits: splits.read(amount),
             },
           });
           await saved();
@@ -486,6 +493,7 @@ export function bindTransactionActions() {
   });
   const creationForm = document.querySelector<HTMLFormElement>("#transaction-form")!;
   bindCategoryCreation(creationForm);
+  const creationSplits = bindSplitEditor(creationForm);
   // A transfer has two accounts; ordinary debits and credits have a payee and reference.
   function updateCreationType() {
     const transfer =
@@ -516,6 +524,7 @@ export function bindTransactionActions() {
     const dialog = document.querySelector<HTMLDialogElement>("#transaction-dialog")!;
     const suggestions = dialog.querySelector<HTMLDataListElement>("#payee-suggestions")!;
     creationForm.reset();
+    creationSplits.reset();
     (creationForm.elements.namedItem("sourceId") as HTMLSelectElement).value = account.id;
     (creationForm.elements.namedItem("destinationId") as HTMLSelectElement).value =
       accounts.find((candidate) => candidate.id !== account.id)?.id ?? "";
@@ -560,19 +569,22 @@ export function bindTransactionActions() {
             note: String(values.get("note") ?? "").trim(),
           },
         });
-      } else
+      } else {
+        const signedAmount = values.get("type") === "credit" ? amount : -amount;
         await invoke("create_transaction", {
           transaction: {
             id: crypto.randomUUID(),
             accountId: account.id,
             date: String(values.get("date")),
             label: String(values.get("label")).trim(),
-            category: String(values.get("category")),
+            category: String(values.get("category") ?? ""),
             reference: String(values.get("reference") ?? "").trim() || null,
             note: String(values.get("note") ?? "").trim(),
-            amount: values.get("type") === "credit" ? amount : -amount,
+            amount: signedAmount,
+            splits: creationSplits.read(signedAmount),
           },
         });
+      }
       closeDialog();
       await refreshTransactions();
     } catch (error) {

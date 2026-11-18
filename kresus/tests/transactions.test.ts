@@ -21,6 +21,49 @@ describe("transaction register", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("ventilates an operation on creation and reopens its detail from the single pointed row", async () => {
+    const invoke = await openRegister();
+    click("#new-transaction");
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    field(form, "label").value = "Ticket ventilé";
+    field(form, "amount").value = "100";
+    click("#transaction-form .toggle-splits");
+    const parts = form.querySelectorAll(".split-row");
+    parts[0]!.querySelector<HTMLSelectElement>("select")!.value = "Alimentation";
+    parts[1]!.querySelector<HTMLSelectElement>("select")!.value = "Divers";
+    parts[0]!.querySelector<HTMLInputElement>(".split-amount")!.value = "80";
+    const second = parts[1]!.querySelector<HTMLInputElement>(".split-amount")!;
+    second.value = "19,99";
+    second.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(form.querySelector(".split-balance")?.textContent).toContain("0,01");
+    submit(form);
+    expect(form.querySelector(".transaction-error")?.textContent).toContain("somme");
+    expect(invoke.mock.calls.some(([command]) => command === "create_transaction")).toBe(false);
+    second.value = "20";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(document.querySelector("tbody")?.textContent).toContain("Ticket ventilé"),
+    );
+    const row = Array.from(
+      document.querySelectorAll<HTMLTableRowElement>("tr[data-transaction]"),
+    ).find((item) => item.textContent?.includes("Ticket ventilé"))!;
+    expect(row.querySelectorAll("[data-reconcile]")).toHaveLength(1);
+    expect(row.textContent).toContain("Ventilée");
+    click(`[data-reconcile="${row.dataset.transaction}"]`);
+    await vi.waitFor(() =>
+      expect(
+        document
+          .querySelector(`[data-reconcile="${row.dataset.transaction}"]`)
+          ?.getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    click(`[data-transaction="${row.dataset.transaction}"]`);
+    const edit = document.querySelector(".transaction-editor")!;
+    expect(
+      Array.from(edit.querySelectorAll<HTMLInputElement>(".split-amount"), (part) => part.value),
+    ).toEqual(["80,00", "20,00"]);
+  });
+
   it("creates and selects a subcategory without losing the operation being entered", async () => {
     const invoke = await openRegister();
     click("#new-transaction");

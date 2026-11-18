@@ -85,6 +85,8 @@ struct MoneyOperation {
     amount: i64,
     reconciled: bool,
     note: String,
+    #[serde(default)]
+    splits: Vec<crate::transactions::TransactionSplit>,
 }
 // A reviewed Money pair keeps the original debit and credit records independently.
 #[derive(Clone, Serialize, Deserialize)]
@@ -301,6 +303,8 @@ fn import_into_database(
         if !paired.insert(debit.id)
             || !paired.insert(credit.id)
             || debit.account_id == credit.account_id
+            || !debit.splits.is_empty()
+            || !credit.splits.is_empty()
             || debit.amount >= 0
             || debit.amount.checked_neg() != Some(credit.amount)
         {
@@ -358,7 +362,14 @@ fn import_into_database(
     }
     for op in &preview.operations {
         if selected.contains_key(&op.account_id) {
-            tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note,reference) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![format!("money-transaction-{}",op.id),format!("money-account-{}",op.account_id),op.date,op.label.trim(),canonical_money_category(&op.category, fallback),op.amount,op.reconciled,op.note.trim(),op.reference.as_deref().map(str::trim)]).map_err(database_error)?;
+            let id = format!("money-transaction-{}", op.id);
+            let category = if op.splits.is_empty() {
+                canonical_money_category(&op.category, fallback)
+            } else {
+                ""
+            };
+            tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note,reference) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![id,format!("money-account-{}",op.account_id),op.date,op.label.trim(),category,op.amount,op.reconciled,op.note.trim(),op.reference.as_deref().map(str::trim)]).map_err(database_error)?;
+            crate::transactions::replace_splits(&tx, &id, op.amount, &op.splits)?;
         }
     }
     for transfer in &preview.transfers {

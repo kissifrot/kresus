@@ -1577,6 +1577,54 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
   await click("#end-reconciliation");
   console.log("Relevé OFX : aperçu, rapprochement, ajout, doublons et écart de clôture vérifiés");
 
+  await click("#new-transaction");
+  await fill("#transaction-form", { label: "Achat ventilé recette", amount: "100" });
+  await click("#transaction-form .toggle-splits");
+  await execute(`
+    const lines = document.querySelectorAll('#transaction-form .split-row');
+    lines[0].querySelector('select').value = 'Alimentation · Recette rapide';
+    lines[1].querySelector('select').value = 'Factures';
+    lines[0].querySelector('.split-amount').value = '80,25';
+    const last = lines[1].querySelector('.split-amount');
+    last.value = '19,75';
+    last.dispatchEvent(new Event('input', { bubbles: true }));
+  `);
+  await waitFor(
+    async () => (await text("#transaction-form .split-balance")).includes("entièrement ventilé"),
+    "Total de la ventilation",
+  );
+  await click('#transaction-form button[type="submit"]');
+  await waitFor(
+    async () => (await text("tbody")).includes("Achat ventilé recette"),
+    "Enregistrement de l’écriture ventilée",
+  );
+  const splitRegister = await execute(`
+    const rows = [...document.querySelectorAll('tr[data-transaction]')]
+      .filter(row => row.textContent.includes('Achat ventilé recette'));
+    return rows.map(row => [row.dataset.transaction, row.querySelectorAll('[data-reconcile]').length]);
+  `);
+  if (splitRegister.length !== 1 || splitRegister[0][1] !== 1)
+    throw new Error("Une écriture ventilée doit comporter un seul pointage.");
+  const splitId = splitRegister[0][0];
+  await click(`[data-reconcile="${splitId}"]`);
+  await waitFor(
+    () => visible(`[data-reconcile="${splitId}"][aria-pressed="true"]`),
+    "Pointage de la ventilation",
+  );
+  await click("#spending-nav");
+  await waitFor(
+    () =>
+      execute(`
+      return [...document.querySelectorAll('.spending-row')].some(row =>
+        row.textContent.includes('Recette rapide') && row.textContent.includes('80,25')
+      );
+    `),
+    "Part de l’écriture ventilée dans le rapport",
+  );
+  await click(`[data-account="${receiptId}"]`);
+  await waitFor(() => visible(`[data-transaction="${splitId}"]`), "Retour au registre ventilé");
+  console.log("Ventilation : écriture unique, pointage et part dans le rapport vérifiés");
+
   await click("#edit-account");
   await fill("#account-settings-form", { name: "Compte clôturé", bank: "Nouvelle banque" });
   await click('#account-settings-form [name="archived"]');

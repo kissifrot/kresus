@@ -21,6 +21,7 @@ type Transaction = {
   reconciled: boolean;
   transferId?: string;
   note?: string;
+  splits?: { category: string; amount: number; note?: string }[];
   reference?: string | null;
 };
 
@@ -66,7 +67,11 @@ export async function openRegister(
         reconciled: true,
       },
     ]
-  ).map((item) => ({ ...item, amount: Math.round(item.amount * 100) }));
+  ).map((item) => ({
+    ...item,
+    amount: Math.round(item.amount * 100),
+    splits: item.splits?.map((part) => ({ ...part, amount: Math.round(part.amount * 100) })),
+  }));
   const schedules = options.schedules?.map((item) => ({
     ...item,
     amount: Math.round(item.amount * 100),

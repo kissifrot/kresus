@@ -6,6 +6,7 @@ import { Buffer } from "buffer";
 import MDBReader from "mdb-reader";
 import { FREQUENCY, type Frequency } from "./frequency";
 import { displayReference, MIN_CALENDAR_DATE } from "./format";
+import type { TransactionSplit } from "./types";
 
 type Row = Record<string, any>;
 // mdb-reader’s browser build expects the standard Buffer global.
@@ -199,6 +200,7 @@ export function readMoneySchedules(
   accounts: Row[],
   payees: Row[],
   categoryLabel: (id: number) => string,
+  splitParents: ReadonlyMap<number, Row[]> = new Map(),
 ) {
   const schedules: {
     id: number;
@@ -308,6 +310,10 @@ export function readMoneySchedules(
           }).format(bill.dt)
         : "date inconnue";
     const description = `Échéance Money ${bill.hbill} · ${String(payee?.szFull ?? "Tiers inconnu").trim()} · ${String(account?.szFull ?? "Compte inconnu").trim()} · ${date}`;
+    if (source && splitParents.has(source.htrn)) {
+      skippedSchedules.push(`${description} : échéance ventilée non prise en charge.`);
+      continue;
+    }
     // A limited series with separate versions can contain later or altered occurrences.
     // Its head's unpaid index alone does not establish whether it is still active.
     if (
@@ -511,6 +517,97 @@ export function isVoidedMoneyOperation(t: Row): boolean {
   return t.grftt === 256 && t.hacctLink === null && t.hsec === null && t.act === -1;
 }
 
+function readMoneySplits(links: Row[], transactions: Row[]) {
+  const byId = new Map(transactions.map((row) => [row.htrn, row]));
+  const parents = new Map<number, Row[]>();
+  const children = new Set<number>();
+  const ordered = [...links].sort((a, b) => (a.iSplit ?? 0) - (b.iSplit ?? 0));
+  for (const link of ordered) {
+    const child = byId.get(link.htrn);
+    const parent = byId.get(link.htrnParent);
+    if (!child || !parent || child === parent || children.has(child.htrn)) {
+      throw new Error(`Ventilation Money incohérente (écriture ${link.htrnParent}).`);
+    }
+    children.add(child.htrn);
+    const parts = parents.get(parent.htrn) ?? [];
+    parts.push(child);
+    parents.set(parent.htrn, parts);
+  }
+  for (const parent of parents.keys()) {
+    if (children.has(parent)) throw new Error(`Ventilation Money imbriquée (écriture ${parent}).`);
+  }
+  return { parents, children };
+}
+
+function readMoneyOperations(
+  tx: Row[],
+  bank: Row[],
+  payees: Row[],
+  categoryLabel: (id: number) => string,
+  splits: ReturnType<typeof readMoneySplits>,
+  transferIds: ReadonlySet<number>,
+) {
+  const bankIds = new Set(bank.map((account) => account.hacct));
+  const posted = tx.filter(
+    (row) => bankIds.has(row.hacct) && row.frq === -1 && !splits.children.has(row.htrn),
+  );
+  const voided = (row: Row) =>
+    isVoidedMoneyOperation(row) || (splits.parents.has(row.htrn) && (row.grftt & 0x100) !== 0);
+  const voidedCount = posted.filter(voided).length;
+  const operations = posted
+    .filter((row) => !voided(row))
+    .map((t) => {
+      const children = splits.parents.get(t.htrn);
+      const splitParent = children && [0, 0x20].includes(t.grftt & ~0x200000);
+      if (
+        t.hsec !== null ||
+        t.act !== -1 ||
+        (transferIds.has(t.htrn)
+          ? children || ![2, 6].includes(t.grftt)
+          : t.hacctLink !== null || (children ? !splitParent : t.grftt !== 0)) ||
+        ![0, 1, 2].includes(t.cs)
+      )
+        throw new Error(`Opération Money ${t.htrn} non prise en charge.`);
+      const amount = cents(t.amt);
+      if (amount === 0) throw new Error("Une opération de montant nul ne peut pas être importée.");
+      const parts: TransactionSplit[] | undefined = children?.map((child) => {
+        if (
+          child.hsec != null ||
+          child.hacctLink != null ||
+          (child.act != null && child.act !== -1) ||
+          ![0, 0x40].includes(child.grftt & ~0x200000) ||
+          transferIds.has(child.htrn)
+        )
+          throw new Error(
+            `La ventilation Money ${t.htrn} contient une ligne autre qu’une catégorie.`,
+          );
+        return {
+          category: categoryLabel(child.hcat),
+          amount: cents(child.amt),
+          note: String(child.mMemo ?? "").trim() || null,
+        };
+      });
+      if (parts && parts.reduce((sum, part) => sum + BigInt(part.amount), 0n) !== BigInt(amount))
+        throw new Error(
+          `La ventilation Money ${t.htrn} ne correspond pas au montant de l’opération.`,
+        );
+      const payee = payees.find((p) => p.hpay === (t.lHpay ?? t.hpay));
+      return {
+        id: t.htrn,
+        accountId: t.hacct,
+        date: (t.dt as Date).toISOString().slice(0, 10),
+        label: String(payee?.szFull ?? "").trim() || "Opération sans tiers",
+        category: children ? "" : categoryLabel(t.hcat),
+        amount,
+        reconciled: t.cs !== 0,
+        note: String(t.mMemo ?? "").trim(),
+        reference: displayReference(String(t.szId ?? "")) || null,
+        splits: parts,
+      };
+    });
+  return { operations, voidedCount };
+}
+
 export function inspect(buffer: Buffer) {
   const reader = new MDBReader(decodeMoney(buffer));
   const rows = (name: string) => reader.getTable(name).getData() as Row[];
@@ -523,8 +620,26 @@ export function inspect(buffer: Buffer) {
     (a) =>
       a.at === 0 && !a.fClosed && currencies.find((c) => c.hcrnc === a.hcrnc)?.szIsoCode === "EUR",
   );
-  if (rows("TRN_SPLIT").length) throw new Error("Ventilations non prises en charge.");
-  const transfers = readPostedTransfers(rows("TRN_XFER"), tx, rows("BILL"), bank);
+  const splitIndex = readMoneySplits(rows("TRN_SPLIT"), tx);
+  const transferLinks = rows("TRN_XFER");
+  const bills = rows("BILL");
+  const transferEndpoints = new Set(
+    transferLinks.flatMap((link) => [link.htrnFrom, link.htrnLink]),
+  );
+  const bankIds = new Set(bank.map((account) => account.hacct));
+  for (const entry of tx) {
+    const children = splitIndex.parents.get(entry.htrn);
+    if (
+      children &&
+      entry.frq === -1 &&
+      bankIds.has(entry.hacct) &&
+      (transferEndpoints.has(entry.htrn) ||
+        children.some((child) => transferEndpoints.has(child.htrn)))
+    ) {
+      throw new Error(`La ventilation Money ${entry.htrn} contient un virement interne.`);
+    }
+  }
+  const transfers = readPostedTransfers(transferLinks, tx, bills, bank);
   const transferIds = new Set(transfers.flatMap((pair) => [pair.debitId, pair.creditId]));
   // Reject category trees that cannot be represented without losing information.
   const importedCategories = categories.filter((c) => c.hct === 0 && c.nLevel > 0);
@@ -561,45 +676,22 @@ export function inspect(buffer: Buffer) {
       ? `${String(parent?.szFull ?? "").trim()} · ${String(category.szFull ?? "").trim()}`
       : String(category.szFull ?? "").trim();
   };
-  const posted = tx.filter((t) => bank.some((a) => a.hacct === t.hacct) && t.frq === -1);
-  const voidedCount = posted.filter(isVoidedMoneyOperation).length;
-  const operations = posted
-    .filter((t) => !isVoidedMoneyOperation(t))
-    .map((t) => {
-      if (
-        t.hsec !== null ||
-        t.act !== -1 ||
-        (transferIds.has(t.htrn)
-          ? ![2, 6].includes(t.grftt)
-          : t.hacctLink !== null || t.grftt !== 0) ||
-        ![0, 1, 2].includes(t.cs)
-      )
-        throw new Error("Opération non prise en charge.");
-      if (!t.amt || cents(t.amt) === 0)
-        throw new Error("Une opération de montant nul ne peut pas être importée.");
-      const payee = payees.find((p) => p.hpay === (t.lHpay ?? t.hpay));
-      const note = String(t.mMemo ?? "").trim();
-      // Strip only Money's observed padding, preserving zeros within the number.
-      const reference = displayReference(String(t.szId ?? "")) || null;
-      return {
-        id: t.htrn,
-        accountId: t.hacct,
-        date: (t.dt as Date).toISOString().slice(0, 10),
-        label: String(payee?.szFull ?? "").trim() || "Opération sans tiers",
-        category: label(t.hcat),
-        amount: cents(t.amt),
-        reconciled: t.cs !== 0,
-        note,
-        reference,
-      };
-    });
-  const scheduleResult = readMoneySchedules(
-    rows("BILL"),
+  const { operations, voidedCount } = readMoneyOperations(
     tx,
-    rows("TRN_XFER"),
     bank,
     payees,
     label,
+    splitIndex,
+    transferIds,
+  );
+  const scheduleResult = readMoneySchedules(
+    bills,
+    tx,
+    transferLinks,
+    bank,
+    payees,
+    label,
+    splitIndex.parents,
   );
   if (
     operations.some((operation) => operation.date < MIN_CALENDAR_DATE) ||

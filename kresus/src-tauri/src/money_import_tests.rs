@@ -464,6 +464,7 @@ fn posted_transfer_fixture() -> MoneyPreview {
     });
     preview.operations.extend([
         MoneyOperation {
+            splits: Vec::new(),
             reference: None,
             id: 10,
             account_id: 1,
@@ -475,6 +476,7 @@ fn posted_transfer_fixture() -> MoneyPreview {
             note: "Débit".into(),
         },
         MoneyOperation {
+            splits: Vec::new(),
             reference: None,
             id: 11,
             account_id: 2,
@@ -486,6 +488,7 @@ fn posted_transfer_fixture() -> MoneyPreview {
             note: "Crédit".into(),
         },
         MoneyOperation {
+            splits: Vec::new(),
             reference: None,
             id: 12,
             account_id: 2,
@@ -497,6 +500,7 @@ fn posted_transfer_fixture() -> MoneyPreview {
             note: "".into(),
         },
         MoneyOperation {
+            splits: Vec::new(),
             reference: None,
             id: 13,
             account_id: 1,
@@ -519,6 +523,46 @@ fn posted_transfer_fixture() -> MoneyPreview {
         },
     ];
     preview
+}
+
+#[test]
+fn imports_money_split_components_with_one_bank_entry() {
+    let mut db = Connection::open_in_memory().unwrap();
+    let mut preview = fixture();
+    let operation = &mut preview.operations[0];
+    let amount = operation.amount;
+    operation.reconciled = true;
+    operation.splits = vec![
+        crate::transactions::TransactionSplit {
+            category: "Maison".into(),
+            amount: amount + 123,
+            note: Some("Part principale".into()),
+        },
+        crate::transactions::TransactionSplit {
+            category: "Divers".into(),
+            amount: -123,
+            note: None,
+        },
+    ];
+    let selection = [MoneySelection {
+        id: 1,
+        kind: "Compte courant".into(),
+    }];
+    import_into_database(&mut db, &preview, &selection).unwrap();
+    let rows = crate::transactions::list_transactions_in_db(&db, "money-account-1").unwrap();
+    let original = rows.iter().find(|row| !row.splits.is_empty()).unwrap();
+    assert_eq!(original.amount, amount);
+    assert!(original.reconciled);
+    assert_eq!(original.splits[0].note.as_deref(), Some("Part principale"));
+    assert_eq!(original.splits[1].amount, -123);
+    assert_eq!(
+        rows.len(),
+        preview
+            .operations
+            .iter()
+            .filter(|op| op.account_id == 1)
+            .count()
+    );
 }
 
 fn both_accounts() -> Vec<MoneySelection> {

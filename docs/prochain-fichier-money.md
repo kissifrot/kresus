@@ -1,94 +1,43 @@
 # Préparer le prochain fichier Money fictif
 
-Cette checklist rassemble ce qu’il reste à observer dans Money pour poursuivre l’import, en une seule session si possible. Les captures et les valeurs demandées servent à comprendre le fichier et à vérifier les résultats de l’import : il n’est pas nécessaire de connaître son format interne.
-
 ## Avant de commencer
 
-- Utiliser le fichier fictif actuel, sans mot de passe ni données bancaires réelles. En conserver une copie intacte, puis travailler sur une copie distincte.
-- Garder les exemples existants : ils permettent de comparer le fichier et les captures avant et après les ajouts. Les fichiers `.mny` sont exclus de Git, sauf la référence fictive figée dans `kresus/tests/fixtures/money-reference.mny`.
-- Prendre les captures en laissant visibles le nom de l’échéance ou de l’opération, le compte, les dates et les valeurs utiles. Faire plusieurs captures si une fenêtre ne montre pas tout ; les nommer de façon à retrouver facilement l’exemple concerné.
-- Pour chaque exemple, noter les valeurs qui ne sont pas lisibles sur les captures et toute différence entre ce qui a été saisi et ce que Money affiche après enregistrement. Ne pas deviner une valeur que Money ne montre pas : noter simplement qu’elle n’est pas visible.
-- À la fin, enregistrer et fermer le fichier, le rouvrir une fois pour vérifier que les données et les prochaines dates sont conservées, puis le fermer avant d’en faire une copie.
+- Travailler sur une copie du fichier fictif de référence, sans mot de passe ni données bancaires réelles. Conserver le fichier d’origine et ses exemples pour comparer les soldes et les états de pointage.
+- Enregistrer les nouvelles opérations, fermer le fichier, puis le rouvrir dans Money avant de relever les résultats.
 
-## Déjà couvert : inutile de le recréer
+## Priorité · opérations ventilées
 
-- Des virements enregistrés dans les deux sens entre le compte courant et le livret A, avec des états de pointage distincts selon les écritures. Les exemples observés sont importés et testés.
-- Deux séries mensuelles non commencées à durée limitée : 200 € jusqu’au 4 août 2027 et 300 € jusqu’au 19 mars 2027. Money calcule aussi un nombre d’occurrences lorsqu’une date de fin est saisie.
-- Une série mensuelle limitée à trois occurrences dont deux sont enregistrées les 6 octobre et 6 novembre 2026 ; la prochaine affichée est le 6 décembre. Cette configuration est importée et testée.
-- Une opération avec commentaire, importé, et une opération avec une référence de chèque dont la signification exacte reste à vérifier ci-dessous.
-- Les captures du 12 novembre montrent les dates de l’échéance bimestrielle EDF : 19 novembre 2026, 19 janvier, 19 mars, 19 mai et 19 juillet 2027. Elles montrent aussi une série mensuelle en fin de mois de décembre 2026 à avril 2027, ainsi qu’une série semestrielle désormais importée dans sa configuration observée.
+Ajouter ces trois opérations au compte courant, dans le même mois passé. Utiliser des libellés distincts pour les retrouver dans le registre.
 
-## À vérifier en priorité
+| Libellé | Montant total | Détail des parts | État dans Money |
+| --- | ---: | --- | --- |
+| Test ventilation courses | −100,00 € | −80,25 € en alimentation et −19,75 € en entretien | Non pointée |
+| Test ventilation facture | −35,41 € | −20,10 € en logement et −15,31 € en services | Pointée |
+| Test ventilation remboursement | +50,50 € | +40,25 € en remboursement santé et +10,25 € dans une autre catégorie | Rapprochée, si Money permet de conserver les autres états de pointage |
 
-### 1. Dates réelles des échéances Orange et EDF
+- Utiliser au moins une sous-catégorie et noter son chemin complet tel qu’il apparaît dans Money. Les noms de catégories du tableau sont des exemples.
+- Sur le premier achat, saisir un commentaire général et un commentaire différent sur chacune des deux parts.
+- Si Money accepte une part de sens opposé, ajouter un quatrième cas nommé « Test ventilation remise ». Saisir un débit de **−25,40 €**, avec **−28,40 € d’achat** et **+3,00 € de remise**. Noter son état de pointage affiché.
 
-Les captures du 6 novembre attribuent à Orange les 15 et 31 octobre, les 15 et 30 novembre et le 15 décembre 2026. Money indique deux occurrences en retard. Kresus gère désormais le 15 et la fin du mois et importe cette série de virement non commencée et sans limite. Ces dates sont acquises ; il reste surtout à comprendre les autres jours de départ et les fins de février. Les dates bimestrielles d’EDF sont confirmées par la capture du 12 novembre.
+### Résultats attendus dans Kresus
 
-Pour compléter ces observations, si l’occasion se présente, relever les dates d’une série bimensuelle démarrant un autre jour et celles autour de février. Pour chaque série :
+| Cas saisis | Effet sur le solde du compte | Dépenses nettes ajoutées au rapport | Lignes ajoutées au registre |
+| --- | ---: | ---: | ---: |
+| Les trois cas principaux | −84,91 € | +135,41 € | 3 |
+| Avec le cas de la remise | −110,31 € | +160,81 € | 4 |
 
-1. Capturer sa fiche ou sa ligne de synthèse avec son libellé, son montant, son compte, sa périodicité exacte et sa prochaine date. Pour Orange, montrer également le compte de destination du virement s’il est visible.
-2. Capturer la vue des retards ou la liste détaillée montrant les dates des occurrences concernées. Sélectionner chaque date utile dans le calendrier et capturer la liste des échéances de ce jour, avec le nom et le montant de la série visibles.
-3. Noter dans l’ordre les dates effectivement associées à la série et préciser si chacune est en retard, prochaine ou future. Indiquer la date de référence affichée par Money si elle est visible.
-4. Après fermeture et réouverture du fichier, vérifier et noter si la prochaine date et les retards sont identiques.
+Chaque opération doit avoir une seule ligne et un seul pointage. Les états Money « Pointée » et « Rapprochée » apparaissent tous deux comme pointés dans Kresus. Vérifier les montants et commentaires de chaque part, le chemin des sous-catégories et la répartition des débits dans le rapport de dépenses.
 
-**Attention :** un jour en gras dans le calendrier indique qu’au moins une échéance existe ce jour-là ; à lui seul, il ne permet pas de savoir si elle appartient à Orange ou à EDF. Une capture du mois entier est utile pour se repérer, mais il faut aussi sélectionner les jours concernés pour montrer leur détail. Si Money ne permet pas d’afficher certaines occurrences futures ou leur détail, capturer ce qu’il montre et le signaler ; ne pas enregistrer ou modifier ces séries uniquement pour faire apparaître des dates.
+## Vérifications facultatives encore ouvertes
 
-| Série | Périodicité affichée | Dates attribuées à la série et état de chacune | Capture(s) / remarque |
-| --- | --- | --- | --- |
-| Orange | Bimensuelle | 15 et 31 octobre, 15 et 30 novembre, 15 décembre 2026 | Captures du 6 novembre : acquis |
-| EDF | Bimestrielle | 19 novembre 2026, 19 janvier, 19 mars, 19 mai et 19 juillet 2027 | Capture `2026-11-12 181638` : acquis |
+- **Méthodes de paiement des échéances.** Si Money propose des choix distincts pour un prélèvement et un virement automatiques, créer un exemple de chaque et relever le libellé exact affiché après enregistrement.
+- **Références des opérations.** Relever le numéro affiché, ses éventuels zéros initiaux et la méthode de paiement sur la fiche d’un chèque fictif. Si Money le permet, faire de même pour une opération avec une référence et un autre moyen de paiement.
+- **Calendrier et limites d’échéances.** Exemples utiles si l’occasion se présente : série bimensuelle qui démarre hors du 15 et de la fin du mois, échéance du 31 janvier d’une année bissextile, date de fin saisie entre deux occurrences ou occurrence ignorée d’une série limitée. Relever la date saisie et les dates effectivement affichées, ainsi que le nombre d’occurrences restant si Money l’indique.
 
-### 2. Méthodes de paiement des échéances
-
-La capture du 6 novembre montre les choix « Autre », « Par chèque » et « Prélèvement auto. » pour un débit ; des exemples de chèque et de prélèvement ont été créés. La synthèse regroupe ce dernier sous « Prélèvt/Virement auto. » : il reste à déterminer si Money permet de distinguer un virement automatique d’un prélèvement dans le fichier. Pour les autres types d’échéances, capturer les choix éventuellement différents et créer des exemples seulement si cela aide à lever cette ambiguïté.
-
-Autant que Money le permet, utiliser le même compte, montant, date de début, périodicité et catégorie ; donner à chaque échéance un destinataire distinct et explicite, par exemple `Test méthode chèque` ou `Test méthode prélèvement`. Si une méthode impose d’autres paramètres ou un autre type d’échéance, noter la différence.
-
-Pour chaque exemple :
-
-- Capturer le formulaire renseigné avant validation et la fiche ou la synthèse après création, avec le destinataire, la méthode affichée, le compte, le montant, la date et la périodicité visibles.
-- Noter le libellé exact de la méthode et le destinataire correspondant. Si un numéro de chèque est proposé, saisir un numéro fictif, le noter exactement et capturer le champ ; sinon, indiquer que ce champ n’est pas proposé.
-- Si l’interface ne montre pas tous les paramètres ensemble, prendre plusieurs captures. Vérifier après réouverture que la méthode est toujours affichée.
-
-| Destinataire | Méthode exacte | Compte et montant | Première date et périodicité | Numéro éventuel / captures |
-| --- | --- | --- | --- | --- |
-| | | | | |
-
-### 3. Autres périodicités proposées
-
-La série trimestrielle créée démarre le 6 novembre 2026 et apparaît le 6 février 2027. Les captures du 12 novembre montrent aussi une série semestrielle de débit non commencée et sans limite ; ces observations sont acquises. Capturer la liste déroulante des périodicités si possible. Pour chaque autre périodicité proposée et pertinente, créer une série fictive distincte avec un destinataire explicite. Conserver les autres paramètres identiques lorsque c’est possible.
-
-Capturer la fiche après création et, pour chaque date visible, le détail du jour sélectionné dans le calendrier comme indiqué plus haut. Noter le libellé exact, la date de départ saisie, la prochaine date affichée et les deux ou trois dates suivantes **réellement visibles**. Si Money ne les montre pas, l’indiquer sans les déduire.
-
-| Destinataire | Périodicité exacte | Date de départ saisie | Prochaine date et dates suivantes visibles | Capture(s) / remarque |
-| --- | --- | --- | --- | --- |
-| | | | | |
-
-### 4. Commentaires des échéances
-
-Le fichier actuel ne contient aucune note sur les échéances. Pour identifier leur champ Money, créer une échéance fictive avec une note reconnaissable, par exemple `Note échéance fictive A`, et si possible un virement récurrent avec une autre note distincte. Capturer le formulaire complet avant validation et la fiche après création et réouverture, avec le libellé, le compte, le montant, la prochaine date et le texte exact de la note. Si une occurrence est enregistrée, capturer également l’opération créée et son commentaire ; pour un virement, capturer les deux comptes. Noter les valeurs et indiquer si la note est recopiée sur une ou deux écritures. Ne pas modifier le fichier de test figé dans `kresus/tests/fixtures/`.
-
-## Compléments utiles si le temps le permet
-
-### Numéros et méthodes des opérations
-
-La capture du registre montre les valeurs 100000, 100001, 200001, 200002 et 200003 correspondant aux références numériques du fichier. Un virement possède aussi une référence numérique : la seule présence d’un numéro ne prouve donc pas un paiement par chèque. Pour distinguer précisément les méthodes :
-
-- Capturer la fiche de l’opération existante et sa ligne dans le registre, en montrant la méthode, le numéro tel qu’affiché, le destinataire, le montant, la date et le commentaire lorsqu’ils sont visibles. Noter le numéro exactement, y compris les zéros éventuels, et préciser s’il s’agit d’un numéro de chèque ou d’une autre référence selon Money.
-- Si possible, ajouter un deuxième chèque fictif avec un numéro différent, puis une opération non payée par chèque comportant une référence si Money le permet. Capturer pour chacune la saisie et la ligne enregistrée, et noter le type et le numéro exacts. Ne pas compléter artificiellement les numéros avec des zéros.
-
-### Fins de mois et limites de séries
-
-- Les captures montrent une série mensuelle les 31 décembre 2026, 31 janvier, 28 février, 31 mars et 30 avril 2027. Pour compléter avec une année bissextile, créer une échéance mensuelle le 31 janvier d’une telle année et capturer les dates visibles en février, mars et avril.
-- Créer une série avec une date de fin saisie **entre deux occurrences**. Avant validation, capturer la date de début, la périodicité et la date de fin saisie ; après validation et réouverture, capturer la fin, le nombre d’occurrences et la dernière date affichés. Noter toutes ces valeurs, même si Money ajuste la fin.
-- Si Money le permet facilement, créer une autre série limitée dont une occurrence est ignorée, sans modifier la série existante. Capturer sa configuration avant, l’action proposée, puis la prochaine date, le nombre restant et la date de fin après l’action et après réouverture. Noter ce qui a été fait et les dates concernées.
-
-Ces variantes complètent les cas déjà vérifiés ; elles ne sont pas nécessaires pour conserver les exemples existants.
+Les cas déjà vérifiés et leurs captures sont documentés dans [l’étude de l’import Money](etude-import-money.md).
 
 ## À rapporter sur Linux
 
-1. La copie finale du fichier fictif `.mny`, sous un nom distinct dans `references/`, ainsi que les captures correspondantes. Conserver aussi les copies initiale et finale sur Windows.
-2. Les tableaux ci-dessus remplis ou des notes associant clairement chaque capture à son exemple. Pour les occurrences, indiquer les dates et leur état, pas seulement les jours en gras.
-3. Les soldes affichés par Money après les éventuelles nouvelles opérations, pour chacun des comptes concernés. Signaler toute valeur qui n’a pas pu être affichée ou tout comportement surprenant.
-
-Les fichiers protégés par mot de passe sont hors périmètre. Les opérations ventilées restent une fonctionnalité envisagée mais non décidée : ne pas en ajouter à ce fichier, car leur présence fait actuellement refuser l’import entier.
+1. Placer la copie finale du `.mny` sous un nom distinct dans `references/`. Le fichier figé `kresus/tests/fixtures/money-reference.mny` sert de point de comparaison.
+2. Joindre une capture du registre et une par ventilation après réouverture. Elles doivent montrer le compte, les dates, les montants, le pointage, le détail des parts, les catégories et les commentaires. Noter séparément les valeurs absentes des captures.
+3. Relever le solde affiché par Money après les ajouts et signaler toute différence entre ce qui a été saisi et ce que Money affiche.

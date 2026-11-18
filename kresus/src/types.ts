@@ -14,6 +14,7 @@ export type Account = {
   accountNumber?: string | null;
   archived: boolean;
 };
+export type TransactionSplit = { category: string; amount: number; note?: string | null };
 export type Transaction = {
   id: string;
   accountId: string;
@@ -25,6 +26,7 @@ export type Transaction = {
   reconciled: boolean;
   note?: string | null;
   transferId?: string | null;
+  splits?: TransactionSplit[];
   reference?: string | null;
 };
 export type ScheduleSeries = {

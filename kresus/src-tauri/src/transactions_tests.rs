@@ -33,7 +33,85 @@ fn operation(id: &str, account_id: &str, amount: f64) -> NewTransaction {
         reference: None,
         amount: (amount * 100.0).round() as i64,
         note: None,
+        splits: None,
     }
+}
+
+#[test]
+fn split_operations_are_single_register_entries_and_edits_are_atomic() {
+    let db = database();
+    let parts = || {
+        vec![
+            TransactionSplit {
+                category: "Alimentation".into(),
+                amount: -8031,
+                note: None,
+            },
+            TransactionSplit {
+                category: "Entretien".into(),
+                amount: -2069,
+                note: Some("Lessive".into()),
+            },
+            TransactionSplit {
+                category: "Alimentation".into(),
+                amount: 100,
+                note: None,
+            },
+        ]
+    };
+    let mut invalid = operation("bad-split", "ccp", -100.01);
+    invalid.splits = Some(parts());
+    assert!(create_transaction_in_db(&db, invalid).is_err());
+    assert!(list_transactions_in_db(&db, "ccp").unwrap().is_empty());
+
+    let mut entry = operation("split", "ccp", -100.0);
+    entry.splits = Some(parts());
+    create_transaction_in_db(&db, entry).unwrap();
+    toggle_transaction_in_db(&db, "split").unwrap();
+    let register = list_register_in_db(
+        &db,
+        "ccp",
+        "all",
+        1,
+        "2027-01",
+        "lessive",
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(register.total_count, 1);
+    assert_eq!(register.rows[0].running_balance, -10000);
+    assert_eq!(register.rows[0].transaction.splits[1].amount, -2069);
+    assert!(register.rows[0].transaction.reconciled);
+    let search = search_operations_in_db(&db, 1, "ENTRETIEN", Default::default()).unwrap();
+    assert_eq!(search.rows.len(), 1);
+    assert_eq!(search.rows[0].id, "split");
+
+    let mut bad_edit = operation("split", "ccp", -99.0);
+    bad_edit.splits = Some(parts());
+    assert!(update_transaction_in_db(&db, bad_edit).is_err());
+    let saved = list_transactions_in_db(&db, "ccp").unwrap().pop().unwrap();
+    assert_eq!(saved.amount, -10000);
+    assert!(saved.reconciled);
+    assert_eq!(saved.splits.len(), 3);
+
+    let mut simple = operation("split", "ccp", -100.0);
+    simple.splits = Some(vec![]);
+    update_transaction_in_db(&db, simple).unwrap();
+    assert!(
+        list_transactions_in_db(&db, "ccp").unwrap()[0]
+            .splits
+            .is_empty()
+    );
+    let mut entry = operation("split", "ccp", -100.0);
+    entry.splits = Some(parts());
+    update_transaction_in_db(&db, entry).unwrap();
+    delete_transaction_in_db(&db, "split").unwrap();
+    let remaining: i64 = db
+        .query_row("SELECT count(*) FROM transaction_splits", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(remaining, 0);
 }
 
 #[test]

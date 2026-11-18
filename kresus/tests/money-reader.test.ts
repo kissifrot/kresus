@@ -653,6 +653,57 @@ describe("Money reader", () => {
     }
   });
   const sample = resolve("tests/fixtures/money-reference.mny");
+
+  it("reads split links from the Money tables and counts the parent once", () => {
+    const source = Buffer.from(readFileSync(sample));
+    const reader = new MDBReader(decodeMoney(source));
+    const transactions = reader.getTable("TRN");
+    const splits = reader.getTable("TRN_SPLIT");
+    expect(splits.getColumnNames()).toEqual(
+      expect.arrayContaining(["htrn", "htrnParent", "iSplit"]),
+    );
+    const rows = transactions.getData();
+    const baseline = inspect(source);
+    const original = baseline.operations.find(
+      (row) => row.amount === -10000 && !baseline.transfers.some((pair) => pair.debitId === row.id),
+    )!;
+    const parent = rows.find((row) => row.htrn === original.id)!;
+    parent.grftt = 0x20;
+    const child = { ...parent, grftt: 0x40 };
+    const [first, second] = baseline.categories.filter((row) => row.parentId === null);
+    rows.push(
+      { ...child, htrn: 90001, hcat: first!.id, amt: "-80.25", mMemo: "Ligne 1" },
+      { ...child, htrn: 90002, hcat: second!.id, amt: "-19.75", mMemo: "Ligne 2" },
+    );
+    const links = [
+      { htrn: 90002, htrnParent: parent.htrn, iSplit: 1 },
+      { htrn: 90001, htrnParent: parent.htrn, iSplit: 0 },
+    ];
+    vi.spyOn(transactions, "getData").mockReturnValue(rows);
+    vi.spyOn(splits, "getData").mockReturnValue(links);
+    const getTable = MDBReader.prototype.getTable;
+    const spy = vi.spyOn(MDBReader.prototype, "getTable").mockImplementation(function (
+      this: MDBReader,
+      name,
+    ) {
+      if (name === "TRN") return transactions;
+      if (name === "TRN_SPLIT") return splits;
+      return getTable.call(this, name);
+    });
+    try {
+      const imported = inspect(source);
+      expect(imported.accounts).toEqual(baseline.accounts);
+      expect(imported.operations).toHaveLength(baseline.operations.length);
+      expect(imported.operations.find((row) => row.id === parent.htrn)?.splits).toEqual([
+        { category: first!.name, amount: -8025, note: "Ligne 1" },
+        { category: second!.name, amount: -1975, note: "Ligne 2" },
+      ]);
+      rows.at(-1)!.amt = "-19.74";
+      expect(() => inspect(source)).toThrow(/ne correspond pas au montant/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it("keeps the Money spelling of Divers and rejects an operation dated before 1970", () => {
     const source = Buffer.from(readFileSync(sample));
     const reader = new MDBReader(decodeMoney(source));

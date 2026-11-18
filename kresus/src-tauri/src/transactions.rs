@@ -21,7 +21,21 @@ pub struct Transaction {
     pub(crate) note: Option<String>,
     pub(crate) transfer_id: Option<String>,
     pub(crate) reference: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) splits: Vec<TransactionSplit>,
 }
+
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct TransactionSplit {
+    pub(crate) category: String,
+    pub(crate) amount: i64,
+    #[serde(default)]
+    pub(crate) note: Option<String>,
+}
+
+const TRANSACTION_SPLITS: &str = "(SELECT json_group_array(
+    json_object('category', part.category, 'amount', part.amount_cents, 'note', part.note)
+    ORDER BY part.position) FROM transaction_splits part WHERE part.transaction_id=t.id)";
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +68,8 @@ pub struct NewTransaction {
     pub(crate) note: Option<String>,
     #[serde(default)]
     pub(crate) reference: Option<String>,
+    #[serde(default)]
+    pub(crate) splits: Option<Vec<TransactionSplit>>,
 }
 
 #[tauri::command]
@@ -73,7 +89,7 @@ pub(crate) fn list_transactions_in_db(
     connection: &Connection,
     account_id: &str,
 ) -> Result<Vec<Transaction>, String> {
-    let mut statement = connection.prepare("SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque, t.amount_cents, t.reconciled, t.note, x.id, t.reference FROM transactions t LEFT JOIN transfers x ON x.debit_id=t.id OR x.credit_id=t.id WHERE t.account_id = ?1 ORDER BY t.operation_date, t.entry_order").map_err(database_error)?;
+    let mut statement = connection.prepare(&format!("SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque, t.amount_cents, t.reconciled, t.note, x.id, t.reference, {TRANSACTION_SPLITS} FROM transactions t LEFT JOIN transfers x ON x.debit_id=t.id OR x.credit_id=t.id WHERE t.account_id = ?1 ORDER BY t.operation_date, t.entry_order")).map_err(database_error)?;
     let rows = statement
         .query_map([account_id], read_transaction)
         .map_err(database_error)?;
@@ -93,6 +109,13 @@ fn read_transaction(row: &rusqlite::Row<'_>) -> rusqlite::Result<Transaction> {
         note: row.get(8)?,
         transfer_id: row.get(9)?,
         reference: row.get(10)?,
+        splits: serde_json::from_str(&row.get::<_, String>(11)?).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                11,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
     })
 }
 
@@ -276,7 +299,9 @@ const OPERATION_SEARCH_PREDICATE: &str = "(?4 IS NULL OR operation_date >= ?4)
      AND (?2 IS NULL OR amount_cents <= -?2 OR amount_cents >= ?2)
      AND (?3 IS NULL OR amount_cents BETWEEN -?3 AND ?3)
      AND (?1 = '' OR text_contains(label,?1) OR text_contains(category,?1)
-          OR text_contains(cheque,?1) OR text_contains(note,?1) OR text_contains(reference,?1))";
+          OR text_contains(cheque,?1) OR text_contains(note,?1) OR text_contains(reference,?1)
+          OR EXISTS(SELECT 1 FROM transaction_splits part WHERE part.transaction_id=t.id
+                    AND (text_contains(part.category,?1) OR text_contains(part.note,?1))))";
 
 type OperationSearch = (
     String,
@@ -378,7 +403,7 @@ fn search_operations_in_db(
     let (search, min, max, start, end) = prepare_operation_search(db, search, ranges)?;
     let filtered_count = db
         .query_row(
-            &format!("SELECT COUNT(*) FROM transactions WHERE {OPERATION_SEARCH_PREDICATE}"),
+            &format!("SELECT COUNT(*) FROM transactions t WHERE {OPERATION_SEARCH_PREDICATE}"),
             params![search, min, max, start, end],
             |row| row.get(0),
         )
@@ -388,7 +413,7 @@ fn search_operations_in_db(
     let mut statement = db
         .prepare(&format!(
             "SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque,
-                t.amount_cents, t.reconciled, t.note, x.id, t.reference
+                t.amount_cents, t.reconciled, t.note, x.id, t.reference, {TRANSACTION_SPLITS}
          FROM transactions t
          LEFT JOIN transfers x ON x.debit_id=t.id OR x.credit_id=t.id
          WHERE {OPERATION_SEARCH_PREDICATE}
@@ -512,7 +537,7 @@ pub(crate) fn list_register_in_db(
                 COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?7 AND amount_cents < 0 THEN amount_cents ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?7 AND amount_cents > 0 THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN substr(operation_date, 1, 7) = ?7 AND amount_cents < 0 THEN 1 ELSE 0 END), 0)
-         FROM transactions
+         FROM transactions t
          WHERE account_id = ?6"
     );
     let (
@@ -546,7 +571,7 @@ pub(crate) fn list_register_in_db(
     // unfiltered span. Hidden rows between visible entries still affect balances.
     let sql = format!(
         "WITH selected AS MATERIALIZED (
-           SELECT id, operation_date, entry_order FROM transactions
+           SELECT id, operation_date, entry_order FROM transactions t
            WHERE account_id=?6 AND {predicate}
            ORDER BY operation_date DESC, entry_order DESC LIMIT {OPERATIONS_PAGE_SIZE} OFFSET ?8
          ), bounds AS (
@@ -569,13 +594,13 @@ pub(crate) fn list_register_in_db(
              AND (t.operation_date,t.entry_order)>=(bounds.first_date,bounds.first_order)
              AND (t.operation_date,t.entry_order)<=(bounds.last_date,bounds.last_order)
          )
-         SELECT h.id, h.account_id, h.operation_date, h.label, h.category, h.cheque,
-                h.amount_cents, h.reconciled, h.note, x.id, h.reference, h.running_balance, e.bank_date
-         FROM history h
-         JOIN selected s ON s.id=h.id
-         LEFT JOIN transfers x ON x.debit_id = h.id OR x.credit_id = h.id
-         LEFT JOIN bank_statement_entries e ON e.transaction_id=h.id
-         ORDER BY h.operation_date DESC, h.entry_order DESC"
+         SELECT t.id, t.account_id, t.operation_date, t.label, t.category, t.cheque,
+                t.amount_cents, t.reconciled, t.note, x.id, t.reference, {TRANSACTION_SPLITS}, t.running_balance, e.bank_date
+         FROM history t
+         JOIN selected s ON s.id=t.id
+         LEFT JOIN transfers x ON x.debit_id = t.id OR x.credit_id = t.id
+         LEFT JOIN bank_statement_entries e ON e.transaction_id=t.id
+         ORDER BY t.operation_date DESC, t.entry_order DESC"
     );
     let mut statement = db.prepare(&sql).map_err(database_error)?;
     let rows = statement
@@ -593,8 +618,8 @@ pub(crate) fn list_register_in_db(
             |row| {
                 Ok(RegisterRow {
                     transaction: read_transaction(row)?,
-                    running_balance: row.get(11)?,
-                    bank_date: row.get(12)?,
+                    running_balance: row.get(12)?,
+                    bank_date: row.get(13)?,
                 })
             },
         )
@@ -804,8 +829,60 @@ pub(crate) fn create_transaction_in_db(
     crate::text_limits::validate_reference_length(transaction.reference.as_deref())?;
     validate_cheque(transaction.cheque.as_deref())?;
     crate::text_limits::validate_name_length(&transaction.label, false)?;
-    let cents = transaction.amount;
-    connection.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, note, reference) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''), NULLIF(?9, ''))", params![transaction.id, transaction.account_id, transaction.date, transaction.label.trim(), transaction.category.trim(), transaction.cheque.as_deref().map(str::trim), cents, transaction.note.as_deref().map(str::trim), transaction.reference.as_deref().map(str::trim)]).map_err(database_error)?;
+    let splits = transaction.splits.as_deref().unwrap_or_default();
+    let category = if splits.is_empty() {
+        transaction.category.trim()
+    } else {
+        ""
+    };
+    let tx = connection.unchecked_transaction().map_err(database_error)?;
+    tx.execute("INSERT INTO transactions (id, account_id, operation_date, label, category, cheque, amount_cents, note, reference) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''), NULLIF(?9, ''))", params![transaction.id, transaction.account_id, transaction.date, transaction.label.trim(), category, transaction.cheque.as_deref().map(str::trim), transaction.amount, transaction.note.as_deref().map(str::trim), transaction.reference.as_deref().map(str::trim)]).map_err(database_error)?;
+    if !splits.is_empty() {
+        replace_splits(&tx, &transaction.id, transaction.amount, splits)?;
+    }
+    tx.commit().map_err(database_error)
+}
+
+pub(crate) fn replace_splits(
+    db: &Connection,
+    id: &str,
+    total: i64,
+    parts: &[TransactionSplit],
+) -> Result<(), String> {
+    if !parts.is_empty()
+        && (total == 0
+            || parts.iter().any(|part| {
+                part.category.trim().is_empty()
+                    || part.amount.unsigned_abs() > 9_007_199_254_740_991
+            })
+            || parts
+                .iter()
+                .map(|part| i128::from(part.amount))
+                .sum::<i128>()
+                != i128::from(total))
+    {
+        return Err("Chaque ligne de ventilation doit avoir une catégorie et leur somme doit être égale au montant de l’opération.".into());
+    }
+    db.execute(
+        "DELETE FROM transaction_splits WHERE transaction_id=?1",
+        [id],
+    )
+    .map_err(database_error)?;
+    if !parts.is_empty() {
+        let mut insert = db.prepare("INSERT INTO transaction_splits (transaction_id,position,category,amount_cents,note)
+            VALUES (?1,?2,?3,?4,NULLIF(?5,''))").map_err(database_error)?;
+        for (position, part) in parts.iter().enumerate() {
+            insert
+                .execute(params![
+                    id,
+                    position as i64,
+                    part.category.trim(),
+                    part.amount,
+                    part.note.as_deref().map(str::trim)
+                ])
+                .map_err(database_error)?;
+        }
+    }
     Ok(())
 }
 
@@ -852,7 +929,8 @@ pub(crate) fn update_transaction_in_db(
     validate_transaction_amount(transaction.amount)?;
     crate::text_limits::validate_reference_length(transaction.reference.as_deref())?;
     validate_cheque(transaction.cheque.as_deref())?;
-    let unchanged: bool = connection
+    let tx = connection.unchecked_transaction().map_err(database_error)?;
+    let unchanged: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM transactions WHERE id=?1 AND account_id=?2 AND label=?3)",
             params![
@@ -864,7 +942,7 @@ pub(crate) fn update_transaction_in_db(
         )
         .map_err(database_error)?;
     crate::text_limits::validate_name_length(&transaction.label, unchanged)?;
-    let linked: bool = connection
+    let linked: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM transfers WHERE debit_id=?1 OR credit_id=?1)",
             [&transaction.id],
@@ -874,11 +952,35 @@ pub(crate) fn update_transaction_in_db(
     if linked {
         return Err("La modification d’un virement lié n’est pas encore disponible.".into());
     }
-    let changed = connection.execute("UPDATE transactions SET operation_date = ?1, label = ?2, category = ?3, cheque = ?4, amount_cents = ?5, note = CASE WHEN ?8 IS NULL THEN note ELSE NULLIF(?8, '') END, reference = CASE WHEN ?9 IS NULL THEN reference ELSE NULLIF(TRIM(?9), '') END WHERE id = ?6 AND account_id = ?7", params![transaction.date, transaction.label.trim(), transaction.category.trim(), transaction.cheque.as_deref().map(str::trim), transaction.amount, transaction.id, transaction.account_id, transaction.note.as_deref().map(str::trim), transaction.reference.as_deref().map(str::trim)]).map_err(database_error)?;
+    let has_splits = match &transaction.splits {
+        Some(parts) => !parts.is_empty(),
+        None => {
+            let stored_total: Option<i64> = tx
+                .query_row(
+                    "SELECT SUM(amount_cents) FROM transaction_splits WHERE transaction_id=?1",
+                    [&transaction.id],
+                    |row| row.get(0),
+                )
+                .map_err(database_error)?;
+            if stored_total.is_some_and(|total| total != transaction.amount) {
+                return Err("Ajustez la ventilation au nouveau montant de l’opération.".into());
+            }
+            stored_total.is_some()
+        }
+    };
+    let category = if has_splits {
+        ""
+    } else {
+        transaction.category.trim()
+    };
+    let changed = tx.execute("UPDATE transactions SET operation_date = ?1, label = ?2, category = ?3, cheque = ?4, amount_cents = ?5, note = CASE WHEN ?8 IS NULL THEN note ELSE NULLIF(?8, '') END, reference = CASE WHEN ?9 IS NULL THEN reference ELSE NULLIF(TRIM(?9), '') END WHERE id = ?6 AND account_id = ?7", params![transaction.date, transaction.label.trim(), category, transaction.cheque.as_deref().map(str::trim), transaction.amount, transaction.id, transaction.account_id, transaction.note.as_deref().map(str::trim), transaction.reference.as_deref().map(str::trim)]).map_err(database_error)?;
     if changed == 0 {
         return Err("Opération introuvable.".to_string());
     }
-    Ok(())
+    if let Some(parts) = &transaction.splits {
+        replace_splits(&tx, &transaction.id, transaction.amount, parts)?;
+    }
+    tx.commit().map_err(database_error)
 }
 
 // A cheque reference is optional, but when supplied it must contain seven ASCII digits.

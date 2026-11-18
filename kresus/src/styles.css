@@ -2338,3 +2338,53 @@ tr[data-transaction].editing {
 .forecast-days ul {
   margin: 8px 0 0 18px;
 }
+
+.split-controls[hidden],
+.split-fields[hidden],
+.category-picker[hidden] {
+  display: none;
+}
+.split-fields {
+  margin-top: 8px;
+}
+.split-controls,
+.split-fields,
+.split-rows {
+  min-width: 0;
+}
+.transaction-editor .split-controls {
+  grid-column: 1 / -1;
+}
+.split-row,
+.split-actions {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.split-row,
+.split-actions {
+  flex-wrap: wrap;
+}
+.split-row label {
+  min-width: 0;
+  flex: 1 1 115px;
+}
+.split-row label:has(.split-amount) {
+  flex: 0 1 94px;
+}
+.split-row textarea {
+  min-height: 37px;
+  width: 100%;
+}
+.split-row .remove-split {
+  padding-inline: 10px;
+}
+.split-controls small,
+.split-balance {
+  font-size: 12px;
+  color: #657169;
+}
+.split-balance {
+  align-self: center;
+}
