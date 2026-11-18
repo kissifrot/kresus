@@ -15,6 +15,7 @@ pub struct Account {
     pub(crate) kind: String,
     pub(crate) opening_balance: i64,
     pub(crate) bank: String,
+    pub(crate) account_number: Option<String>,
     #[serde(default, skip_deserializing)]
     pub(crate) current_balance: i64,
 }
@@ -31,7 +32,7 @@ pub fn list_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, 
 
 pub(crate) fn list_accounts_in_db(connection: &Connection) -> Result<Vec<Account>, String> {
     // Sum the stored integer cents, including unreconciled operations.
-    let mut statement = connection.prepare("SELECT a.id, a.name, a.kind, a.opening_balance_cents, a.bank, a.opening_balance_cents + COALESCE(SUM(t.amount_cents), 0) FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id GROUP BY a.id ORDER BY a.kind, a.name").map_err(database_error)?;
+    let mut statement = connection.prepare("SELECT a.id, a.name, a.kind, a.opening_balance_cents, a.bank, a.account_number, a.opening_balance_cents + COALESCE(SUM(t.amount_cents), 0) FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id GROUP BY a.id ORDER BY a.kind, a.name").map_err(database_error)?;
     let rows = statement
         .query_map([], |row| {
             Ok(Account {
@@ -40,7 +41,8 @@ pub(crate) fn list_accounts_in_db(connection: &Connection) -> Result<Vec<Account
                 kind: row.get(2)?,
                 opening_balance: row.get(3)?,
                 bank: row.get(4)?,
-                current_balance: row.get(5)?,
+                account_number: row.get(5)?,
+                current_balance: row.get(6)?,
             })
         })
         .map_err(database_error)?;
@@ -63,6 +65,7 @@ pub(crate) fn create_account_in_db(
 ) -> Result<(), String> {
     let name = account.name.trim();
     let bank = account.bank.trim();
+    let account_number = normalize_account_number(account.account_number.as_deref())?;
     crate::text_limits::validate_name_length(name, false)?;
     crate::text_limits::validate_name_length(bank, false)?;
     if name.is_empty()
@@ -76,6 +79,45 @@ pub(crate) fn create_account_in_db(
     if account.opening_balance.unsigned_abs() > 100_000_000_000 {
         return Err("Le solde initial est invalide.".to_string());
     }
-    connection.execute("INSERT INTO accounts (id, name, kind, opening_balance_cents, bank) VALUES (?1, ?2, ?3, ?4, ?5)", params![account.id, name, account.kind, account.opening_balance, bank]).map_err(database_error)?;
+    connection.execute("INSERT INTO accounts (id, name, kind, opening_balance_cents, bank, account_number) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![account.id, name, account.kind, account.opening_balance, bank, account_number]).map_err(database_error)?;
+    Ok(())
+}
+
+fn normalize_account_number(value: Option<&str>) -> Result<Option<&str>, String> {
+    let value = value.map(str::trim).filter(|number| !number.is_empty());
+    if let Some(number) = value {
+        crate::text_limits::validate_name_length(number, false)?;
+    }
+    Ok(value)
+}
+
+#[tauri::command]
+pub fn update_account_number(
+    id: String,
+    account_number: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let connection = state
+        .database
+        .lock()
+        .map_err(|_| "La base de données est indisponible.".to_string())?;
+    update_account_number_in_db(&connection, &id, account_number.as_deref())
+}
+
+fn update_account_number_in_db(
+    connection: &Connection,
+    id: &str,
+    account_number: Option<&str>,
+) -> Result<(), String> {
+    let account_number = normalize_account_number(account_number)?;
+    let changed = connection
+        .execute(
+            "UPDATE accounts SET account_number=?1 WHERE id=?2",
+            params![account_number, id],
+        )
+        .map_err(database_error)?;
+    if changed == 0 {
+        return Err("Compte introuvable.".into());
+    }
     Ok(())
 }

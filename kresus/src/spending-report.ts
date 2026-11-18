@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { accounts, selectedAccount, setSelectedAccount } from "./state";
 import type { Transaction } from "./types";
-import { euro, escapeHtml } from "./format";
+import { euro, escapeHtml, MIN_CALENDAR_DATE } from "./format";
 import { render } from "./accounts";
 import { refreshTransactions } from "./transactions";
 
@@ -49,15 +49,16 @@ function spendingByCategory(entries: Transaction[], period: Period) {
 }
 
 export function renderSpendingReport(period: Period = currentMonth(), entries?: Transaction[]) {
+  const accountId = selectedAccount?.id;
+  if (accountId === undefined) return;
   render();
   document.querySelector(".nav-item.selected")?.classList.remove("selected");
   document.querySelector("#spending-nav")?.classList.add("selected");
-  const accountId = selectedAccount.id;
   // Reports use the full history independently of the paginated register.
   if (!entries) {
     void invoke<Transaction[]>("list_transactions", { accountId })
       .then((loaded) => {
-        if (selectedAccount.id === accountId && document.querySelector("#spending-nav.selected"))
+        if (selectedAccount?.id === accountId && document.querySelector("#spending-nav.selected"))
           renderSpendingReport(period, loaded);
       })
       .catch((error) => {
@@ -78,7 +79,7 @@ export function renderSpendingReport(period: Period = currentMonth(), entries?: 
     .join("");
   document.querySelector<HTMLDivElement>(".page-content")!.innerHTML = `
     <div class="page-heading"><div><div class="eyebrow">ANALYSE</div><h1>Répartition des dépenses</h1><p>Visualisez les dépenses par catégorie pour un compte et une période.</p></div></div>
-    <form id="spending-filter" class="spending-filter"><label>Compte<select name="account" required>${accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === selectedAccount.id ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}</select></label><label>Du<input type="date" name="start" value="${period.start}" required></label><label>Au<input type="date" name="end" value="${period.end}" required></label><button class="primary-button" type="submit" ${entries ? "" : "disabled"}>Afficher</button><p class="spending-error" role="alert"></p></form>
+    <form id="spending-filter" class="spending-filter"><label>Compte<select name="account" required>${accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === accountId ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}</select></label><label>Du<input type="date" min="${MIN_CALENDAR_DATE}" name="start" value="${period.start}" required></label><label>Au<input type="date" min="${MIN_CALENDAR_DATE}" name="end" value="${period.end}" required></label><button class="primary-button" type="submit" ${entries ? "" : "disabled"}>Afficher</button><p class="spending-error" role="alert"></p></form>
     <section class="spending-panel"><div class="spending-heading"><h2>Dépenses par catégorie</h2><p>Les virements entre vos comptes sont exclus.</p></div>${!entries ? '<p class="spending-empty">Chargement des opérations…</p>' : total === 0 ? '<p class="spending-empty">Aucune dépense pour cette période.</p>' : `<div class="spending-content"><div class="spending-chart"><svg viewBox="0 0 180 180" role="img" aria-label="Répartition des dépenses par catégorie ; détail dans la liste"><g transform="rotate(-90 90 90)">${circles}</g></svg><div class="spending-total"><span>Total</span><strong>${euro(total)}</strong></div></div><div class="spending-list" aria-label="Détail des dépenses par catégorie">${items.map((item, index) => `<div class="spending-row"><span class="spending-swatch" style="background:${colors[index % colors.length]}"></span><span class="spending-name">${escapeHtml(item.label)}</span><strong>${euro(item.cents)}</strong><span class="spending-percent">${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 }).format((item.cents / total) * 100)} %</span></div>`).join("")}</div></div>`}</section>`;
 
   const form = document.querySelector<HTMLFormElement>("#spending-filter")!;

@@ -34,6 +34,7 @@ fn read_money_file(path: &Path) -> Result<Vec<u8>, String> {
 pub struct MoneyAccount {
     id: i64,
     name: String,
+    account_number: Option<String>,
     opening_balance: i64,
     balance: i64,
     count: usize,
@@ -315,12 +316,13 @@ fn import_into_database(
     for account in &preview.accounts {
         if let Some(kind) = selected.get(&account.id) {
             tx.execute(
-                "INSERT INTO accounts VALUES (?1,?2,?3,?4,'')",
+                "INSERT INTO accounts (id,name,kind,opening_balance_cents,bank,account_number) VALUES (?1,?2,?3,?4,'',?5)",
                 params![
                     format!("money-account-{}", account.id),
                     account.name.trim(),
                     kind,
-                    account.opening_balance
+                    account.opening_balance,
+                    account.account_number.as_deref().map(str::trim).filter(|number| !number.is_empty())
                 ],
             )
             .map_err(database_error)?;

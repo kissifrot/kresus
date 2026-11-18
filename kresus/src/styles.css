@@ -924,13 +924,15 @@ dialog::backdrop {
   flex-direction: column;
   gap: 14px;
 }
-#account-form {
+#account-form,
+#account-number-form {
   padding: 25px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
-#account-form label {
+#account-form label,
+#account-number-form label {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -939,7 +941,8 @@ dialog::backdrop {
   color: #59655c;
 }
 #account-form input,
-#account-form select {
+#account-form select,
+#account-number-form input {
   height: 37px;
   border: 1px solid #dfe5df;
   border-radius: 5px;
@@ -950,9 +953,19 @@ dialog::backdrop {
   outline: none;
 }
 #account-form input:focus,
-#account-form select:focus {
+#account-form select:focus,
+#account-number-form input:focus {
   border-color: #69a27a;
   box-shadow: 0 0 0 3px #e8f3ea;
+}
+.account-heading .account-number-control {
+  margin-top: 8px;
+  max-width: 100%;
+  min-height: 30px;
+  height: auto;
+  padding: 5px 10px;
+  overflow-wrap: anywhere;
+  text-align: left;
 }
 .page-actions {
   display: flex;
@@ -1240,6 +1253,15 @@ dialog::backdrop {
 .register-filter-help {
   color: #59655c;
   font-size: 12px;
+}
+.period-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.period-shortcuts .secondary-button {
+  height: 32px;
+  padding-inline: 10px;
 }
 .optional {
   font-weight: 400;

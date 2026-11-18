@@ -178,9 +178,9 @@ export function renderCategories() {
         });
       await refreshCategories();
       // Reload labels changed by a rename or merge before returning to another view.
-      setTransactions(
-        await invoke<Transaction[]>("list_transactions", { accountId: selectedAccount.id }),
-      );
+      const accountId = selectedAccount?.id;
+      if (accountId !== undefined)
+        setTransactions(await invoke<Transaction[]>("list_transactions", { accountId }));
       setSchedules(await invoke<Schedule[]>("list_schedules"));
       dialog.close();
       renderCategories();

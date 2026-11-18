@@ -5,7 +5,7 @@ export let accounts: Account[] = [];
 export let transactions: Transaction[] = [];
 export let schedules: Schedule[] = [];
 export let categories: Category[] = [];
-export let selectedAccount: Account;
+export let selectedAccount: Account | undefined;
 export function setAccounts(value: Account[]) {
   accounts = value;
 }
@@ -18,6 +18,6 @@ export function setSchedules(value: Schedule[]) {
 export function setCategories(value: Category[]) {
   categories = value;
 }
-export function setSelectedAccount(value: Account) {
+export function setSelectedAccount(value: Account | undefined) {
   selectedAccount = value;
 }

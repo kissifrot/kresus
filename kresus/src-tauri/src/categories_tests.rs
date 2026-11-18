@@ -4,6 +4,10 @@ use crate::test_support::database;
 #[test]
 fn migration_preserves_existing_labels_and_is_idempotent() {
     let db = database();
+    db.execute("DELETE FROM app_metadata WHERE key='categories_v1'", [])
+        .unwrap();
+    db.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents) VALUES ('legacy','ccp','2027-01-01','Test','Factures · Électricité',100)", []).unwrap();
+    migrate_categories(&db).unwrap();
     let count: i64 = db
         .query_row("SELECT COUNT(*) FROM categories", [], |r| r.get(0))
         .unwrap();

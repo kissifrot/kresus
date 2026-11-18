@@ -11,6 +11,7 @@ import {
   amountWithoutCurrency,
   euro,
   localDate,
+  MIN_CALENDAR_DATE,
 } from "./format";
 import { render } from "./accounts";
 import { bindCategoryCreation, categoryOptions } from "./categories";
@@ -68,14 +69,16 @@ export function resetRegister() {
 }
 
 export function registerSummary() {
-  const result = pageAccountId === selectedAccount.id ? registerPage : undefined;
+  const accountId = selectedAccount?.id;
+  const result = pageAccountId === accountId ? registerPage : undefined;
   return {
     rows: result?.rows ?? [],
     totalCount: result?.totalCount ?? 0,
     unreconciledCount: result?.unreconciledCount ?? 0,
     balance:
-      accounts.find((account) => account.id === selectedAccount.id)?.currentBalance ??
-      selectedAccount.openingBalance,
+      accounts.find((account) => account.id === accountId)?.currentBalance ??
+      selectedAccount?.openingBalance ??
+      0,
     filteredCount: result?.filteredCount ?? 0,
     pageCount: result?.pageCount ?? 1,
     page: result?.page ?? 1,
@@ -135,13 +138,31 @@ export function periodFilterLabel() {
   return start === end ? format(start) : `${format(start)} au ${format(end)}`;
 }
 
+const periodShortcuts = [
+  { id: "this-month", label: "Ce mois-ci", months: (month: number) => [month, month + 1] as const },
+  {
+    id: "last-month",
+    label: "Le mois dernier",
+    months: (month: number) => [month - 1, month] as const,
+  },
+  { id: "this-year", label: "Cette année", months: () => [0, 12] as const },
+];
+
 export function renderPeriodFilterDialog() {
   return renderRegisterFilterDialog(
     "period-filter",
     "Filtrer par période",
     `<div class="form-row">
-      <label>Date de début<input name="start" type="date" min="0001-01-01" max="9999-12-31"></label>
-      <label>Date de fin<input name="end" type="date" min="0001-01-01" max="9999-12-31"></label>
+      <label>Date de début<input name="start" type="date" min="${MIN_CALENDAR_DATE}" max="9999-12-31"></label>
+      <label>Date de fin<input name="end" type="date" min="${MIN_CALENDAR_DATE}" max="9999-12-31"></label>
+    </div>
+    <div class="period-shortcuts" role="group" aria-label="Raccourcis de période">
+      ${periodShortcuts
+        .map(
+          ({ id, label }) =>
+            `<button type="button" class="secondary-button" data-period-shortcut="${id}">${label}</button>`,
+        )
+        .join("")}
     </div>
     <p class="register-filter-help">Les deux dates sont facultatives et incluses dans la période.</p>`,
   );
@@ -246,7 +267,21 @@ function bindPeriodFilter() {
     dialog.showModal();
     startInput.focus();
   });
-  form.addEventListener("input", () => {
+  for (const { id, months } of periodShortcuts) {
+    form.querySelector(`[data-period-shortcut="${id}"]`)!.addEventListener("click", () => {
+      const today = new Date();
+      const year = today.getFullYear();
+      const [firstMonth, nextMonth] = months(today.getMonth());
+      startInput.value = localDate(new Date(year, firstMonth, 1));
+      endInput.value = localDate(new Date(year, nextMonth, 0));
+      error.textContent = "";
+    });
+  }
+  form.addEventListener("input", (event) => {
+    const input = event.target;
+    // WebKit can keep a stale form validation result after an optional date is cleared.
+    if (input instanceof HTMLInputElement && input.value === "" && input.validity.valid)
+      input.value = "";
     error.textContent = "";
   });
   form.addEventListener("submit", (event) => {
@@ -314,6 +349,8 @@ export function bindTransactionFilter() {
 }
 
 export function bindTransactionActions() {
+  const account = selectedAccount;
+  if (!account) return;
   // Opening the editor hides the summary until the edit is saved or cancelled.
   document.querySelectorAll<HTMLTableRowElement>("tr[data-transaction]").forEach((row) => {
     // Share the editor between pointer and keyboard activation.
@@ -357,7 +394,7 @@ export function bindTransactionActions() {
       editor.innerHTML = `
         <h2>Modifier l’opération</h2>
         <form class="transaction-editor">
-          <label>Date<input name="date" type="date" required value="${escapeHtml(item.date)}"></label>
+          <label>Date<input name="date" type="date" min="${MIN_CALENDAR_DATE}" required value="${escapeHtml(item.date)}"></label>
           <label>Tiers<input name="label" list="edit-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
           <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(item.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
           <label>Réf. / N° chèque<input name="reference" maxlength="${REFERENCE_LIMIT}" value="${escapeHtml(initialReference)}"></label>
@@ -452,9 +489,9 @@ export function bindTransactionActions() {
     const dialog = document.querySelector<HTMLDialogElement>("#transaction-dialog")!;
     const suggestions = dialog.querySelector<HTMLDataListElement>("#payee-suggestions")!;
     creationForm.reset();
-    (creationForm.elements.namedItem("sourceId") as HTMLSelectElement).value = selectedAccount.id;
+    (creationForm.elements.namedItem("sourceId") as HTMLSelectElement).value = account.id;
     (creationForm.elements.namedItem("destinationId") as HTMLSelectElement).value =
-      accounts.find((account) => account.id !== selectedAccount.id)?.id ?? "";
+      accounts.find((candidate) => candidate.id !== account.id)?.id ?? "";
     creationForm.querySelector<HTMLElement>(".transaction-error")!.textContent = "";
     updateCreationType();
     dialog.querySelector<HTMLInputElement>('input[name="date"]')!.value = localDate(new Date());
@@ -500,7 +537,7 @@ export function bindTransactionActions() {
         await invoke("create_transaction", {
           transaction: {
             id: crypto.randomUUID(),
-            accountId: selectedAccount.id,
+            accountId: account.id,
             date: String(values.get("date")),
             label: String(values.get("label")).trim(),
             category: String(values.get("category")),
@@ -567,7 +604,12 @@ function closeDialog() {
 }
 // Reload after a mutation so the register reflects the database state.
 export async function refreshTransactions(strict = false) {
-  const accountId = selectedAccount.id;
+  const accountId = selectedAccount?.id;
+  if (accountId === undefined) {
+    resetRegister();
+    render();
+    return;
+  }
   if (pageAccountId !== accountId) {
     pageAccountId = accountId;
     transactionPage = 1;
@@ -593,7 +635,7 @@ export async function refreshTransactions(strict = false) {
       }),
     ]);
     // A slower earlier request must not replace a newer page or account.
-    if (version !== requestVersion || selectedAccount.id !== accountId) return;
+    if (version !== requestVersion || selectedAccount?.id !== accountId) return;
     setAccounts(updatedAccounts);
     registerPage = result;
     transactionPage = result.page;

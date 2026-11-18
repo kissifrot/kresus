@@ -2,6 +2,27 @@ use super::*;
 use crate::test_support::{account, database};
 
 #[test]
+fn account_number_is_optional_text_and_can_be_changed_or_cleared() {
+    let db = database();
+    let mut new_account = account("numbered", "Compte courant", 10.0);
+    new_account.account_number = Some("  00012 AB  ".into());
+    create_account_in_db(&db, new_account).unwrap();
+    let current = || {
+        list_accounts_in_db(&db)
+            .unwrap()
+            .into_iter()
+            .find(|account| account.id == "numbered")
+            .unwrap()
+    };
+    assert_eq!(current().account_number.as_deref(), Some("00012 AB"));
+    update_account_number_in_db(&db, "numbered", Some("00034")).unwrap();
+    assert_eq!(current().account_number.as_deref(), Some("00034"));
+    update_account_number_in_db(&db, "numbered", Some("   ")).unwrap();
+    assert_eq!(current().account_number, None);
+    assert_eq!(current().opening_balance, 1000);
+}
+
+#[test]
 fn account_names_and_banks_obey_the_html_length_limit() {
     let db = database();
     let mut valid = account("length-ok", "Épargne", 0.0);

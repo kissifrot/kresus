@@ -387,7 +387,7 @@ fn operation_comments_are_saved_edited_cleared_and_survive_reopening() {
     let path = crate::test_support::temporary_database_path();
     {
         let db = Connection::open(&path.0).unwrap();
-        crate::database::initialize_database(&db).unwrap();
+        crate::test_support::initialize_test_accounts(&db);
         let mut entry = operation("comment-test", "ccp", -1.0);
         entry.label = "  Libellé  ".into();
         entry.category = "  Divers  ".into();

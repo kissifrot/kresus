@@ -86,7 +86,8 @@ export function bindBalanceForecast() {
     button.setAttribute("aria-expanded", String(open));
     button.textContent = open ? "Masquer la prévision" : "Prévision du solde";
     if (!open || panel.dataset.loaded === "true") return;
-    const accountId = selectedAccount.id;
+    const accountId = selectedAccount?.id;
+    if (accountId === undefined) return;
     const today = localDate(new Date());
     panel.innerHTML = '<p class="balance-history-message">Chargement…</p>';
     try {
@@ -94,7 +95,7 @@ export function bindBalanceForecast() {
         "forecast_transactions",
         { accountId, today, end: forecastEnd(today) },
       );
-      if (!panel.isConnected || selectedAccount.id !== accountId) return;
+      if (!panel.isConnected || selectedAccount?.id !== accountId) return;
       const points = calculateForecast(
         accountId,
         today,

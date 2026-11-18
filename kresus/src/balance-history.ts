@@ -14,14 +14,15 @@ export function bindBalanceHistory() {
     button.setAttribute("aria-expanded", String(open));
     button.textContent = open ? "Masquer l’historique" : "Historique du solde";
     if (!open || panel.dataset.loaded === "true") return;
-    const accountId = selectedAccount.id;
+    const accountId = selectedAccount?.id;
+    if (accountId === undefined) return;
     panel.innerHTML = '<p class="balance-history-message">Chargement…</p>';
     try {
       const points = await invoke<BalancePoint[]>("balance_history", {
         accountId,
         today: localDate(new Date()),
       });
-      if (!panel.isConnected || selectedAccount.id !== accountId) return;
+      if (!panel.isConnected || selectedAccount?.id !== accountId) return;
       if (points.length < 2) throw new Error("Historique incomplet.");
       const values = points.map((point) => point.balance);
       const low = Math.min(...values),

@@ -10,6 +10,7 @@ export type Account = {
   openingBalance: number;
   currentBalance: number;
   bank: string;
+  accountNumber?: string | null;
 };
 export type Transaction = {
   id: string;

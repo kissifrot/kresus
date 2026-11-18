@@ -1,61 +1,35 @@
 use super::{backup_to_path, initialize_database, restore_from_path};
-use crate::test_support::temporary_database_path;
+use crate::test_support::{initialize_test_accounts, temporary_database_path};
 use rusqlite::Connection;
 
 #[test]
-fn new_database_seeds_once_and_deleted_examples_stay_deleted_after_reopening() {
+fn new_database_starts_empty_and_an_empty_backup_can_be_opened() {
     let path = temporary_database_path();
-    {
-        let db = Connection::open(&path.0).unwrap();
-        initialize_database(&db).unwrap();
-        for (table, id) in [
-            ("accounts", "sylvie"),
-            ("transactions", "t1"),
-            ("schedules", "schedule-loyer"),
-        ] {
-            let count: i64 = db
-                .query_row(
-                    &format!("SELECT COUNT(*) FROM {table} WHERE id = ?1"),
-                    [id],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert_eq!(count, 1);
-            db.execute(&format!("DELETE FROM {table} WHERE id = ?1"), [id])
-                .unwrap();
-        }
-    }
+    let backup = temporary_database_path();
     let db = Connection::open(&path.0).unwrap();
     initialize_database(&db).unwrap();
-    for (table, id) in [
-        ("accounts", "sylvie"),
-        ("transactions", "t1"),
-        ("schedules", "schedule-loyer"),
-    ] {
-        let count: i64 = db
-            .query_row(
-                &format!("SELECT COUNT(*) FROM {table} WHERE id = ?1"),
-                [id],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(count, 0);
+    backup_to_path(&db, &backup.0).unwrap();
+    drop(db);
+
+    for path in [&path.0, &backup.0] {
+        let db = super::open_existing_database(path).unwrap();
+        initialize_database(&db).unwrap();
+        for table in ["accounts", "transactions", "schedules"] {
+            let count: i64 = db
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0);
+        }
     }
-    let other: i64 = db
-        .query_row(
-            "SELECT COUNT(*) FROM transactions WHERE id = 't2'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(other, 1);
 }
 
 #[test]
 fn existing_database_without_demo_data_is_not_seeded() {
     let db = Connection::open_in_memory().unwrap();
     // Model a legacy installation, including a user account with no demo IDs.
-    db.execute_batch("CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, opening_balance_cents INTEGER NOT NULL, bank TEXT NOT NULL); INSERT INTO accounts VALUES ('custom', 'Personnel', 'Compte courant', 100, '');").unwrap();
+    db.execute_batch("CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, opening_balance_cents INTEGER NOT NULL, bank TEXT NOT NULL); INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES ('custom', 'Personnel', 'Compte courant', 100, '');").unwrap();
     initialize_database(&db).unwrap();
     let accounts: Vec<String> = db
         .prepare("SELECT id FROM accounts")
@@ -97,7 +71,7 @@ fn performance_reference(count: usize, days: usize) {
     let mut db = Connection::open(&path.0).unwrap();
     initialize_database(&db).unwrap();
     db.execute(
-        "INSERT INTO accounts VALUES ('benchmark', 'Test', 'Compte courant', 10000, '')",
+        "INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES ('benchmark', 'Test', 'Compte courant', 10000, '')",
         [],
     )
     .unwrap();
@@ -198,7 +172,7 @@ fn switching_databases_preserves_each_file_and_rejects_invalid_candidates() {
     let second = temporary_database_path();
     let invalid = temporary_database_path();
     let primary = Connection::open(&first.0).unwrap();
-    initialize_database(&primary).unwrap();
+    initialize_test_accounts(&primary);
     primary
         .execute(
             "UPDATE accounts SET name = 'Base principale' WHERE id='ccp'",
@@ -206,7 +180,7 @@ fn switching_databases_preserves_each_file_and_rejects_invalid_candidates() {
         )
         .unwrap();
     let other = Connection::open(&second.0).unwrap();
-    initialize_database(&other).unwrap();
+    initialize_test_accounts(&other);
     other
         .execute(
             "UPDATE accounts SET name = 'Base de test' WHERE id='ccp'",
@@ -264,7 +238,7 @@ fn backup_includes_wal_and_restore_preserves_backup_and_existing_files() {
     let mut db = Connection::open(&active.0).unwrap();
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;")
         .unwrap();
-    initialize_database(&db).unwrap();
+    initialize_test_accounts(&db);
     db.execute(
         "UPDATE accounts SET name='Avant sauvegarde' WHERE id='ccp'",
         [],
@@ -302,7 +276,7 @@ fn restore_rejects_incompatible_database_without_touching_current_data() {
         .execute_batch("CREATE TABLE other (id INTEGER);")
         .unwrap();
     let mut current = Connection::open_in_memory().unwrap();
-    initialize_database(&current).unwrap();
+    initialize_test_accounts(&current);
     current
         .execute(
             "UPDATE accounts SET name='Données conservées' WHERE id='ccp'",
@@ -365,12 +339,12 @@ fn file_extension_rejects_other_sqlite_documents() {
 }
 
 #[test]
-fn existing_database_without_reference_column_is_upgraded_without_losing_notes() {
+fn opening_existing_database_adds_optional_columns_without_losing_data() {
     let path = temporary_database_path();
     let db = Connection::open(&path.0).unwrap();
-    initialize_database(&db).unwrap();
-    db.execute("UPDATE transactions SET note='Note conservée' WHERE id=(SELECT id FROM transactions LIMIT 1)", []).unwrap();
-    db.execute_batch("ALTER TABLE transactions DROP COLUMN reference")
+    initialize_test_accounts(&db);
+    db.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,note) VALUES ('t1','ccp','2027-01-01','Test','Divers',100,'Note conservée')", []).unwrap();
+    db.execute_batch("ALTER TABLE transactions DROP COLUMN reference; ALTER TABLE accounts DROP COLUMN account_number")
         .unwrap();
     drop(db);
     let opened = super::open_existing_database(&path.0).unwrap();
@@ -382,5 +356,9 @@ fn existing_database_without_reference_column_is_upgraded_without_losing_notes()
         )
         .unwrap();
     assert_eq!(count, 1);
+    let accounts = crate::accounts::list_accounts_in_db(&opened).unwrap();
+    let existing = accounts.iter().find(|account| account.id == "ccp").unwrap();
+    assert_eq!(existing.name, "Compte principal");
+    assert_eq!(existing.account_number, None);
     initialize_database(&opened).unwrap();
 }

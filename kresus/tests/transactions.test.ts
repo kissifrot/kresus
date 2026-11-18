@@ -452,6 +452,49 @@ describe("transaction register", () => {
     expect(document.querySelector("tbody")?.textContent).toContain("Salaire");
   });
 
+  it("fills editable calendar periods, including January and leap-year February", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2028, 0, 15, 12));
+    const invoke = await openRegister();
+    click("#period-filter");
+    const form = document.querySelector<HTMLFormElement>("#period-filter-form")!;
+    const start = field(form, "start");
+    const end = field(form, "end");
+    expect(start.min).toBe("1970-01-01");
+    expect(end.min).toBe("1970-01-01");
+    const dates = () => [start.value, end.value];
+    const registerLoads = invoke.mock.calls.filter(
+      ([command]) => command === "list_register",
+    ).length;
+
+    click('[data-period-shortcut="this-month"]');
+    expect(dates()).toEqual(["2028-01-01", "2028-01-31"]);
+    click('[data-period-shortcut="last-month"]');
+    expect(dates()).toEqual(["2027-12-01", "2027-12-31"]);
+    click('[data-period-shortcut="this-year"]');
+    expect(dates()).toEqual(["2028-01-01", "2028-12-31"]);
+
+    vi.setSystemTime(new Date(2028, 2, 1, 12));
+    click('[data-period-shortcut="last-month"]');
+    expect(dates()).toEqual(["2028-02-01", "2028-02-29"]);
+    expect(form.closest("dialog")?.open).toBe(true);
+    expect(invoke.mock.calls.filter(([command]) => command === "list_register")).toHaveLength(
+      registerLoads,
+    );
+
+    end.value = "2028-02-15";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(document.querySelector("#period-filter")?.textContent).toBe(
+        "Période · 01/02/2028 au 15/02/2028",
+      ),
+    );
+    expect(invoke).toHaveBeenLastCalledWith(
+      "list_register",
+      expect.objectContaining({ dateRange: { start: "2028-02-01", end: "2028-02-15" } }),
+    );
+  });
+
   it("shows the year for historical operations with the same day and month", async () => {
     await openRegister({
       transactions: [

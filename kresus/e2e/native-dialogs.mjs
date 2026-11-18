@@ -255,7 +255,7 @@ c.execute("DROP TABLE schedule_future_overrides")
 for table in ('schedules','schedule_overrides'):
  for column in ('payment_method','cheque'):
   c.execute(f'ALTER TABLE {table} DROP COLUMN {column}')
-c.executemany("INSERT INTO accounts VALUES (?,?,?,?,?)", [('receipt-business','Compte métier','Compte courant',10000,''),('receipt-other','Autre compte métier','Épargne',0,'')])
+c.executemany("INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES (?,?,?,?,?)", [('receipt-business','Compte métier','Compte courant',10000,''),('receipt-other','Autre compte métier','Épargne',0,'')])
 rows=[('r1','receipt-business','2020-02-28','Début','Alimentation',-1000),('r2','receipt-business','2020-02-29','Bissextile','Factures',-2500),('r3','receipt-business','2020-03-01','Fin','Alimentation',-3000),('r4','receipt-business','2020-02-27','Avant','Divers',-9000),('r5','receipt-business','2020-03-02','Après','Divers',-9000),('r6','receipt-business','2020-02-29','Revenu','Revenus',5000),('rd','receipt-business','2020-02-29','Virement','Divers',-2000),('rc','receipt-other','2020-02-29','Virement','Divers',2000)]
 c.executemany("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled) VALUES (?,?,?,?,?,?,0)",rows)
 c.execute("INSERT INTO transfers VALUES ('receipt-transfer','rd','rc')")

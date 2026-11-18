@@ -214,10 +214,12 @@ fn import_keeps_names_and_payees_longer_than_the_manual_entry_limit() {
 
 #[test]
 fn imports_selected_account_and_preserves_cents_categories_and_operations() {
+    let mut preview = fixture();
+    preview.accounts[0].account_number = Some("  000123 AB  ".into());
     let mut db = Connection::open_in_memory().unwrap();
     import_into_database(
         &mut db,
-        &fixture(),
+        &preview,
         &[MoneySelection {
             id: 1,
             kind: "Épargne".into(),
@@ -225,6 +227,7 @@ fn imports_selected_account_and_preserves_cents_categories_and_operations() {
     )
     .unwrap();
     let account = crate::accounts::list_accounts_in_db(&db).unwrap().remove(0);
+    assert_eq!(account.account_number.as_deref(), Some("000123 AB"));
     assert_eq!(
         (
             account.opening_balance,
@@ -376,6 +379,7 @@ fn posted_transfer_fixture() -> MoneyPreview {
     let mut preview = fixture();
     preview.accounts.push(MoneyAccount {
         id: 2,
+        account_number: None,
         name: "Épargne".into(),
         opening_balance: 200000,
         balance: 202500,
@@ -584,6 +588,7 @@ fn imported_transfer_series_requires_both_accounts_and_records_linked_operations
     let mut preview = fixture();
     preview.accounts.push(MoneyAccount {
         id: 2,
+        account_number: None,
         name: "Livret".into(),
         opening_balance: 200000,
         balance: 200000,
@@ -672,6 +677,7 @@ fn imported_twice_monthly_transfer_creates_linked_entries_and_advances() {
     let mut preview = fixture();
     preview.accounts.push(MoneyAccount {
         id: 2,
+        account_number: None,
         name: "Livret".into(),
         opening_balance: 0,
         balance: 0,

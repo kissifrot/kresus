@@ -19,6 +19,28 @@ describe("accounts", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("starts with no accounts and opens the register after creating the first account", async () => {
+    const invoke = await openRegister({ accounts: [], transactions: [] });
+    expect(document.querySelector(".page-heading h1")?.textContent).toBe("Mes comptes");
+    expect(document.querySelector("[data-account]")).toBeNull();
+    expect(invoke.mock.calls.some(([command]) => command === "list_register")).toBe(false);
+
+    click("#empty-add-account");
+    const form = document.querySelector<HTMLFormElement>("#account-form")!;
+    expect(form.closest("dialog")?.open).toBe(true);
+    field(form, "name").value = "Compte personnel";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(document.querySelector(".page-heading h1")?.textContent).toBe("Compte personnel"),
+    );
+    expect(document.querySelectorAll("[data-account]")).toHaveLength(1);
+    expect(document.querySelector("tr[data-transaction]")).toBeNull();
+    expect(document.querySelector("#new-transaction")).not.toBeNull();
+    expect(document.querySelector("#edit-account-number")?.textContent).toBe(
+      "Ajouter un numéro de compte",
+    );
+  });
+
   it("loads the selected account’s balance history only when requested", async () => {
     const invoke = await openRegister();
     expect(document.querySelector<HTMLElement>("#balance-history")!.hidden).toBe(true);
@@ -283,6 +305,7 @@ describe("accounts", () => {
     field(form, "name").value = "  Livret A  ";
     field(form, "kind").value = "Épargne";
     field(form, "bank").value = "  Banque  ";
+    field(form, "accountNumber").value = "  00012 AB  ";
     field(form, "balance").value = "-12,50";
     submit(form);
     await vi.waitFor(() =>
@@ -293,11 +316,24 @@ describe("accounts", () => {
         name: "Livret A",
         kind: "Épargne",
         bank: "Banque",
+        accountNumber: "00012 AB",
         openingBalance: -1250,
       }),
     });
     expect(document.querySelector(".account-item.active")?.textContent).toContain("Livret A");
     expect(document.querySelector(".balance-card")?.textContent).toContain("12,50");
+    expect(document.querySelector("#edit-account-number")?.textContent).toContain("00012 AB");
+
+    click("#edit-account-number");
+    const numberForm = document.querySelector<HTMLFormElement>("#account-number-form")!;
+    expect(field(numberForm, "accountNumber").value).toBe("00012 AB");
+    field(numberForm, "accountNumber").value = "";
+    submit(numberForm);
+    await vi.waitFor(() =>
+      expect(document.querySelector("#edit-account-number")?.textContent).toBe(
+        "Ajouter un numéro de compte",
+      ),
+    );
   });
 
   it("shows an account creation error and allows a retry", async () => {

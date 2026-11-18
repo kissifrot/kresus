@@ -28,7 +28,7 @@ def generate(path: Path, count: int, years: int = 10) -> None:
         with closing(sqlite3.connect(path)) as db, db:
             db.execute("PRAGMA foreign_keys = ON")
             db.executescript(SCHEMA.read_text(encoding="utf-8"))
-            db.executemany("INSERT INTO accounts VALUES (?, ?, ?, ?, ?)", [
+            db.executemany("INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES (?, ?, ?, ?, ?)", [
                 ("test-courant", "Compte courant — test", "Compte courant", 150000, "Banque fictive"),
                 ("test-epargne", "Livret — test", "Épargne", 500000, "Banque fictive"),
             ])

@@ -1,6 +1,6 @@
 use super::*;
 use crate::database::initialize_database;
-use crate::test_support::{database, temporary_database_path};
+use crate::test_support::{database, initialize_test_accounts, temporary_database_path};
 
 fn schedule(date: &str, frequency: &str) -> Schedule {
     Schedule {
@@ -199,7 +199,7 @@ fn deleting_series_removes_overrides_but_keeps_recorded_transfers_after_reopenin
     let path = temporary_database_path();
     {
         let mut db = Connection::open(&path.0).unwrap();
-        initialize_database(&db).unwrap();
+        initialize_test_accounts(&db);
         save_schedule_in_db(&mut db, recurring_transfer(), None).unwrap();
         record_schedule_in_db(&mut db, "test-schedule", "already-recorded").unwrap();
         save_schedule_in_db(&mut db, recurring_transfer(), Some("occurrence")).unwrap();
@@ -534,7 +534,7 @@ fn series_changes_persist_after_reopening_and_apply_to_later_operations() {
     let path = temporary_database_path();
     {
         let mut db = Connection::open(&path.0).unwrap();
-        initialize_database(&db).unwrap();
+        initialize_test_accounts(&db);
         save_schedule_in_db(&mut db, schedule("2027-01-15", "Mensuelle"), None).unwrap();
         record_schedule_in_db(&mut db, "test-schedule", "before-edit").unwrap();
         let mut edited = schedule("2027-02-28", "Trimestrielle");
@@ -633,7 +633,8 @@ fn failed_recording_keeps_schedule_and_override_unchanged() {
         Some("occurrence"),
     )
     .unwrap();
-    assert!(record_schedule_in_db(&mut db, "test-schedule", "t1").is_err());
+    db.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents) VALUES ('occupied','ccp','2027-01-01','Existing operation','Divers',100)", []).unwrap();
+    assert!(record_schedule_in_db(&mut db, "test-schedule", "occupied").is_err());
     assert_eq!(next_date(&db), "2027-01-31");
     let due: String = db
         .query_row(

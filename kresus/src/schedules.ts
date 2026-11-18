@@ -5,10 +5,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { confirmAction } from "./confirmation";
 import type { Account, Schedule, CalendarOccurrence } from "./types";
 import { accounts, schedules, selectedAccount, setAccounts, setSchedules } from "./state";
-import { euro, amountWithoutCurrency, escapeHtml, parsePositiveCents, centsInput } from "./format";
+import {
+  euro,
+  amountWithoutCurrency,
+  escapeHtml,
+  parsePositiveCents,
+  centsInput,
+  localDate,
+  MIN_CALENDAR_DATE,
+} from "./format";
 import { render } from "./accounts";
 import { bindCategoryCreation, categoryOptions } from "./categories";
 import { loadPayeeSuggestions } from "./payees";
+
+const minimumCalendarYear = Number(MIN_CALENDAR_DATE.slice(0, 4));
 
 // Store the first day of the displayed month to simplify month navigation.
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -122,7 +132,7 @@ function renderScheduleDialog(): string {
   return `    <dialog id="schedule-dialog"><form id="schedule-form">
         <div class="dialog-heading"><h2>Nouvelle échéance</h2><button type="button" class="dialog-close schedule-close" aria-label="Fermer">×</button></div>
         <label class="schedule-scope" hidden>Appliquer la modification<select name="scope"><option value="occurrence">Cette occurrence uniquement</option><option value="series">Cette occurrence et les suivantes</option></select></label><p class="schedule-exceptions-warning" hidden>Modifier la série supprimera les modifications individuelles des occurrences futures.</p>
-        <label><span class="schedule-account-label">Compte</span><select name="accountId" required>${accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === selectedAccount.id ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}</select></label>
+        <label><span class="schedule-account-label">Compte</span><select name="accountId" required>${accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === selectedAccount?.id ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}</select></label>
         <label class="schedule-destination" hidden>Compte crédité<select name="destinationAccountId">${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label>
         <label>Tiers<input name="label" list="schedule-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}"><datalist id="schedule-payee-suggestions"></datalist></label>
         <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><button type="button" class="secondary-button add-category">+ Catégorie</button></div>
@@ -131,7 +141,7 @@ function renderScheduleDialog(): string {
         <div class="form-row"><label>Méthode de paiement<select name="paymentMethod"><option value="">Non précisée</option><option value="cheque">Chèque</option><option value="bank_transfer">Virement automatique</option><option value="direct_debit">Prélèvement</option><option value="automatic">Prélèvt/Virement auto.</option><option value="income_payment">Versement</option></select></label><label class="schedule-reference">Réf. / N° chèque (cette occurrence)<input name="reference" maxlength="${REFERENCE_LIMIT}"></label></div>
         <label class="schedule-estimated"><input type="checkbox" name="estimated"><span>Montant estimé pour la série</span></label>
         <label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label>
-        <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" required></label>
+        <div class="form-row"><label><span class="schedule-date-label">Première échéance</span><input name="nextDue" type="date" min="${MIN_CALENDAR_DATE}" required></label>
         <label>Périodicité<select name="frequency">${Object.values(FREQUENCY)
           .map(
             (frequency) =>
@@ -140,7 +150,7 @@ function renderScheduleDialog(): string {
           .join("")}</select></label></div>
         <div class="schedule-limit"><label>Fin de la série<select name="limitType"><option value="none">Sans limite</option><option value="count">Nombre d’occurrences</option><option value="date">Date de fin</option></select></label>
         <label class="schedule-count" hidden>Occurrences restantes (échéance actuelle comprise)<input name="remainingCount" type="number" min="1" max="100000" step="1"></label>
-        <label class="schedule-end" hidden>Date de fin incluse<input name="endDate" type="date"></label></div>
+        <label class="schedule-end" hidden>Date de fin incluse<input name="endDate" type="date" min="${MIN_CALENDAR_DATE}"></label></div>
         <p class="editor-error" role="alert"></p>
         <div class="dialog-actions"><button type="button" class="secondary-button schedule-close">Annuler</button>
           <button type="submit" class="primary-button">Créer l’échéance</button></div>
@@ -150,7 +160,7 @@ function renderScheduleDialog(): string {
 
 function renderAnnualView(year: number, rows: string): string {
   return `<section class="annual-schedules">
-    <div class="annual-toolbar"><button id="previous-year" class="secondary-button" aria-label="Année précédente">‹</button><h2>${year}</h2><button id="next-year" class="secondary-button" aria-label="Année suivante">›</button></div>
+    <div class="annual-toolbar"><button id="previous-year" class="secondary-button" aria-label="Année précédente" ${year === minimumCalendarYear ? "disabled" : ""}>‹</button><h2>${year}</h2><button id="next-year" class="secondary-button" aria-label="Année suivante">›</button></div>
     <div class="table-wrap"><table><thead><tr><th>Mois</th><th>Échéances</th><th>Débits (€)</th><th>Crédits (€)</th><th>Détail</th></tr></thead><tbody>${rows}</tbody></table></div>
     <p>Les virements sont comptés dans les échéances et exclus des totaux de débits et crédits. Cliquez sur un mois pour le consulter.</p>
   </section>`;
@@ -162,13 +172,14 @@ function renderMonthlyView(
   items: CalendarOccurrence[],
   showOverdue: boolean,
 ): string {
+  const atMinimum = localDate(calendarMonth) === MIN_CALENDAR_DATE;
   const days = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
   const rows =
     items.map((item) => renderScheduleRow(item, showOverdue)).join("") ||
     `<p class="empty-row">${showOverdue ? "Aucune échéance en retard." : "Aucune échéance pour ce mois."}</p>`;
   return `<section class="schedules-workspace">
     <div class="calendar-panel">
-      <div class="calendar-toolbar"><button id="previous-month" aria-label="Mois précédent">‹</button><h2>${monthLabel}</h2><button id="current-month">Aujourd’hui</button><button id="next-month" aria-label="Mois suivant">›</button></div>
+      <div class="calendar-toolbar"><button id="previous-month" aria-label="Mois précédent" ${atMinimum ? "disabled" : ""}>‹</button><h2>${monthLabel}</h2><button id="current-month">Aujourd’hui</button><button id="next-month" aria-label="Mois suivant">›</button></div>
       <div class="calendar-weekdays">${days.map((day) => `<span>${day}</span>`).join("")}</div>
       <div class="calendar-grid">${cells}</div>
     </div>
@@ -217,7 +228,7 @@ function renderScheduleView(showOverdue: boolean) {
     .filter((schedule) => schedule.kind === "debit")
     .reduce((sum, schedule) => sum + Math.abs(schedule.amount), 0);
   document.querySelector<HTMLDivElement>(".page-content")!.innerHTML = `
-    <div class="page-heading schedule-heading"><div><div class="eyebrow">PLANIFICATION</div><h1>Échéances</h1><p>Préparez les opérations récurrentes avant leur intégration au compte.</p></div><button class="primary-button" id="new-schedule"><span>+</span> Nouvelle échéance</button></div>
+    <div class="page-heading schedule-heading"><div><div class="eyebrow">PLANIFICATION</div><h1>Échéances</h1><p>Préparez les opérations récurrentes avant leur intégration au compte.</p></div><button class="primary-button" id="new-schedule" ${accounts.length ? "" : "disabled"}><span>+</span> Nouvelle échéance</button></div>
     <section class="schedule-summary"><div><span>À prévoir en ${monthLabel}</span><strong>${euro(totalDue)}</strong><small>${monthSchedules.length} échéances ce mois</small></div><div class="summary-divider"></div><div><span>Prochaine échéance</span><strong>${nextUpcoming ? new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${nextUpcoming.nextDue}T12:00:00`)) : "—"}</strong><small>${nextUpcoming ? `${nextUpcoming.projected ? "Prévision · " : ""}${escapeHtml(nextUpcoming.label)}` : "Aucune échéance à venir"}</small>${overdueCount ? `<button type="button" id="show-overdue" class="schedule-overdue">${overdueCount} échéance${overdueCount === 1 ? "" : "s"} en retard</button>` : ""}</div><div class="schedule-tip">Une échéance arrivée à son terme peut être enregistrée comme opération et pointée dans le compte.</div></section><p class="schedule-message" role="alert"></p>
     <div class="schedule-view-switch"><button type="button" class="secondary-button" id="schedule-month-view" aria-pressed="${!annualView}">Mois</button><button type="button" class="secondary-button" id="schedule-year-view" aria-pressed="${annualView}">Année</button></div>
     ${annualView ? renderAnnualView(year, annualRows) : renderMonthlyView(monthLabel, cells, displayedSchedules, showOverdue)}

@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Buffer } from "buffer";
+import MDBReader from "mdb-reader";
 import { displayReference } from "../src/format";
 import {
   cents,
@@ -652,6 +653,32 @@ describe("Money reader", () => {
     }
   });
   const sample = resolve("tests/fixtures/money-reference.mny");
+  it("reads a populated account number as text and leaves missing numbers empty", () => {
+    const source = Buffer.from(readFileSync(sample));
+    const accounts = new MDBReader(decodeMoney(source)).getTable("ACCT");
+    expect(accounts.getColumnNames()).toContain("mNum");
+    const rows = accounts.getData();
+    rows.find((row) => row.szFull === "Compte courant")!.mNum = "  00012 AB  ";
+    vi.spyOn(accounts, "getData").mockReturnValue(rows);
+    const getTable = MDBReader.prototype.getTable;
+    const spy = vi.spyOn(MDBReader.prototype, "getTable").mockImplementation(function (
+      this: MDBReader,
+      name,
+    ) {
+      return name === "ACCT" ? accounts : getTable.call(this, name);
+    });
+    try {
+      const preview = inspect(source);
+      expect(
+        preview.accounts.find((account) => account.name === "Compte courant")?.accountNumber,
+      ).toBe("00012 AB");
+      expect(
+        preview.accounts.find((account) => account.name === "Livret A")?.accountNumber,
+      ).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it("reads the local Money sample and its exact account balance", () => {
     const preview = inspect(Buffer.from(readFileSync(sample)));
     expect(preview.accounts).toHaveLength(2);

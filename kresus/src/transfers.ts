@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { accounts } from "./state";
-import { displayReference, escapeHtml, parsePositiveCents, centsInput } from "./format";
+import {
+  displayReference,
+  escapeHtml,
+  parsePositiveCents,
+  centsInput,
+  MIN_CALENDAR_DATE,
+} from "./format";
 import { REFERENCE_LIMIT } from "./text-limits";
 import { bindCategoryCreation, categoryOptions } from "./categories";
 
@@ -40,7 +46,7 @@ export async function openTransferEditor(
         .join("");
     panel.innerHTML = `<h2>Modifier le virement</h2>
       <form class="transaction-editor transfer-editor">
-        <label>Date<input name="date" type="date" required value="${escapeHtml(transfer.date)}"></label>
+        <label>Date<input name="date" type="date" min="${MIN_CALENDAR_DATE}" required value="${escapeHtml(transfer.date)}"></label>
         <label>Compte débité<select name="sourceId" required>${options(transfer.sourceId)}</select></label>
         <label>Compte crédité<select name="destinationId" required>${options(transfer.destinationId)}</select></label>
         <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(transfer.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>

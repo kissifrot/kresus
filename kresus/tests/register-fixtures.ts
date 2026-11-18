@@ -1,7 +1,14 @@
 import { expect, vi } from "vitest";
 import type { Schedule } from "../src/types";
 
-type Account = { id: string; name: string; kind: string; openingBalance: number; bank: string };
+type Account = {
+  id: string;
+  name: string;
+  kind: string;
+  openingBalance: number;
+  bank: string;
+  accountNumber?: string | null;
+};
 type Transaction = {
   id: string;
   accountId: string;
@@ -179,6 +186,9 @@ export async function openRegister(
         if (options.failAccount) throw new Error("Erreur de base");
         accounts.push(args!.account);
         return;
+      case "update_account_number":
+        accounts.find((account) => account.id === args?.id)!.accountNumber = args!.accountNumber;
+        return;
       case "create_transaction":
         transactions.push({ ...args!.transaction, reconciled: false });
         return;
@@ -275,7 +285,8 @@ export async function openRegister(
   });
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
   await import("../src/main");
-  await vi.waitFor(() => expect(document.querySelector("#new-transaction")).not.toBeNull());
+  const ready = accounts.length ? "#new-transaction" : "#empty-add-account";
+  await vi.waitFor(() => expect(document.querySelector(ready)).not.toBeNull());
   return invoke;
 }
 

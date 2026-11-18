@@ -54,6 +54,8 @@ export function displayReference(value: string): string {
   return padded ? padded[1]! : reference;
 }
 
+export const MIN_CALENDAR_DATE = "1970-01-01";
+
 // Format the calendar date in the user's local time zone.
 export function localDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

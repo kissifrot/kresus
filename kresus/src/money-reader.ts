@@ -616,6 +616,7 @@ export function inspect(buffer: Buffer) {
       return {
         id: a.hacct,
         name: String(a.szFull).trim(),
+        accountNumber: typeof a.mNum === "string" ? a.mNum.trim() || null : null,
         openingBalance,
         balance: entries.reduce((sum, t) => sum + t.amount, openingBalance),
         count: entries.length,

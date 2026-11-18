@@ -394,6 +394,18 @@ describe("schedule calendar", () => {
     );
   });
 
+  it("limits the monthly and annual calendars to January 1970 or later", async () => {
+    vi.setSystemTime(new Date(1970, 0, 15, 12));
+    await openCalendar([]);
+    expect(document.querySelector<HTMLButtonElement>("#previous-month")?.disabled).toBe(true);
+    expect(document.querySelector<HTMLInputElement>('[name="nextDue"]')?.min).toBe("1970-01-01");
+    expect(document.querySelector<HTMLInputElement>('[name="endDate"]')?.min).toBe("1970-01-01");
+    document.querySelector<HTMLButtonElement>("#schedule-year-view")!.click();
+    expect(document.querySelector<HTMLButtonElement>("#previous-year")?.disabled).toBe(true);
+    document.querySelector<HTMLButtonElement>("#next-year")!.click();
+    expect(document.querySelector<HTMLButtonElement>("#previous-year")?.disabled).toBe(false);
+  });
+
   it("exposes the full calendar label in a native tooltip", async () => {
     vi.setSystemTime(new Date(2027, 0, 1, 12));
     const entry = recurring("2027-01-15", 15, "Mensuelle");

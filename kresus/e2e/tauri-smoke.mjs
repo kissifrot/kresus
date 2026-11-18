@@ -664,16 +664,36 @@ try {
   }
   // Work exclusively in the isolated temporary database created above.
   await click(".add-account");
+  if (
+    !(await execute(
+      `const style = (name) => {
+         const optional = document.querySelector('#account-form [name=' + name + ']').closest('label').querySelector('.optional');
+         return optional && [getComputedStyle(optional).color, getComputedStyle(optional).fontWeight].join('/');
+       };
+       return !!style('bank') && style('bank') === style('accountNumber');`,
+    ))
+  )
+    throw new Error("Le numéro de compte doit reprendre le style facultatif de l’établissement.");
   await fill("#account-form", {
     name: "Compte recette",
     kind: "Compte courant",
     bank: "Banque fictive",
+    accountNumber: "00012 AB",
     balance: "100.00",
   });
   await click('#account-form button[type="submit"]');
   await waitFor(
     async () => (await text(".page-heading h1")) === "Compte recette",
     "Création du compte",
+  );
+  if (!(await text("#edit-account-number")).includes("00012 AB"))
+    throw new Error("Le numéro de compte saisi doit conserver ses zéros initiaux.");
+  await click("#edit-account-number");
+  await fill("#account-number-form", { accountNumber: "00034" });
+  await click('#account-number-form button[type="submit"]');
+  await waitFor(
+    async () => (await text("#edit-account-number")).includes("00034"),
+    "Modification du numéro de compte",
   );
   await execute(
     "const el = document.querySelector('#transaction-filter'); el.value = 'all'; el.dispatchEvent(new Event('change', { bubbles: true }));",
@@ -870,18 +890,32 @@ try {
   if (!/Montant · 12,30 à 12,34\s€/.test(await text("#amount-filter")))
     throw new Error("Intervalle absent du bouton Montant.");
   await click("#period-filter");
-  await fill("#period-filter-form", { end: "1900-01-01" });
+  await fill("#period-filter-form", { end: "1970-01-01" });
   await click('#period-filter-form button[type="submit"]');
   await waitFor(async () => await visible(".empty-row"), "Période avec fin seule sans résultat");
   await click("#period-filter");
-  await fill("#period-filter-form", { start: "1900-01-02", end: purchaseDate });
+  await click('[data-period-shortcut="this-year"]');
+  const currentYear = purchaseDate.slice(0, 4);
+  const shortcutDates = await execute(
+    "const form = document.querySelector('#period-filter-form'); return [form.elements.start.value, form.elements.end.value]",
+  );
+  if (shortcutDates[0] !== `${currentYear}-01-01` || shortcutDates[1] !== `${currentYear}-12-31`)
+    throw new Error("Le raccourci Cette année doit remplir les dates de l’année civile.");
+  const purchaseDateLabel = purchaseDate.split("-").reverse().join("/");
+  await fill("#period-filter-form", { start: "", end: purchaseDate });
+  await click('#period-filter-form button[type="submit"]');
+  await waitFor(
+    async () => (await text("#period-filter")) === `Période · Jusqu’au ${purchaseDateLabel}`,
+    "Effacement d’une date préremplie par le raccourci",
+  );
+  await click("#period-filter");
+  await fill("#period-filter-form", { start: "1970-01-02", end: purchaseDate });
   await click('#period-filter-form button[type="submit"]');
   await waitFor(
     async () => (await text("tbody")).includes("Achat recette"),
     "Période combinée au montant avec date de fin incluse",
   );
-  const purchaseDateLabel = purchaseDate.split("-").reverse().join("/");
-  if ((await text("#period-filter")) !== `Période · 02/01/1900 au ${purchaseDateLabel}`)
+  if ((await text("#period-filter")) !== `Période · 02/01/1970 au ${purchaseDateLabel}`)
     throw new Error("Dates absentes du bouton Période.");
   await request("POST", `/session/${session}/window/rect`, { width: 900, height: 620 });
   await waitFor(

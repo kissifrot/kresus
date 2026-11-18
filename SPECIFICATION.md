@@ -10,7 +10,7 @@ Application de bureau de gestion financière familiale simple, adaptée aux usag
 
 ### Navigation et comptes
 
-- La barre latérale et le fil d’Ariane donnent accès aux comptes, regroupés en comptes courants, épargne et assurances vie. La liste des comptes défile indépendamment de l’indication de la base active. Le bouton « + » crée un compte avec son nom, son type, sa banque et son solde initial. Les soldes affichés sont les soldes actuels : solde initial augmenté de toutes les opérations.
+- La barre latérale et le fil d’Ariane donnent accès aux comptes, regroupés en comptes courants, épargne et assurances vie. La liste des comptes défile indépendamment de l’indication de la base active. Le bouton « + » crée un compte avec son nom, son type, sa banque, son solde initial et un numéro de compte facultatif. Le numéro est conservé comme texte pour préserver les zéros initiaux et peut être modifié ou effacé depuis le registre. Les soldes affichés sont les soldes actuels : solde initial augmenté de toutes les opérations.
 - Le menu natif « Fichier » regroupe les actions de base, d’import, de sauvegarde et de restauration ainsi que la fermeture. Le menu « Aide » donne accès à la fenêtre « À propos », qui présente l’icône et la version de l’application.
 - « Mon foyer » présente le total, les totaux par type, les soldes de chaque compte et un accès à chaque registre. « Comptes » présente la liste détaillée et la création de comptes. L’application démarre actuellement sur le registre du premier compte, avec la liste des comptes dans la barre latérale.
 - La vue du foyer affiche les cinq prochaines occurrences en attente par date, y compris celles en retard, et indique le compte et le sens du montant. Son lien « échéances en retard », affiché si nécessaire, ouvre la liste complète des retards, même si plus de cinq échéances sont concernées.
@@ -30,6 +30,10 @@ La recherche du registre porte sur tout l’historique du compte sélectionné :
 Le bouton « Montant » permet de rechercher un montant exact, un minimum, un maximum ou un intervalle avec bornes incluses. Le bouton affiche le critère actif et une croix adjacente efface le filtre directement depuis le registre. La recherche compare les montants en centimes et s’applique aux débits comme aux crédits selon leur valeur affichée. Elle se combine à la recherche textuelle et aux autres filtres. L’application ou l’effacement du filtre revient à la première page.
 
 Le bouton « Période » permet de filtrer sur la date de l’opération, avec une date de début, une date de fin ou les deux. Chaque borne est incluse. Le bouton affiche la période active et la croix permet de l’effacer. Le filtre se combine à la recherche textuelle, au montant et aux autres filtres. Son application ou son effacement revient à la première page.
+
+Les raccourcis « Ce mois-ci », « Le mois dernier » et « Cette année » remplissent les dates du mois ou de l’année civile entière, selon la date locale. Les dates restent modifiables avant d’appliquer le filtre.
+
+Le 1er janvier 1970 est la date minimale des champs de date et de la navigation dans le calendrier des échéances.
 
 ### Échéances
 
@@ -56,7 +60,7 @@ Tauri 2 relie l’interface TypeScript à Rust. SQLite stocke les données dans 
 
 Les noms de comptes, d’établissements et de catégories ainsi que les tiers des opérations et échéances saisis sont limités à 200 unités UTF-16, dans l’interface et côté Rust. Les commentaires et références ne sont pas concernés. Les données importées ne sont pas raccourcies ; une valeur plus longue déjà enregistrée peut être conservée lors d’une modification.
 
-**Données d’exemple :** des comptes, opérations et échéances de démonstration sont insérés à la création d’une nouvelle base uniquement. Une base existante, y compris issue d’une version précédente, ne reçoit pas de nouveau ces données : une donnée d’exemple supprimée reste supprimée. Le schéma et les données initiales sont créés dans une même transaction. Les catégories initiales sont constituées des libellés existants et de quelques catégories de base. L’annexe du document d’origine est une liste d’exemples et ne constitue pas un catalogue à précharger : les catégories et sous-catégories proviendront normalement de l’import d’un fichier Money existant.
+**Premier démarrage :** une nouvelle base est créée sans compte, opération ni échéance. L’écran « Mes comptes » propose d’ajouter un compte ou d’importer un fichier Money. Quelques catégories de base sont disponibles pour la saisie. La migration des bases anciennes récupère aussi les libellés des opérations et des échéances.
 
 Les espaces en début et fin des champs textuels saisis ou importés sont supprimés à l’enregistrement ; les espaces et retours à la ligne internes sont conservés. Les données déjà enregistrées ne sont pas modifiées automatiquement.
 
@@ -70,6 +74,8 @@ Les séries, leurs jours d’ancrage, éventuelles modifications ponctuelles et 
 - Les données existantes et leurs migrations doivent être préservées lors de toute évolution du schéma.
 
 Cette liste décrit les écarts constatés et ne constitue pas un ordre de priorité décidé par l’utilisateur.
+
+- L’import Money reprend la valeur textuelle du champ `ACCT.mNum` lorsqu’il est renseigné. Ce champ est vide sur les comptes bancaires du fichier de référence. La correspondance avec un numéro saisi dans Money reste à confirmer sur un fichier d’exemple renseigné.
 
 ### Fonctionnalités envisagées
 

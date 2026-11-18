@@ -18,6 +18,7 @@ import {
   escapeHtml,
   parseCents,
   localDate,
+  MIN_CALENDAR_DATE,
 } from "./format";
 import {
   transactionFilter,
@@ -61,7 +62,40 @@ function registerFilterControl(id: string, label: string, value: string, clearLa
   </div>`;
 }
 
+function bindAccountNumber(account: Account) {
+  const dialog = document.querySelector<HTMLDialogElement>("#account-number-dialog")!;
+  const form = dialog.querySelector("form")!;
+  const input = form.querySelector<HTMLInputElement>('[name="accountNumber"]')!;
+  const error = form.querySelector<HTMLElement>(".editor-error")!;
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  document.querySelector("#edit-account-number")!.addEventListener("click", () => {
+    form.reset();
+    error.textContent = "";
+    dialog.showModal();
+    input.focus();
+  });
+  dialog.querySelector(".dialog-close")!.addEventListener("click", () => dialog.close());
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    try {
+      await invoke("update_account_number", {
+        id: account.id,
+        accountNumber: input.value.trim() || null,
+      });
+      await refreshTransactions(true);
+      document.querySelector<HTMLButtonElement>("#edit-account-number")?.focus();
+    } catch (issue) {
+      error.textContent = `Enregistrement impossible : ${String(issue)}`;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
 export function render() {
+  const selected =
+    accounts.find((account) => account.id === selectedAccount?.id) ?? selectedAccount;
   // Keep the account list position when the interface is refreshed.
   const accountScroll = document.querySelector<HTMLElement>(".sidebar-accounts")?.scrollTop ?? 0;
   const {
@@ -83,7 +117,7 @@ export function render() {
       .filter((account) => account.kind === kind)
       .map(
         (account) => `
-    <button class="account-item ${account.id === selectedAccount.id ? "active" : ""}" data-account="${account.id}">
+    <button class="account-item ${account.id === selected?.id ? "active" : ""}" data-account="${account.id}">
       <span class="account-icon ${kind === "Compte courant" ? "checking" : kind === "Épargne" ? "savings" : "insurance"}">${kind === "Compte courant" ? "↗" : kind === "Épargne" ? "◈" : "✳"}</span>
       <span class="account-copy"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.bank)}</small></span>
       <span class="account-balance">${euro(account.currentBalance)}</span>
@@ -96,7 +130,7 @@ export function render() {
       <button class="nav-item" id="household-nav"><span>▦</span> Vue d’ensemble</button>
       <button class="nav-item" id="schedules-nav"><span>◷</span> Échéances <i>${schedules.length}</i></button>
       <button class="nav-item" id="categories-nav"><span>▤</span> Catégories</button>
-      <button class="nav-item" id="spending-nav"><span>◔</span> Répartition des dépenses</button>
+      <button class="nav-item" id="spending-nav" ${selected ? "" : "disabled"}><span>◔</span> Répartition des dépenses</button>
       <div class="sidebar-divider"></div>
       <div class="section-heading">MES COMPTES <button class="add-account" title="Ajouter un compte">+</button></div>
       <div class="sidebar-accounts" aria-label="Liste des comptes">
@@ -107,11 +141,15 @@ export function render() {
       <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><p class="database-error" role="status"></p></div>
     </aside>
     <main class="main-area">
-      <header class="topbar"><div class="breadcrumb"><button type="button" id="household-breadcrumb">Mon foyer</button> <span>/</span> <button type="button" id="accounts-breadcrumb">Comptes</button> <span>/</span> <strong>${escapeHtml(selectedAccount.name)}</strong></div></header>
+      <header class="topbar"><div class="breadcrumb"><button type="button" id="household-breadcrumb">Mon foyer</button> <span>/</span> ${selected ? `<button type="button" id="accounts-breadcrumb">Comptes</button> <span>/</span> <strong>${escapeHtml(selected.name)}</strong>` : "<strong>Comptes</strong>"}</div></header>
       <div class="page-content">
-        <div class="page-heading account-heading"><div><div class="eyebrow">${escapeHtml(selectedAccount.kind)} <span>·</span> ${escapeHtml(selectedAccount.bank)}</div><h1>${escapeHtml(selectedAccount.name)}</h1><p>Suivez les mouvements et rapprochez vos opérations bancaires.</p></div><div class="page-actions"><button type="button" class="secondary-button" id="balance-history-toggle" aria-expanded="false" aria-controls="balance-history">Historique du solde</button><button type="button" class="secondary-button" id="balance-forecast-toggle" aria-expanded="false" aria-controls="balance-forecast">Prévision du solde</button><button class="primary-button" id="new-transaction"><span>+</span> Nouvelle opération</button></div></div>
+        ${
+          selected
+            ? `
+        <div class="page-heading account-heading"><div><div class="eyebrow">${escapeHtml(selected.kind)} <span>·</span> ${escapeHtml(selected.bank)}</div><h1>${escapeHtml(selected.name)}</h1><p>Suivez les mouvements et rapprochez vos opérations bancaires.</p>
+          <button type="button" class="secondary-button account-number-control" id="edit-account-number" aria-haspopup="dialog"${selected.accountNumber ? ' title="Modifier le numéro de compte"' : ""}>${selected.accountNumber ? `Numéro de compte · ${escapeHtml(selected.accountNumber)}` : "Ajouter un numéro de compte"}</button></div><div class="page-actions"><button type="button" class="secondary-button" id="balance-history-toggle" aria-expanded="false" aria-controls="balance-history">Historique du solde</button><button type="button" class="secondary-button" id="balance-forecast-toggle" aria-expanded="false" aria-controls="balance-forecast">Prévision du solde</button><button class="primary-button" id="new-transaction"><span>+</span> Nouvelle opération</button></div></div>
         <section class="summary-grid">
-          <article class="summary-card balance-card${balance < 0 ? " negative-balance" : ""}"><div class="card-label">Solde du compte <span class="help">i</span></div><strong>${euro(balance)}</strong><small>Solde initial · ${euro(selectedAccount.openingBalance)}</small><div class="balance-decoration">€</div></article>
+          <article class="summary-card balance-card${balance < 0 ? " negative-balance" : ""}"><div class="card-label">Solde du compte <span class="help">i</span></div><strong>${euro(balance)}</strong><small>Solde initial · ${euro(selected.openingBalance)}</small><div class="balance-decoration">€</div></article>
           <article class="summary-card"><div class="card-label">Entrées ce mois <span class="metric-icon positive">↙</span></div><strong><button type="button" id="filter-month-credit" aria-label="Afficher les entrées de ce mois">${euro(income)}</button></strong><small class="positive-text">${creditCount} opération${creditCount === 1 ? "" : "s"} créditrice${creditCount === 1 ? "" : "s"}</small></article>
           <article class="summary-card"><div class="card-label">Sorties ce mois <span class="metric-icon negative">↗</span></div><strong><button type="button" id="filter-month-debit" aria-label="Afficher les sorties de ce mois">${euro(Math.abs(expenses))}</button></strong><small>${debitCount} opération${debitCount === 1 ? "" : "s"} débitrice${debitCount === 1 ? "" : "s"}</small></article>
           <article class="summary-card reconciliation-card"><div class="card-label">À pointer</div><strong><button type="button" id="filter-unreconciled" aria-label="Afficher les ${unreconciledCount} opérations à pointer">${unreconciledCount} <em>opérations</em></button></strong><small><span class="status-dot"></span> Rapprochez vos relevés</small></article>
@@ -139,15 +177,35 @@ export function render() {
               .join("") ||
             `<tr><td colspan="9" class="empty-row">Aucune opération ne correspond à ce filtre.</td></tr>`
           }</tbody></table></div>
-          <div class="table-footer"><span>${filteredCount ? `Opérations <strong>${start + 1}–${start + rows.length}</strong> sur ${filteredCount}` : "Aucune opération"}${filteredCount !== totalCount ? ` · ${totalCount} au total` : ""} · Solde initial : <strong>${euro(selectedAccount.openingBalance)}</strong></span><div class="pagination"><button id="previous-page" type="button" aria-label="Page précédente" ${page === 1 ? "disabled" : ""}>‹</button><form id="page-form"><label for="page-input">Page</label><input id="page-input" type="number" min="1" max="${pageCount}" value="${page}" required aria-label="Numéro de page"><span> / ${pageCount}</span><button type="submit" aria-label="Aller à la page">OK</button></form><button id="next-page" type="button" aria-label="Page suivante" ${page === pageCount ? "disabled" : ""}>›</button></div></div>
-        </section>
+          <div class="table-footer"><span>${filteredCount ? `Opérations <strong>${start + 1}–${start + rows.length}</strong> sur ${filteredCount}` : "Aucune opération"}${filteredCount !== totalCount ? ` · ${totalCount} au total` : ""} · Solde initial : <strong>${euro(selected.openingBalance)}</strong></span><div class="pagination"><button id="previous-page" type="button" aria-label="Page précédente" ${page === 1 ? "disabled" : ""}>‹</button><form id="page-form"><label for="page-input">Page</label><input id="page-input" type="number" min="1" max="${pageCount}" value="${page}" required aria-label="Numéro de page"><span> / ${pageCount}</span><button type="submit" aria-label="Aller à la page">OK</button></form><button id="next-page" type="button" aria-label="Page suivante" ${page === pageCount ? "disabled" : ""}>›</button></div></div>
+        </section>`
+            : `
+        <div class="page-heading"><div><h1>Mes comptes</h1><p>Ajoutez votre premier compte pour commencer à enregistrer vos opérations.</p></div>
+          <div class="page-actions">
+            <button type="button" class="primary-button" id="empty-add-account">Ajouter un compte</button>
+            <button type="button" class="secondary-button" id="empty-import">Importer un fichier Money</button>
+          </div>
+        </div>`
+        }
       </div>
     </main>
     ${renderAmountFilterDialog()}
     ${renderPeriodFilterDialog()}
-    <dialog id="account-dialog"><form id="account-form"><div class="dialog-heading"><h2>Nouveau compte</h2><button type="button" class="dialog-close account-close" aria-label="Fermer">×</button></div><label>Nom du compte<input name="name" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Compte courant"></label><label>Type de compte<select name="kind"><option>Compte courant</option><option>Épargne</option><option>Assurance vie</option></select></label><label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="${TEXT_NAME_LIMIT}" placeholder="Nom de la banque"></label><label>Solde initial (€)<input name="balance" type="text" inputmode="decimal" value="0" required></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button account-close">Annuler</button><button type="submit" class="primary-button">Créer le compte</button></div></form></dialog>
-    <dialog id="transaction-dialog"><form id="transaction-form"><div class="dialog-heading"><div><div class="eyebrow">${escapeHtml(selectedAccount.name)}</div><h2>Nouvelle opération</h2></div><button type="button" class="dialog-close" aria-label="Fermer">×</button></div><label>Type d’opération<select name="type"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer" ${accounts.length < 2 ? "disabled" : ""}>Virement entre mes comptes</option></select></label><div class="transaction-transfer-accounts" hidden><label>Compte débité<select name="sourceId" disabled>${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label><label>Compte crédité<select name="destinationId" disabled>${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label><label>Réf. / N° chèque du débit <span class="optional">(facultatif)</span><input name="debitReference" maxlength="${REFERENCE_LIMIT}" disabled></label><label>Réf. / N° chèque du crédit <span class="optional">(facultatif)</span><input name="creditReference" maxlength="${REFERENCE_LIMIT}" disabled></label></div><label class="transaction-payee">Tiers<input name="label" list="payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Marché du dimanche"><datalist id="payee-suggestions"></datalist></label><div class="form-row"><label>Date<input name="date" type="date" required value="${localDate(new Date())}"></label><label>Montant (€)<input name="amount" type="text" inputmode="decimal" required placeholder="0,00"></label></div><div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><button type="button" class="secondary-button add-category">+ Catégorie</button></div><label class="transaction-reference-field">Réf. / N° chèque <span class="optional">(facultatif)</span><input name="reference" maxlength="${REFERENCE_LIMIT}"></label><label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label><p class="editor-error transaction-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button dialog-cancel">Annuler</button><button type="submit" class="primary-button">Ajouter l’opération</button></div></form></dialog>
-    <dialog id="delete-transaction-dialog" aria-labelledby="delete-transaction-title"><div class="delete-confirmation"><h2 id="delete-transaction-title">Confirmer la suppression</h2><p class="delete-confirmation-message"></p><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button delete-cancel" autofocus>Annuler</button><button type="button" class="primary-button delete-confirm">Supprimer</button></div></div></dialog>`;
+    <dialog id="account-dialog"><form id="account-form"><div class="dialog-heading"><h2>Nouveau compte</h2><button type="button" class="dialog-close account-close" aria-label="Fermer">×</button></div><label>Nom du compte<input name="name" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Compte courant"></label><label>Type de compte<select name="kind"><option>Compte courant</option><option>Épargne</option><option>Assurance vie</option></select></label><label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="${TEXT_NAME_LIMIT}" placeholder="Nom de la banque"></label><label>Numéro de compte <span class="optional">(facultatif)</span><input name="accountNumber" maxlength="${TEXT_NAME_LIMIT}"></label><label>Solde initial (€)<input name="balance" type="text" inputmode="decimal" value="0" required></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button account-close">Annuler</button><button type="submit" class="primary-button">Créer le compte</button></div></form></dialog>
+    ${
+      selected
+        ? `<dialog id="account-number-dialog" aria-labelledby="account-number-title">
+      <form id="account-number-form">
+        <div class="dialog-heading"><h2 id="account-number-title">Numéro de compte</h2><button type="button" class="dialog-close" aria-label="Fermer">×</button></div>
+        <label>Numéro de compte <span class="optional">(facultatif)</span><input name="accountNumber" maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(selected.accountNumber ?? "")}"></label>
+        <p class="editor-error" role="alert"></p>
+        <div class="dialog-actions"><button type="submit" class="primary-button">Enregistrer</button></div>
+      </form>
+    </dialog>
+    <dialog id="transaction-dialog"><form id="transaction-form"><div class="dialog-heading"><div><div class="eyebrow">${escapeHtml(selected.name)}</div><h2>Nouvelle opération</h2></div><button type="button" class="dialog-close" aria-label="Fermer">×</button></div><label>Type d’opération<select name="type"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer" ${accounts.length < 2 ? "disabled" : ""}>Virement entre mes comptes</option></select></label><div class="transaction-transfer-accounts" hidden><label>Compte débité<select name="sourceId" disabled>${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label><label>Compte crédité<select name="destinationId" disabled>${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label><label>Réf. / N° chèque du débit <span class="optional">(facultatif)</span><input name="debitReference" maxlength="${REFERENCE_LIMIT}" disabled></label><label>Réf. / N° chèque du crédit <span class="optional">(facultatif)</span><input name="creditReference" maxlength="${REFERENCE_LIMIT}" disabled></label></div><label class="transaction-payee">Tiers<input name="label" list="payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Marché du dimanche"><datalist id="payee-suggestions"></datalist></label><div class="form-row"><label>Date<input name="date" type="date" min="${MIN_CALENDAR_DATE}" required value="${localDate(new Date())}"></label><label>Montant (€)<input name="amount" type="text" inputmode="decimal" required placeholder="0,00"></label></div><div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><button type="button" class="secondary-button add-category">+ Catégorie</button></div><label class="transaction-reference-field">Réf. / N° chèque <span class="optional">(facultatif)</span><input name="reference" maxlength="${REFERENCE_LIMIT}"></label><label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label><p class="editor-error transaction-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button dialog-cancel">Annuler</button><button type="submit" class="primary-button">Ajouter l’opération</button></div></form></dialog>
+    <dialog id="delete-transaction-dialog" aria-labelledby="delete-transaction-title"><div class="delete-confirmation"><h2 id="delete-transaction-title">Confirmer la suppression</h2><p class="delete-confirmation-message"></p><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button delete-cancel" autofocus>Annuler</button><button type="button" class="primary-button delete-confirm">Supprimer</button></div></div></dialog>`
+        : ""
+    }`;
 
   document.querySelector<HTMLElement>(".sidebar-accounts")!.scrollTop = accountScroll;
   document.querySelectorAll<HTMLElement>("[data-account]").forEach((button) =>
@@ -162,11 +220,20 @@ export function render() {
   document.querySelector("#household-breadcrumb")?.addEventListener("click", renderHousehold);
   document.querySelector("#household-nav")?.addEventListener("click", renderHousehold);
   document.querySelector("#accounts-breadcrumb")?.addEventListener("click", renderAccountsList);
-  bindTransactionFilter();
+  if (selected) {
+    bindAccountNumber(selected);
+    bindTransactionFilter();
+    bindBalanceHistory();
+    bindBalanceForecast();
+    bindTransactionActions();
+  }
   const accountDialog = document.querySelector<HTMLDialogElement>("#account-dialog")!;
   document
-    .querySelector(".add-account")
-    ?.addEventListener("click", () => accountDialog.showModal());
+    .querySelectorAll(".add-account, #empty-add-account")
+    .forEach((button) => button.addEventListener("click", () => accountDialog.showModal()));
+  document
+    .querySelector("#empty-import")
+    ?.addEventListener("click", () => void runMenuAction("import"));
   document
     .querySelectorAll(".account-close")
     .forEach((button) => button.addEventListener("click", () => accountDialog.close()));
@@ -186,6 +253,7 @@ export function render() {
             name: String(values.get("name")).trim(),
             kind: String(values.get("kind")),
             bank: String(values.get("bank")).trim(),
+            accountNumber: String(values.get("accountNumber")).trim() || null,
             openingBalance: parseCents(String(values.get("balance"))),
           },
         });
@@ -198,9 +266,6 @@ export function render() {
         submit.disabled = false;
       }
     });
-  bindBalanceHistory();
-  bindBalanceForecast();
-  bindTransactionActions();
 }
 
 // The breadcrumb leads to an overview; selecting a row opens its register.
@@ -286,9 +351,8 @@ export async function reloadDatabase(path: string | null) {
     invoke<Schedule[]>("list_schedules"),
     invoke<Category[]>("list_categories"),
   ]);
-  if (!newAccounts.length) throw new Error("La base ne contient aucun compte.");
   setAccounts(newAccounts);
-  setSelectedAccount(newAccounts[0]!);
+  setSelectedAccount(newAccounts[0]);
   setSchedules(newSchedules);
   setCategories(newCategories);
   await refreshTransactions(true);

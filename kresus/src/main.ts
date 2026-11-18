@@ -22,11 +22,10 @@ async function initialize() {
     await listen("kresus-file-request", () => void initialized.then(drainFileRequests));
   }
   setAccounts(await invoke<Account[]>("list_accounts"));
-  if (!accounts[0]) throw new Error("La base ne contient aucun compte.");
   setSelectedAccount(accounts[0]);
   setSchedules(await invoke<Schedule[]>("list_schedules"));
   setCategories(await invoke<Category[]>("list_categories"));
-  await migrateBrowserTransactions();
+  if (accounts.length) await migrateBrowserTransactions();
   await refreshTransactions();
   if ("__TAURI_INTERNALS__" in window) drainFileRequests();
 }

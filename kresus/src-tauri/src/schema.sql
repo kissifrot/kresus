@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   name TEXT NOT NULL,
   kind TEXT NOT NULL,
   opening_balance_cents INTEGER NOT NULL,
-  bank TEXT NOT NULL
+  bank TEXT NOT NULL,
+  account_number TEXT
 );
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,

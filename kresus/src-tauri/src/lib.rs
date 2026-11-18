@@ -58,6 +58,7 @@ pub fn run() {
             database::use_default_database,
             accounts::list_accounts,
             accounts::create_account,
+            accounts::update_account_number,
             categories::list_categories,
             categories::create_category,
             categories::rename_category,

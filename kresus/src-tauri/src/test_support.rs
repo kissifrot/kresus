@@ -30,8 +30,20 @@ pub(crate) fn temporary_database_path() -> TestDatabasePath {
 
 pub(crate) fn database() -> Connection {
     let connection = Connection::open_in_memory().unwrap();
-    initialize_database(&connection).unwrap();
+    initialize_test_accounts(&connection);
     connection
+}
+
+pub(crate) fn initialize_test_accounts(connection: &Connection) {
+    initialize_database(connection).unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO accounts (id,name,kind,opening_balance_cents,bank) VALUES
+              ('ccp','Compte principal','Compte courant',0,''),
+              ('sylvie','Second compte','Compte courant',0,''),
+              ('livret-michel','Livret','Épargne',0,'');",
+        )
+        .unwrap();
 }
 
 pub(crate) fn account(id: &str, kind: &str, balance: f64) -> Account {
@@ -41,6 +53,7 @@ pub(crate) fn account(id: &str, kind: &str, balance: f64) -> Account {
         kind: kind.into(),
         opening_balance: (balance * 100.0).round() as i64,
         bank: "  Bank  ".into(),
+        account_number: None,
         current_balance: 0,
     }
 }
