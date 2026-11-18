@@ -117,6 +117,26 @@ async function text(selector) {
 async function click(selector) {
   await request("POST", `/session/${session}/element/${await element(selector)}/click`, {});
 }
+async function clickRegisterDelete(row) {
+  const selector = `${row} [data-delete]`;
+  // The last column can be clipped by the register's horizontal scroll container.
+  await waitFor(
+    () =>
+      execute(
+        `const button = document.querySelector(arguments[0]);
+         if (!button) return false;
+         button.scrollIntoView({block: 'center', inline: 'center'});
+         const rect = button.getBoundingClientRect();
+         return button.contains(document.elementFromPoint(
+           rect.left + rect.width / 2, rect.top + rect.height / 2
+         ));`,
+        selector,
+      ),
+    `Bouton de suppression accessible pour ${row}`,
+  );
+  await click(selector);
+}
+
 // Schedule options can extend the dialog beyond the viewport; scroll its own content.
 async function submitSchedule() {
   await execute(
@@ -1803,7 +1823,15 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
         (await text(".balance-card")).replace(/\s/g, "").includes("-3578,46€"),
       "Solde de −3 578,46 € avant suppression",
     );
-    await click(`${invoice} [data-delete]`);
+    await request("POST", `/session/${session}/window/rect`, { width: 900, height: 620 });
+    await waitFor(
+      () =>
+        execute(
+          "return innerWidth <= 900 && document.querySelector('.transactions-panel .table-wrap').scrollWidth > document.querySelector('.transactions-panel .table-wrap').clientWidth",
+        ),
+      "Défilement horizontal du registre Money à 900 pixels",
+    );
+    await clickRegisterDelete(invoice);
     await waitFor(
       () => visible("#delete-transaction-dialog[open]"),
       "Confirmation de suppression de la facture",
@@ -1817,6 +1845,7 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
         (await text(".balance-card")).replace(/\s/g, "").includes("-3541,05€"),
       "Registre et solde après suppression de la facture",
     );
+    await request("POST", `/session/${session}/window/rect`, { width: 1280, height: 820 });
     const remainingSpending = [
       ["Alimentation", "80,25€"],
       ["Auto/moto · Entretien/réparations", "19,75€"],
@@ -1961,7 +1990,7 @@ print(c.execute("SELECT opening_balance_cents + COALESCE((SELECT sum(amount_cent
     );
     await click('[data-account="money-account-2"]');
     await waitFor(() => visible(groceries), "Registre avant modification de la base sauvegardée");
-    await click(`${groceries} [data-delete]`);
+    await clickRegisterDelete(groceries);
     await waitFor(
       () => visible("#delete-transaction-dialog[open]"),
       "Confirmation de suppression dans la base de test",
