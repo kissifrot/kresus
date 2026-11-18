@@ -23,6 +23,10 @@ import {
   transactionFilter,
   transactionFilters,
   transactionSearch,
+  amountFilterLabel,
+  renderAmountFilterDialog,
+  periodFilterLabel,
+  renderPeriodFilterDialog,
   registerSummary,
   bindTransactionActions,
   bindTransactionFilter,
@@ -48,6 +52,13 @@ function referenceCell(reference?: string | null, cheque?: string | null): strin
   if (formatted && number && formatted !== number)
     return `<span>Réf. ${escapeHtml(formatted)}</span><span>Chèque ${escapeHtml(number)}</span>`;
   return escapeHtml(formatted || number || "—");
+}
+
+function registerFilterControl(id: string, label: string, value: string, clearLabel: string) {
+  return `<div class="register-filter-actions" ${value ? "data-active" : ""}>
+    <button type="button" class="secondary-button" id="${id}" aria-haspopup="dialog">${label}${value ? ` · ${escapeHtml(value)}` : ""}</button>
+    ${value ? `<button type="button" class="secondary-button register-filter-clear" id="${id}-quick-clear" aria-label="${clearLabel}" title="${clearLabel}">×</button>` : ""}
+  </div>`;
 }
 
 export function render() {
@@ -108,14 +119,17 @@ export function render() {
         <section id="balance-history" class="balance-history" hidden></section>
         <section id="balance-forecast" class="balance-history" hidden></section>
         <p class="register-error" role="alert"></p><section class="transactions-panel">
-          <div class="panel-heading"><div><h2>Historique des opérations</h2><p>${totalCount} opérations · Solde calculé à partir des mouvements</p></div><div class="panel-actions"><form id="transaction-search-form" role="search"><label class="visually-hidden" for="transaction-search">Rechercher une opération</label><input class="filter-button" type="search" id="transaction-search" placeholder="Libellé, catégorie…" title="Rechercher dans le libellé, la catégorie, la référence, le numéro de chèque ou le commentaire" value="${escapeHtml(transactionSearch)}"><button type="submit" class="secondary-button">Rechercher</button></form><label class="filter-label"><span class="visually-hidden">Filtrer les opérations</span><select class="filter-button" id="transaction-filter">${Object.entries(
-            transactionFilters,
-          )
-            .map(
-              ([value, label]) =>
-                `<option value="${value}" ${transactionFilter === value ? "selected" : ""}>${label}</option>`,
+          <div class="panel-heading"><div><h2>Historique des opérations</h2><p>${totalCount} opérations · Solde calculé à partir des mouvements</p></div><div class="panel-actions"><form id="transaction-search-form" role="search"><label class="visually-hidden" for="transaction-search">Rechercher une opération</label><input class="filter-button" type="search" id="transaction-search" placeholder="Libellé, catégorie…" title="Rechercher dans le libellé, la catégorie, la référence, le numéro de chèque ou le commentaire" value="${escapeHtml(transactionSearch)}"><button type="submit" class="secondary-button">Rechercher</button></form>
+            ${registerFilterControl("amount-filter", "Montant", amountFilterLabel(), "Effacer le filtre de montant")}
+            ${registerFilterControl("period-filter", "Période", periodFilterLabel(), "Effacer le filtre de période")}
+            <label class="filter-label"><span class="visually-hidden">Filtrer les opérations</span><select class="filter-button" id="transaction-filter">${Object.entries(
+              transactionFilters,
             )
-            .join("")}</select></label></div></div>
+              .map(
+                ([value, label]) =>
+                  `<option value="${value}" ${transactionFilter === value ? "selected" : ""}>${label}</option>`,
+              )
+              .join("")}</select></label></div></div>
           <div class="table-wrap"><table><thead><tr><th>DATE</th><th>RÉF. / N° CHÈQUE</th><th>TIERS / OPÉRATION</th><th>CATÉGORIE</th><th class="center">POINTÉ</th><th class="right">DÉBIT (€)</th><th class="right">CRÉDIT (€)</th><th class="right">SOLDE (€)</th><th></th></tr></thead><tbody>${
             rows
               .map(
@@ -129,6 +143,8 @@ export function render() {
         </section>
       </div>
     </main>
+    ${renderAmountFilterDialog()}
+    ${renderPeriodFilterDialog()}
     <dialog id="account-dialog"><form id="account-form"><div class="dialog-heading"><h2>Nouveau compte</h2><button type="button" class="dialog-close account-close" aria-label="Fermer">×</button></div><label>Nom du compte<input name="name" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Compte courant"></label><label>Type de compte<select name="kind"><option>Compte courant</option><option>Épargne</option><option>Assurance vie</option></select></label><label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="${TEXT_NAME_LIMIT}" placeholder="Nom de la banque"></label><label>Solde initial (€)<input name="balance" type="text" inputmode="decimal" value="0" required></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button account-close">Annuler</button><button type="submit" class="primary-button">Créer le compte</button></div></form></dialog>
     <dialog id="transaction-dialog"><form id="transaction-form"><div class="dialog-heading"><div><div class="eyebrow">${escapeHtml(selectedAccount.name)}</div><h2>Nouvelle opération</h2></div><button type="button" class="dialog-close" aria-label="Fermer">×</button></div><label>Type d’opération<select name="type"><option value="debit">Débit</option><option value="credit">Crédit</option><option value="transfer" ${accounts.length < 2 ? "disabled" : ""}>Virement entre mes comptes</option></select></label><div class="transaction-transfer-accounts" hidden><label>Compte débité<select name="sourceId" disabled>${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label><label>Compte crédité<select name="destinationId" disabled>${accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join("")}</select></label><label>Réf. / N° chèque du débit <span class="optional">(facultatif)</span><input name="debitReference" maxlength="${REFERENCE_LIMIT}" disabled></label><label>Réf. / N° chèque du crédit <span class="optional">(facultatif)</span><input name="creditReference" maxlength="${REFERENCE_LIMIT}" disabled></label></div><label class="transaction-payee">Tiers<input name="label" list="payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Marché du dimanche"><datalist id="payee-suggestions"></datalist></label><div class="form-row"><label>Date<input name="date" type="date" required value="${localDate(new Date())}"></label><label>Montant (€)<input name="amount" type="text" inputmode="decimal" required placeholder="0,00"></label></div><div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions()}</select></label><button type="button" class="secondary-button add-category">+ Catégorie</button></div><label class="transaction-reference-field">Réf. / N° chèque <span class="optional">(facultatif)</span><input name="reference" maxlength="${REFERENCE_LIMIT}"></label><label>Commentaire <span class="optional">(facultatif)</span><textarea name="note" rows="2"></textarea></label><p class="editor-error transaction-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button dialog-cancel">Annuler</button><button type="submit" class="primary-button">Ajouter l’opération</button></div></form></dialog>
     <dialog id="delete-transaction-dialog" aria-labelledby="delete-transaction-title"><div class="delete-confirmation"><h2 id="delete-transaction-title">Confirmer la suppression</h2><p class="delete-confirmation-message"></p><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button delete-cancel" autofocus>Annuler</button><button type="button" class="primary-button delete-confirm">Supprimer</button></div></div></dialog>`;

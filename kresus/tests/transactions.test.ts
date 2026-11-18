@@ -364,6 +364,94 @@ describe("transaction register", () => {
     );
   });
 
+  it("displays the active amount and clears it directly from the register", async () => {
+    const invoke = await openRegister();
+    click("#amount-filter");
+    const dialog = document.querySelector<HTMLDialogElement>("#amount-filter-dialog")!;
+    const form = dialog.querySelector("form")!;
+    const input = (name: string) => form.querySelector<HTMLInputElement>(`[name="${name}"]`)!;
+    expect(dialog.open).toBe(true);
+    expect(document.activeElement).toBe(input("exact"));
+    input("exact").value = "20,00";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(document.querySelector("#amount-filter")?.textContent).toMatch(/Montant · 20,00\s€/),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      "list_register",
+      expect.objectContaining({ amountRange: { min: 2000, max: 2000 }, page: 1 }),
+    );
+    expect(document.querySelector("tbody")?.textContent).toContain("Courses");
+    expect(document.querySelector("tbody")?.textContent).not.toContain("Salaire");
+
+    click("#amount-filter");
+    const editedForm = document.querySelector<HTMLFormElement>("#amount-filter-form")!;
+    const mode = editedForm.querySelector<HTMLSelectElement>('[name="mode"]')!;
+    const min = editedForm.querySelector<HTMLInputElement>('[name="min"]')!;
+    const max = editedForm.querySelector<HTMLInputElement>('[name="max"]')!;
+    expect(editedForm.querySelector<HTMLInputElement>('[name="exact"]')?.value).toBe("20,00");
+    mode.value = "range";
+    mode.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(min.closest(".form-row")?.hasAttribute("hidden")).toBe(false);
+    min.value = "30";
+    submit(editedForm);
+    expect(editedForm.querySelector(".editor-error")?.textContent).toContain("minimum");
+    expect(editedForm.closest("dialog")?.open).toBe(true);
+    max.value = "";
+    submit(editedForm);
+    await vi.waitFor(() =>
+      expect(document.querySelector("tbody")?.textContent).toContain("Salaire"),
+    );
+    expect(document.querySelector("tbody")?.textContent).not.toContain("Courses");
+
+    expect(document.querySelector("#amount-filter")?.textContent).toMatch(/Au moins 30,00\s€/);
+    document.querySelector<HTMLButtonElement>("#amount-filter-quick-clear")!.focus();
+    click("#amount-filter-quick-clear");
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("tr[data-transaction]")).toHaveLength(2),
+    );
+    expect(document.querySelector("#amount-filter")?.textContent).toBe("Montant");
+    expect(document.querySelector("#amount-filter-quick-clear")).toBeNull();
+    expect(document.querySelector<HTMLDialogElement>("#amount-filter-dialog")?.open).toBe(false);
+    expect(document.activeElement?.id).toBe("amount-filter");
+  });
+
+  it("validates optional period dates and clears the period without opening the dialog", async () => {
+    const invoke = await openRegister();
+    click("#period-filter");
+    const form = document.querySelector<HTMLFormElement>("#period-filter-form")!;
+    const start = form.querySelector<HTMLInputElement>('[name="start"]')!;
+    const end = form.querySelector<HTMLInputElement>('[name="end"]')!;
+    expect(document.activeElement).toBe(start);
+    start.value = "2027-01-02";
+    end.value = "2027-01-01";
+    submit(form);
+    expect(form.closest("dialog")?.open).toBe(true);
+    expect(form.querySelector(".editor-error")?.textContent).toContain("date de début");
+    start.value = "";
+    submit(form);
+    await vi.waitFor(() =>
+      expect(document.querySelector("#period-filter")?.textContent).toBe(
+        "Période · Jusqu’au 01/01/2027",
+      ),
+    );
+    expect(document.querySelector("tbody")?.textContent).toContain("Courses");
+    expect(document.querySelector("tbody")?.textContent).not.toContain("Salaire");
+    expect(invoke).toHaveBeenLastCalledWith(
+      "list_register",
+      expect.objectContaining({ dateRange: { start: null, end: "2027-01-01" }, page: 1 }),
+    );
+    click("#period-filter");
+    expect(
+      document.querySelector<HTMLInputElement>('#period-filter-form [name="end"]')?.value,
+    ).toBe("2027-01-01");
+    click("#period-filter-dialog .dialog-close");
+    click("#period-filter-quick-clear");
+    await vi.waitFor(() => expect(document.querySelector("#period-filter-quick-clear")).toBeNull());
+    expect(document.querySelector("#period-filter")?.textContent).toBe("Période");
+    expect(document.querySelector("tbody")?.textContent).toContain("Salaire");
+  });
+
   it("shows the year for historical operations with the same day and month", async () => {
     await openRegister({
       transactions: [

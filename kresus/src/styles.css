@@ -610,6 +610,8 @@ h1 {
   min-height: 78px;
   padding: 17px 19px;
   display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid #edf0ed;
@@ -639,6 +641,36 @@ h1 {
   height: 37px;
   border-radius: 6px;
   font-size: 13px;
+}
+
+.register-filter-actions {
+  display: inline-flex;
+  max-width: 100%;
+}
+.register-filter-actions[data-active] button {
+  color: #286e49;
+  background: #edf5ef;
+  border-color: #a8cbb0;
+}
+.register-filter-actions[data-active] button:first-child {
+  border-radius: 6px 0 0 6px;
+  padding-inline: 10px;
+}
+.register-filter-actions .register-filter-clear {
+  flex: 0 0 32px;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+.register-filter-actions[data-active] button:hover {
+  background: #dceee1;
+}
+.register-filter-actions button:focus-visible {
+  z-index: 1;
+  outline: 2px solid #286e49;
+  outline-offset: -2px;
 }
 
 .filter-button {
@@ -885,7 +917,8 @@ dialog::backdrop {
   background: #202b2470;
   backdrop-filter: blur(2px);
 }
-#transaction-form {
+#transaction-form,
+.register-filter-form {
   padding: 25px;
   display: flex;
   flex-direction: column;
@@ -1161,7 +1194,8 @@ dialog::backdrop {
   font-size: 23px;
   line-height: 20px;
 }
-#transaction-form label {
+#transaction-form label,
+.register-filter-form label {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1171,7 +1205,9 @@ dialog::backdrop {
 }
 #transaction-form input,
 #transaction-form select,
-#transaction-form textarea {
+#transaction-form textarea,
+.register-filter-form input,
+.register-filter-form select {
   height: 37px;
   border: 1px solid #dfe5df;
   border-radius: 5px;
@@ -1183,7 +1219,9 @@ dialog::backdrop {
 }
 #transaction-form input:focus,
 #transaction-form select:focus,
-#transaction-form textarea:focus {
+#transaction-form textarea:focus,
+.register-filter-form input:focus,
+.register-filter-form select:focus {
   border-color: #69a27a;
   box-shadow: 0 0 0 3px #e8f3ea;
 }
@@ -1191,6 +1229,17 @@ dialog::backdrop {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+.register-filter-form [hidden],
+.register-filter-form .editor-error:empty {
+  display: none;
+}
+.register-filter-form input {
+  min-width: 0;
+}
+.register-filter-help {
+  color: #59655c;
+  font-size: 12px;
 }
 .optional {
   font-weight: 400;

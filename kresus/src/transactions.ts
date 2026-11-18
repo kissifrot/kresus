@@ -8,6 +8,8 @@ import {
   parseCents,
   parsePositiveCents,
   centsInput,
+  amountWithoutCurrency,
+  euro,
   localDate,
 } from "./format";
 import { render } from "./accounts";
@@ -18,6 +20,11 @@ import { loadPayeeSuggestions } from "./payees";
 type TransactionFilter =
   "all" | "unreconciled" | "reconciled" | "debit" | "credit" | "month-debit" | "month-credit";
 export let transactionSearch = "";
+type AmountRange = { min: number | null; max: number | null };
+let amountRange: AmountRange | null = null;
+type DateRange = { start: string | null; end: string | null };
+let dateRange: DateRange | null = null;
+
 export let transactionFilter: TransactionFilter = "all";
 export const transactionFilters: Record<TransactionFilter, string> = {
   all: "Toutes les opérations",
@@ -55,6 +62,8 @@ export function resetRegister() {
   registerPage = undefined;
   transactionFilter = "all";
   transactionSearch = "";
+  amountRange = null;
+  dateRange = null;
   setTransactions([]);
 }
 
@@ -78,7 +87,184 @@ export function registerSummary() {
   };
 }
 
+export function amountFilterLabel() {
+  if (!amountRange) return "";
+  const { min, max } = amountRange;
+  if (min === null) return max === null ? "" : `Au plus ${euro(max)}`;
+  if (max === null) return `Au moins ${euro(min)}`;
+  return min === max ? euro(min) : `${amountWithoutCurrency(min)} à ${euro(max)}`;
+}
+
+function renderRegisterFilterDialog(id: string, title: string, fields: string) {
+  return `<dialog id="${id}-dialog" aria-labelledby="${id}-title">
+    <form class="register-filter-form" id="${id}-form">
+      <div class="dialog-heading">
+        <h2 id="${id}-title">${title}</h2>
+        <button type="button" class="dialog-close" aria-label="Fermer">×</button>
+      </div>
+      ${fields}
+      <p class="editor-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" id="${id}-clear">Effacer le filtre</button>
+        <button type="submit" class="primary-button">Appliquer</button>
+      </div>
+    </form>
+  </dialog>`;
+}
+
+export function renderAmountFilterDialog() {
+  return renderRegisterFilterDialog(
+    "amount-filter",
+    "Filtrer par montant",
+    `<label>Critère<select name="mode"><option value="exact">Montant exact</option><option value="range">Intervalle</option></select></label>
+      <label id="amount-filter-exact">Montant (€)<input name="exact" type="text" inputmode="decimal" placeholder="0,00"></label>
+      <div class="form-row" id="amount-filter-range" hidden>
+        <label>Minimum (€)<input name="min" type="text" inputmode="decimal" placeholder="Sans minimum"></label>
+        <label>Maximum (€)<input name="max" type="text" inputmode="decimal" placeholder="Sans maximum"></label>
+      </div>
+      <p class="register-filter-help">Saisissez le montant sans signe. Pour choisir le sens, utilisez le filtre Débits ou Crédits.</p>`,
+  );
+}
+
+export function periodFilterLabel() {
+  if (!dateRange) return "";
+  const { start, end } = dateRange;
+  const format = (date: string) => date.split("-").reverse().join("/");
+  if (!start) return end ? `Jusqu’au ${format(end)}` : "";
+  if (!end) return `À partir du ${format(start)}`;
+  return start === end ? format(start) : `${format(start)} au ${format(end)}`;
+}
+
+export function renderPeriodFilterDialog() {
+  return renderRegisterFilterDialog(
+    "period-filter",
+    "Filtrer par période",
+    `<div class="form-row">
+      <label>Date de début<input name="start" type="date" min="0001-01-01" max="9999-12-31"></label>
+      <label>Date de fin<input name="end" type="date" min="0001-01-01" max="9999-12-31"></label>
+    </div>
+    <p class="register-filter-help">Les deux dates sont facultatives et incluses dans la période.</p>`,
+  );
+}
+
+function bindRegisterFilterDialog(id: string, dialog: HTMLDialogElement, clearFilter: () => void) {
+  const apply = async () => {
+    transactionPage = 1;
+    if (dialog.open) dialog.close();
+    await refreshTransactions();
+    if (document.activeElement === document.body) document.getElementById(id)?.focus();
+  };
+  const clear = () => {
+    clearFilter();
+    void apply();
+  };
+  dialog.querySelector(".dialog-close")!.addEventListener("click", () => dialog.close());
+  document.getElementById(`${id}-clear`)?.addEventListener("click", clear);
+  document.getElementById(`${id}-quick-clear`)?.addEventListener("click", clear);
+  return apply;
+}
+
+function bindAmountFilter() {
+  const button = document.querySelector<HTMLButtonElement>("#amount-filter");
+  const dialog = document.querySelector<HTMLDialogElement>("#amount-filter-dialog");
+  if (!button || !dialog) return;
+  const apply = bindRegisterFilterDialog("amount-filter", dialog, () => {
+    amountRange = null;
+  });
+  const form = dialog.querySelector<HTMLFormElement>("form")!;
+  const mode = form.querySelector<HTMLSelectElement>('[name="mode"]')!;
+  const exact = form.querySelector<HTMLInputElement>('[name="exact"]')!;
+  const min = form.querySelector<HTMLInputElement>('[name="min"]')!;
+  const max = form.querySelector<HTMLInputElement>('[name="max"]')!;
+  const clear = form.querySelector<HTMLButtonElement>("#amount-filter-clear")!;
+  const error = form.querySelector<HTMLElement>(".editor-error")!;
+  const updateMode = () => {
+    const isExact = mode.value === "exact";
+    form.querySelector<HTMLElement>("#amount-filter-exact")!.hidden = !isExact;
+    form.querySelector<HTMLElement>("#amount-filter-range")!.hidden = isExact;
+    error.textContent = "";
+  };
+  button.addEventListener("click", () => {
+    const activeMin = amountRange?.min ?? null;
+    const activeMax = amountRange?.max ?? null;
+    mode.value = activeMin === activeMax ? "exact" : "range";
+    exact.value = activeMin !== null && activeMin === activeMax ? centsInput(activeMin) : "";
+    min.value = activeMin === null ? "" : centsInput(activeMin);
+    max.value = activeMax === null ? "" : centsInput(activeMax);
+    clear.hidden = amountRange === null;
+    updateMode();
+    dialog.showModal();
+    (mode.value === "exact" ? exact : min).focus();
+  });
+  mode.addEventListener("change", updateMode);
+  form.addEventListener("input", () => {
+    error.textContent = "";
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const lower = parseAmountBound(mode.value === "exact" ? exact.value : min.value);
+      const upper = mode.value === "exact" ? lower : parseAmountBound(max.value);
+      if (lower === null && upper === null)
+        throw new Error(
+          mode.value === "exact" ? "Saisissez un montant." : "Saisissez au moins une borne.",
+        );
+      if (lower !== null && upper !== null && lower > upper)
+        throw new Error("Le minimum doit être inférieur ou égal au maximum.");
+      amountRange = { min: lower, max: upper };
+      void apply();
+    } catch (issue) {
+      error.textContent = (issue as Error).message;
+    }
+  });
+}
+
+function parseAmountBound(value: string) {
+  if (!value.trim()) return null;
+  const cents = parseCents(value);
+  if (value.trim().startsWith("-")) throw new Error("Saisissez le montant sans signe.");
+  return cents;
+}
+
+function bindPeriodFilter() {
+  const button = document.querySelector<HTMLButtonElement>("#period-filter");
+  const dialog = document.querySelector<HTMLDialogElement>("#period-filter-dialog");
+  if (!button || !dialog) return;
+  const apply = bindRegisterFilterDialog("period-filter", dialog, () => {
+    dateRange = null;
+  });
+  const form = dialog.querySelector<HTMLFormElement>("form")!;
+  const startInput = form.querySelector<HTMLInputElement>('[name="start"]')!;
+  const endInput = form.querySelector<HTMLInputElement>('[name="end"]')!;
+  const error = form.querySelector<HTMLElement>(".editor-error")!;
+  const clear = form.querySelector<HTMLButtonElement>("#period-filter-clear")!;
+  button.addEventListener("click", () => {
+    startInput.value = dateRange?.start ?? "";
+    endInput.value = dateRange?.end ?? "";
+    error.textContent = "";
+    clear.hidden = dateRange === null;
+    dialog.showModal();
+    startInput.focus();
+  });
+  form.addEventListener("input", () => {
+    error.textContent = "";
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const start = startInput.value || null;
+    const end = endInput.value || null;
+    if (start && end && start > end) {
+      error.textContent = "La date de début doit précéder la date de fin ou lui être égale.";
+      return;
+    }
+    dateRange = start || end ? { start, end } : null;
+    void apply();
+  });
+}
+
 export function bindTransactionFilter() {
+  bindAmountFilter();
+  bindPeriodFilter();
   // Summary shortcuts apply the same filters as the list and restart at page one.
   for (const [id, filter] of [
     ["filter-unreconciled", "unreconciled"],
@@ -387,6 +573,8 @@ export async function refreshTransactions(strict = false) {
     transactionPage = 1;
     registerPage = undefined;
     transactionSearch = "";
+    amountRange = null;
+    dateRange = null;
   }
   const version = ++requestVersion;
   const now = new Date();
@@ -400,6 +588,8 @@ export async function refreshTransactions(strict = false) {
         page: transactionPage,
         month,
         search: transactionSearch,
+        amountRange,
+        dateRange,
       }),
     ]);
     // A slower earlier request must not replace a newer page or account.

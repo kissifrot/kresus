@@ -112,6 +112,10 @@ export async function openRegister(
           .reverse();
         const filtered = withBalance.filter(
           (item) =>
+            (args?.amountRange?.min == null || Math.abs(item.amount) >= args.amountRange.min) &&
+            (args?.amountRange?.max == null || Math.abs(item.amount) <= args.amountRange.max) &&
+            (args?.dateRange?.start == null || item.date >= args.dateRange.start) &&
+            (args?.dateRange?.end == null || item.date <= args.dateRange.end) &&
             (!args?.search ||
               [item.label, item.category, item.cheque, item.note, item.reference].some((value) =>
                 value?.toLowerCase().includes(args.search.toLowerCase()),

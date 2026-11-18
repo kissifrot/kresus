@@ -27,6 +27,10 @@ Application de bureau de gestion financière familiale simple, adaptée aux usag
 
 La recherche du registre porte sur tout l’historique du compte sélectionné : libellé, catégorie, numéro de chèque, référence et commentaire. Elle ignore la casse, conserve les accents et se combine aux filtres. Une recherche vide rétablit les opérations correspondant au filtre ; elle remet la pagination à la première page. Les soldes et résumés restent calculés sur toutes les opérations du compte.
 
+Le bouton « Montant » permet de rechercher un montant exact, un minimum, un maximum ou un intervalle avec bornes incluses. Le bouton affiche le critère actif et une croix adjacente efface le filtre directement depuis le registre. La recherche compare les montants en centimes et s’applique aux débits comme aux crédits selon leur valeur affichée. Elle se combine à la recherche textuelle et aux autres filtres. L’application ou l’effacement du filtre revient à la première page.
+
+Le bouton « Période » permet de filtrer sur la date de l’opération, avec une date de début, une date de fin ou les deux. Chaque borne est incluse. Le bouton affiche la période active et la croix permet de l’effacer. Le filtre se combine à la recherche textuelle, au montant et aux autres filtres. Son application ou son effacement revient à la première page.
+
 ### Échéances
 
 - Une série peut être sans limite, limitée à un nombre d’occurrences restantes (la prochaine comprise) ou à une date de fin inclusive. Ces limites concernent les dates de la série, même si une occurrence est déplacée ponctuellement. Elles se modifient avec la série ; après enregistrement de la dernière occurrence, la série disparaît automatiquement et les opérations enregistrées sont conservées. Les anciennes bases restent compatibles et leurs séries existantes sont sans limite.

@@ -475,7 +475,8 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
         item.date = "2027-01-01".into();
         create_transaction_in_db(&db, item).unwrap();
     }
-    let first = list_register_in_db(&db, "paged", "all", 1, "2027-01", "").unwrap();
+    let first =
+        list_register_in_db(&db, "paged", "all", 1, "2027-01", "", Default::default()).unwrap();
     assert_eq!(
         (
             first.total_count,
@@ -499,11 +500,30 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
         ),
         (2060, -1020, 103, 102, 205)
     );
-    let monthly = list_register_in_db(&db, "paged", "month-credit", 1, "2027-01", "").unwrap();
+    let monthly = list_register_in_db(
+        &db,
+        "paged",
+        "month-credit",
+        1,
+        "2027-01",
+        "",
+        Default::default(),
+    )
+    .unwrap();
     assert_eq!((monthly.filtered_count, monthly.rows.len()), (103, 100));
-    let other_month = list_register_in_db(&db, "paged", "month-debit", 1, "2027-02", "").unwrap();
+    let other_month = list_register_in_db(
+        &db,
+        "paged",
+        "month-debit",
+        1,
+        "2027-02",
+        "",
+        Default::default(),
+    )
+    .unwrap();
     assert_eq!((other_month.filtered_count, other_month.rows.len()), (0, 0));
-    let second = list_register_in_db(&db, "paged", "all", 2, "2027-01", "").unwrap();
+    let second =
+        list_register_in_db(&db, "paged", "all", 2, "2027-01", "", Default::default()).unwrap();
     assert_eq!(
         (
             &second.rows[0].transaction.id,
@@ -511,7 +531,8 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
         ),
         (&"row-104".to_string(), 10540)
     );
-    let debit = list_register_in_db(&db, "paged", "debit", 99, "2027-02", "").unwrap();
+    let debit =
+        list_register_in_db(&db, "paged", "debit", 99, "2027-02", "", Default::default()).unwrap();
     assert_eq!(
         (
             debit.page,
@@ -526,9 +547,29 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
         (&"row-001".to_string(), 10010)
     );
     assert_eq!((debit.income, debit.expenses), (0, 0));
-    assert!(list_register_in_db(&db, "paged", "invalid", 1, "2027-01", "").is_err());
+    assert!(
+        list_register_in_db(
+            &db,
+            "paged",
+            "invalid",
+            1,
+            "2027-01",
+            "",
+            Default::default()
+        )
+        .is_err()
+    );
     toggle_transaction_in_db(&db, "row-001").unwrap();
-    let reconciled = list_register_in_db(&db, "paged", "reconciled", 1, "2027-01", "").unwrap();
+    let reconciled = list_register_in_db(
+        &db,
+        "paged",
+        "reconciled",
+        1,
+        "2027-01",
+        "",
+        Default::default(),
+    )
+    .unwrap();
     assert_eq!(
         (
             reconciled.filtered_count,
@@ -540,7 +581,8 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
     for i in 0..5 {
         delete_transaction_in_db(&db, &format!("row-{i:03}")).unwrap();
     }
-    let last = list_register_in_db(&db, "paged", "all", 3, "2027-01", "").unwrap();
+    let last =
+        list_register_in_db(&db, "paged", "all", 3, "2027-01", "", Default::default()).unwrap();
     assert_eq!((last.page, last.page_count, last.total_count), (2, 2, 200));
 }
 
@@ -548,7 +590,16 @@ fn register_pages_filter_after_calculating_balances_and_clamp_page() {
 fn register_page_includes_linked_transfer_identity() {
     let mut db = database();
     create_transfer_in_db(&mut db, transfer()).unwrap();
-    let page = list_register_in_db(&db, "sylvie", "credit", 1, "2027-03", "").unwrap();
+    let page = list_register_in_db(
+        &db,
+        "sylvie",
+        "credit",
+        1,
+        "2027-03",
+        "",
+        Default::default(),
+    )
+    .unwrap();
     let item = page
         .rows
         .iter()
@@ -571,8 +622,16 @@ fn register_search_matches_text_across_history_and_combines_with_filters() {
         }
         create_transaction_in_db(&db, item).unwrap();
     }
-    let result =
-        list_register_in_db(&db, "search", "debit", 1, "2027-01", "  ÉLECTRICITÉ  ").unwrap();
+    let result = list_register_in_db(
+        &db,
+        "search",
+        "debit",
+        1,
+        "2027-01",
+        "  ÉLECTRICITÉ  ",
+        Default::default(),
+    )
+    .unwrap();
     assert_eq!(
         (
             result.total_count,
@@ -582,25 +641,153 @@ fn register_search_matches_text_across_history_and_combines_with_filters() {
         (105, 1, 9900)
     );
     assert_eq!(
-        list_register_in_db(&db, "search", "credit", 1, "2027-01", "électricité")
-            .unwrap()
-            .filtered_count,
+        list_register_in_db(
+            &db,
+            "search",
+            "credit",
+            1,
+            "2027-01",
+            "électricité",
+            Default::default()
+        )
+        .unwrap()
+        .filtered_count,
         0
     );
     for query in ["annuelle", "1234567"] {
         assert_eq!(
-            list_register_in_db(&db, "search", "all", 1, "2027-01", query)
-                .unwrap()
-                .filtered_count,
+            list_register_in_db(
+                &db,
+                "search",
+                "all",
+                1,
+                "2027-01",
+                query,
+                Default::default()
+            )
+            .unwrap()
+            .filtered_count,
             1
         );
     }
     assert_eq!(
-        list_register_in_db(&db, "search", "all", 1, "2027-01", "%")
+        list_register_in_db(&db, "search", "all", 1, "2027-01", "%", Default::default())
             .unwrap()
             .filtered_count,
         0
     );
+}
+
+#[test]
+fn register_amount_range_filters_both_signs_and_preserves_history() {
+    let db = database();
+    create_account_in_db(&db, account("amount", "Compte courant", 100.0)).unwrap();
+    for (id, amount, label) in [
+        ("a", -20.10, "Facture"),
+        ("b", -20.11, "Facture"),
+        ("c", 20.10, "Facture"),
+        ("d", 10.00, "Remboursement"),
+    ] {
+        let mut item = operation(id, "amount", amount);
+        item.date = "2027-01-01".into();
+        item.label = label.into();
+        create_transaction_in_db(&db, item).unwrap();
+    }
+    let query = |filter, search, min, max| {
+        list_register_in_db(
+            &db,
+            "amount",
+            filter,
+            1,
+            "2027-01",
+            search,
+            RegisterRanges {
+                amount: Some(AmountRange { min, max }),
+                ..Default::default()
+            },
+        )
+    };
+    let exact = query("all", "", Some(2010), Some(2010)).unwrap();
+    assert_eq!((exact.total_count, exact.filtered_count), (4, 2));
+    assert_eq!(exact.rows[0].transaction.id, "c");
+    assert_eq!(exact.rows[0].running_balance, 7989);
+    assert_eq!(exact.rows[1].transaction.id, "a");
+    assert_eq!((exact.income, exact.expenses), (3010, -4021));
+    let range = query("debit", "facture", Some(2010), Some(2011)).unwrap();
+    assert_eq!((range.filtered_count, range.rows.len()), (2, 2));
+    assert_eq!(
+        query("all", "", Some(2011), None).unwrap().filtered_count,
+        1
+    );
+    assert_eq!(
+        query("all", "facture", None, Some(1000))
+            .unwrap()
+            .filtered_count,
+        0
+    );
+    assert_eq!(
+        query("credit", "", None, Some(1000))
+            .unwrap()
+            .filtered_count,
+        1
+    );
+    assert!(query("all", "", Some(2011), Some(2010)).is_err());
+}
+
+#[test]
+fn register_period_includes_bounds_and_combines_with_other_filters() {
+    let db = database();
+    create_account_in_db(&db, account("period", "Compte courant", 100.0)).unwrap();
+    for (id, date, amount) in [
+        ("a", "2027-01-01", -10.0),
+        ("b", "2027-01-02", -20.0),
+        ("c", "2027-01-03", -5.0),
+        ("d", "2027-01-04", -20.0),
+        ("e", "2027-01-05", -20.0),
+    ] {
+        let mut item = operation(id, "period", amount);
+        item.date = date.into();
+        item.label = "Facture".into();
+        create_transaction_in_db(&db, item).unwrap();
+    }
+    let query = |start: Option<&str>, end: Option<&str>| {
+        list_register_in_db(
+            &db,
+            "period",
+            "debit",
+            1,
+            "2027-01",
+            "facture",
+            RegisterRanges {
+                amount: Some(AmountRange {
+                    min: Some(2000),
+                    max: Some(2000),
+                }),
+                dates: Some(DateRange {
+                    start: start.map(str::to_owned),
+                    end: end.map(str::to_owned),
+                }),
+            },
+        )
+    };
+    let period = query(Some("2027-01-02"), Some("2027-01-04")).unwrap();
+    assert_eq!(
+        (period.total_count, period.filtered_count, period.expenses),
+        (5, 2, -7500)
+    );
+    assert_eq!(period.rows[0].transaction.id, "d");
+    assert_eq!(period.rows[0].running_balance, 4500);
+    assert_eq!(period.rows[1].transaction.id, "b");
+    assert_eq!(query(None, Some("2027-01-02")).unwrap().filtered_count, 1);
+    assert_eq!(query(Some("2027-01-04"), None).unwrap().filtered_count, 2);
+    assert_eq!(
+        query(Some("2027-01-04"), Some("2027-01-04"))
+            .unwrap()
+            .filtered_count,
+        1
+    );
+    assert!(query(Some("2027-02-29"), None).is_err());
+    assert!(query(Some("2027-01-04"), Some("2027-01-02")).is_err());
 }
 
 #[test]
@@ -619,8 +806,16 @@ fn sparse_search_pages_keep_balances_from_hidden_transactions_across_dates() {
     }
     let mut seen = 0;
     for page in [1, 2] {
-        let result =
-            list_register_in_db(&db, "sparse", "all", page, "2027-01", "recherche").unwrap();
+        let result = list_register_in_db(
+            &db,
+            "sparse",
+            "all",
+            page,
+            "2027-01",
+            "recherche",
+            Default::default(),
+        )
+        .unwrap();
         assert_eq!(result.filtered_count, 118);
         assert_eq!(result.page_count, 2);
         for row in result.rows {
@@ -734,7 +929,8 @@ fn references_can_be_edited_and_searched_without_affecting_cheques_or_notes() {
     assert_eq!(entry.reference.as_deref(), Some("Réf-B"));
     assert_eq!(entry.note.as_deref(), Some("Mémo"));
     assert_eq!(entry.cheque.as_deref(), Some("0012345"));
-    let page = list_register_in_db(&db, "ccp", "all", 1, "2027-01", "réf-b").unwrap();
+    let page =
+        list_register_in_db(&db, "ccp", "all", 1, "2027-01", "réf-b", Default::default()).unwrap();
     assert_eq!(serde_json::to_value(page).unwrap()["filteredCount"], 1);
 }
 

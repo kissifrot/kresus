@@ -247,6 +247,24 @@ pub struct RegisterPage {
     page_count: i64,
 }
 
+#[derive(Default, Deserialize)]
+pub struct AmountRange {
+    min: Option<i64>,
+    max: Option<i64>,
+}
+
+#[derive(Default, Deserialize)]
+pub struct DateRange {
+    start: Option<String>,
+    end: Option<String>,
+}
+
+#[derive(Default)]
+pub(crate) struct RegisterRanges {
+    amount: Option<AmountRange>,
+    dates: Option<DateRange>,
+}
+
 #[tauri::command]
 /// Loads one filtered register page and account-wide summaries in cents.
 pub fn list_register(
@@ -255,6 +273,8 @@ pub fn list_register(
     page: i64,
     month: String,
     search: Option<String>,
+    amount_range: Option<AmountRange>,
+    date_range: Option<DateRange>,
     state: tauri::State<'_, AppState>,
 ) -> Result<RegisterPage, String> {
     let connection = state
@@ -268,6 +288,10 @@ pub fn list_register(
         page,
         &month,
         search.as_deref().unwrap_or(""),
+        RegisterRanges {
+            amount: amount_range,
+            dates: date_range,
+        },
     )
 }
 
@@ -278,7 +302,33 @@ pub(crate) fn list_register_in_db(
     page: i64,
     month: &str,
     search: &str,
+    ranges: RegisterRanges,
 ) -> Result<RegisterPage, String> {
+    let AmountRange { min, max } = ranges.amount.unwrap_or_default();
+    if min.is_some_and(|value| value < 0)
+        || max.is_some_and(|value| value < 0)
+        || matches!((min, max), (Some(min), Some(max)) if min > max)
+    {
+        return Err("Intervalle de montants invalide.".into());
+    }
+    let DateRange { start, end } = ranges.dates.unwrap_or_default();
+    let (start, end) = (start.as_deref(), end.as_deref());
+    if matches!((start, end), (Some(start), Some(end)) if start > end) {
+        return Err("La date de début doit précéder la date de fin ou lui être égale.".into());
+    }
+    if start.is_some() || end.is_some() {
+        let valid_dates: bool = db
+            .query_row(
+                "SELECT (?1 IS NULL OR COALESCE(length(?1)=10 AND ?1>='0001-01-01' AND date(?1, '+0 days')=?1, 0))
+                    AND (?2 IS NULL OR COALESCE(length(?2)=10 AND ?2>='0001-01-01' AND date(?2, '+0 days')=?2, 0))",
+                params![start, end],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if !valid_dates {
+            return Err("Date de début ou de fin invalide.".into());
+        }
+    }
     let predicate = match filter {
         "all" => "1",
         "unreconciled" => "reconciled = 0",
@@ -315,8 +365,14 @@ pub(crate) fn list_register_in_db(
     )
     .map_err(database_error)?;
     let search = search.trim().to_lowercase();
+    // Compare both signs in cents without taking the absolute value of a stored integer.
     let predicate = format!(
-        "({predicate}) AND (?3 = '' OR text_contains(label,?3) OR text_contains(category,?3) OR text_contains(cheque,?3) OR text_contains(note,?3) OR text_contains(reference,?3))"
+        "({predicate})
+         AND (?6 IS NULL OR operation_date >= ?6)
+         AND (?7 IS NULL OR operation_date <= ?7)
+         AND (?4 IS NULL OR amount_cents <= -?4 OR amount_cents >= ?4)
+         AND (?5 IS NULL OR amount_cents BETWEEN -?5 AND ?5)
+         AND (?3 = '' OR text_contains(label,?3) OR text_contains(category,?3) OR text_contains(cheque,?3) OR text_contains(note,?3) OR text_contains(reference,?3))"
     );
     let sql = format!(
         "SELECT COUNT(*),
@@ -338,17 +394,21 @@ pub(crate) fn list_register_in_db(
         credit_count,
         debit_count,
     ): (i64, i64, i64, i64, i64, i64, i64) = db
-        .query_row(&sql, params![account_id, month, search], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-                r.get(6)?,
-            ))
-        })
+        .query_row(
+            &sql,
+            params![account_id, month, search, min, max, start, end],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            },
+        )
         .map_err(database_error)?;
     let page_count = ((filtered_count + 99) / 100).max(1);
     let page = page.min(page_count);
@@ -358,7 +418,7 @@ pub(crate) fn list_register_in_db(
         "WITH selected AS MATERIALIZED (
            SELECT id, operation_date FROM transactions
            WHERE account_id=?1 AND {predicate}
-           ORDER BY operation_date DESC, id DESC LIMIT 100 OFFSET ?4
+           ORDER BY operation_date DESC, id DESC LIMIT 100 OFFSET ?8
          ), bounds AS (
            SELECT
              (SELECT operation_date FROM selected ORDER BY operation_date, id LIMIT 1) AS first_date,
@@ -389,7 +449,16 @@ pub(crate) fn list_register_in_db(
     let mut statement = db.prepare(&sql).map_err(database_error)?;
     let rows = statement
         .query_map(
-            params![account_id, month, search, (page - 1) * 100],
+            params![
+                account_id,
+                month,
+                search,
+                min,
+                max,
+                start,
+                end,
+                (page - 1) * 100
+            ],
             |row| {
                 Ok(RegisterRow {
                     transaction: Transaction {

@@ -787,6 +787,9 @@ try {
   console.log("Sauvegarde et restauration : données et solde vérifiés");
 
   await click("#new-transaction");
+  const purchaseDate = await execute(
+    "return document.querySelector('#transaction-form [name=date]').value",
+  );
   await fill("#transaction-form", {
     label: "Achat recette",
     amount: "12.34",
@@ -853,6 +856,77 @@ try {
     "Réinitialisation recherche",
   );
   console.log("Recherche par commentaire et réinitialisation OK");
+  await click("#amount-filter");
+  await fill("#amount-filter-form", { exact: "12,35" });
+  await click('#amount-filter-form button[type="submit"]');
+  await waitFor(async () => await visible(".empty-row"), "Montant exact sans résultat");
+  await click("#amount-filter");
+  await fill("#amount-filter-form", { mode: "range", min: "12,30", max: "12,34" });
+  await click('#amount-filter-form button[type="submit"]');
+  await waitFor(
+    async () => (await text("tbody")).includes("Achat recette"),
+    "Filtre de montant avec borne incluse",
+  );
+  if (!/Montant · 12,30 à 12,34\s€/.test(await text("#amount-filter")))
+    throw new Error("Intervalle absent du bouton Montant.");
+  await click("#period-filter");
+  await fill("#period-filter-form", { end: "1900-01-01" });
+  await click('#period-filter-form button[type="submit"]');
+  await waitFor(async () => await visible(".empty-row"), "Période avec fin seule sans résultat");
+  await click("#period-filter");
+  await fill("#period-filter-form", { start: "1900-01-02", end: purchaseDate });
+  await click('#period-filter-form button[type="submit"]');
+  await waitFor(
+    async () => (await text("tbody")).includes("Achat recette"),
+    "Période combinée au montant avec date de fin incluse",
+  );
+  const purchaseDateLabel = purchaseDate.split("-").reverse().join("/");
+  if ((await text("#period-filter")) !== `Période · 02/01/1900 au ${purchaseDateLabel}`)
+    throw new Error("Dates absentes du bouton Période.");
+  await request("POST", `/session/${session}/window/rect`, { width: 900, height: 620 });
+  await waitFor(
+    () =>
+      execute(
+        `const groups = [...document.querySelectorAll('.register-filter-actions')];
+         const heading = document.querySelector('.transactions-panel .panel-heading').getBoundingClientRect();
+         return innerWidth <= 900 && groups.every(group => {
+           const clear = group.querySelector('.register-filter-clear').getBoundingClientRect();
+           return group.getBoundingClientRect().right <= heading.right && clear.width === 32 && clear.height === 37;
+         });`,
+      ),
+    "Les filtres de montant et de période tiennent dans le registre à 900 pixels",
+  );
+  await request("POST", `/session/${session}/window/rect`, { width: 1280, height: 820 });
+  await execute("document.querySelector('#period-filter').focus()");
+  await key("\uE004");
+  if (!(await execute("return document.activeElement.id === 'period-filter-quick-clear'")))
+    throw new Error("La touche Tab n’atteint pas la croix du filtre de période.");
+  await key("\uE007");
+  await waitFor(
+    async () => (await text("#period-filter")) === "Période",
+    "Effacement de la période",
+  );
+  if (
+    !(await execute(
+      "return !document.querySelector('#period-filter-dialog').open && document.activeElement.id === 'period-filter'",
+    )) ||
+    !/12,30/.test(await text("#amount-filter"))
+  )
+    throw new Error(
+      "L’effacement direct de la période doit rendre le focus et conserver le montant.",
+    );
+  await execute("document.querySelector('#amount-filter').focus()");
+  await key("\uE004");
+  if (!(await execute("return document.activeElement.id === 'amount-filter-quick-clear'")))
+    throw new Error("La touche Tab n’atteint pas la croix du filtre de montant.");
+  await key("\uE007");
+  await waitFor(async () => (await text("#amount-filter")) === "Montant", "Effacement du montant");
+  if (
+    !(await execute(
+      "return !document.querySelector('#amount-filter-dialog').open && document.activeElement.id === 'amount-filter'",
+    ))
+  )
+    throw new Error("L’effacement direct du montant doit rendre le focus au bouton Montant.");
   await execute("document.querySelector('#transaction-filter').focus()");
   await key("\uE004");
   if (!(await execute("return document.activeElement.matches('tbody tr[data-transaction]')")))

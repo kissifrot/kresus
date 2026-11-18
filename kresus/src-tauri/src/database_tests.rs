@@ -153,7 +153,16 @@ fn performance_reference(count: usize, days: usize) {
         json.len()
     );
     let start = Instant::now();
-    let page = list_register_in_db(&db, "benchmark", "all", 1, "2026-01", "").unwrap();
+    let page = list_register_in_db(
+        &db,
+        "benchmark",
+        "all",
+        1,
+        "2026-01",
+        "",
+        Default::default(),
+    )
+    .unwrap();
     println!(
         "Lecture paginée avec totaux : {:.1} ms",
         start.elapsed().as_secs_f64() * 1000.0
