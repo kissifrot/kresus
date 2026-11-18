@@ -7,6 +7,7 @@ import {
   writeFileSync,
   readFileSync,
   copyFileSync,
+  renameSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -45,12 +46,13 @@ const defaultMoneySample = resolve(root, "tests/fixtures/money-reference.mny");
 const moneySample = process.env.KRESUS_MONEY_SAMPLE ?? defaultMoneySample;
 const moneyDestination = join(temp, "import.kresus");
 const ofxSource = join(temp, "releve.ofx");
+const backupPath = join(temp, "backup.kresus");
 const executable = process.env.TAURI_DRIVER || "tauri-driver";
 const driver = spawn(executable, ["--port", String(port), "--native-port", String(nativePort)], {
   env: {
     ...process.env,
     XDG_DATA_HOME: data,
-    KRESUS_E2E_BACKUP: join(temp, "backup.kresus"),
+    KRESUS_E2E_BACKUP: backupPath,
     KRESUS_E2E_OFX_SOURCE: ofxSource,
     ...(moneySample
       ? {
@@ -190,6 +192,22 @@ async function action(label, fn, check) {
   await waitFor(check, label);
   console.log(`${label} : ${(performance.now() - started).toFixed(0)} ms`);
 }
+async function openSession(path) {
+  const result = await request("POST", "/session", {
+    capabilities: {
+      alwaysMatch: {
+        browserName: "wry",
+        unhandledPromptBehavior: "accept",
+        "tauri:options": {
+          application: join(root, "src-tauri/target/debug/kresus"),
+          args: [path],
+        },
+      },
+    },
+  });
+  session = result.sessionId;
+}
+
 try {
   await waitFor(async () => (await request("GET", "/status"))?.ready, "Démarrage de tauri-driver");
   const started = performance.now();
@@ -201,19 +219,7 @@ try {
     external,
   ]);
   if (rename.status !== 0) throw new Error("Préparation de la base externe impossible.");
-  const result = await request("POST", "/session", {
-    capabilities: {
-      alwaysMatch: {
-        browserName: "wry",
-        unhandledPromptBehavior: "accept",
-        "tauri:options": {
-          application: join(root, "src-tauri/target/debug/kresus"),
-          args: [external],
-        },
-      },
-    },
-  });
-  session = result.sessionId;
+  await openSession(external);
   await waitFor(
     async () => (await text(".page-heading h1")) === "Compte externe",
     "Ouverture au démarrage",
@@ -762,14 +768,14 @@ try {
     "Sauvegarde",
   );
   // A second backup to the same debug-selected path must not overwrite the first.
-  const savedBytes = readFileSync(join(temp, "backup.kresus"));
+  const savedBytes = readFileSync(backupPath);
   await menuAction("backup");
   await waitFor(
     async () => (await text(".database-error")).includes("Sauvegarde impossible"),
     "Erreur de sauvegarde",
   );
   if (
-    !readFileSync(join(temp, "backup.kresus")).equals(savedBytes) ||
+    !readFileSync(backupPath).equals(savedBytes) ||
     !(await text(".balance-card")).includes("100,00")
   )
     throw new Error("Échec de sauvegarde : données modifiées");
@@ -1721,34 +1727,321 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
     );
     if (verification.status !== 0)
       throw new Error(`Base Money incorrecte : ${verification.stderr}`);
-    await click("#spending-nav");
-    await waitFor(
-      () => visible('#spending-filter button[type="submit"]:enabled'),
-      "Rapport du compte importé",
-    );
-    await fill("#spending-filter", { start: "2026-11-18", end: "2026-11-18" });
-    await click('#spending-filter button[type="submit"]');
-    await waitFor(
-      async () => (await text(".spending-total strong")).replace(/\s/g, "") === "135,41€",
-      "Total des dépenses ventilées importées",
-    );
-    const importedSpending = await execute(`
-      return Array.from(document.querySelectorAll('.spending-row'), row => [
-        row.querySelector('.spending-name').textContent,
-        row.querySelector('strong').textContent.replace(/\\s/g, ''),
-      ]);
-    `);
-    const expectedSpending = [
+    async function checkMoneySpending(total, expectedRows) {
+      await click("#spending-nav");
+      await waitFor(
+        () => visible('#spending-filter button[type="submit"]:enabled'),
+        "Rapport du compte importé",
+      );
+      await fill("#spending-filter", { start: "2026-11-18", end: "2026-11-18" });
+      await click('#spending-filter button[type="submit"]');
+      await waitFor(
+        async () => (await text(".spending-total strong")).replace(/\s/g, "") === total,
+        `Total des dépenses ventilées importées (${total})`,
+      );
+      const rows = await execute(`
+        return Array.from(document.querySelectorAll('.spending-row'), row => [
+          row.querySelector('.spending-name').textContent,
+          row.querySelector('strong').textContent.replace(/\\s/g, ''),
+        ]);
+      `);
+      if (JSON.stringify(rows) !== JSON.stringify(expectedRows))
+        throw new Error(`Répartition des dépenses Money incorrecte : ${JSON.stringify(rows)}`);
+    }
+    await checkMoneySpending("135,41€", [
       ["Alimentation", "80,25€"],
       ["Équipement du logement · Travaux / Décoration", "20,10€"],
       ["Auto/moto · Entretien/réparations", "19,75€"],
       ["Abonnement/factures · Service d'entretien", "15,31€"],
-    ];
-    if (JSON.stringify(importedSpending) !== JSON.stringify(expectedSpending))
-      throw new Error(
-        `Répartition des dépenses Money incorrecte : ${JSON.stringify(importedSpending)}`,
-      );
+    ]);
     console.log("Rapport Money : quatre parts dans les catégories attendues, total 135,41 €");
+
+    await click('[data-account="money-account-2"]');
+    const invoice = '[data-transaction="money-transaction-32"]';
+    const pointedInvoice = `${invoice} [data-reconcile][aria-pressed="true"]`;
+    await waitFor(() => visible(pointedInvoice), "Facture Money pointée");
+    await click(`${invoice} .transaction-label`);
+    const originalParts = await execute(`
+      return [...document.querySelectorAll('.transaction-editor .split-amount')].map(input => input.value);
+    `);
+    if (originalParts.join("|") !== "20,10|15,31")
+      throw new Error(`Parts de la facture Money avant modification : ${originalParts}`);
+    await fill(".transaction-editor", { amount: "37,41" });
+    await execute(`
+      const inputs = document.querySelectorAll('.transaction-editor .split-amount');
+      inputs[0].value = '24,10';
+      inputs[1].value = '13,31';
+      inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+    `);
+    await click('.transaction-editor button[type="submit"]');
+    await waitFor(
+      async () =>
+        !(await visible(".transaction-editor")) &&
+        (await visible(pointedInvoice)) &&
+        (await text(`${invoice} .amount.debit`)) === "37,41",
+      "Facture modifiée et toujours pointée",
+    );
+    await click(`${invoice} .transaction-label`);
+    const savedParts = await execute(`
+      return [...document.querySelectorAll('.transaction-editor .split-amount')].map(input => input.value);
+    `);
+    if (savedParts.join("|") !== "24,10|13,31")
+      throw new Error(`Parts de la facture Money après modification : ${savedParts}`);
+    await click(".transaction-editor .cancel-editor");
+    await checkMoneySpending("137,41€", [
+      ["Alimentation", "80,25€"],
+      ["Équipement du logement · Travaux / Décoration", "24,10€"],
+      ["Auto/moto · Entretien/réparations", "19,75€"],
+      ["Abonnement/factures · Service d'entretien", "13,31€"],
+    ]);
+    console.log("Facture Money modifiée : pointage conservé et rapport recalculé à 137,41 €");
+
+    await click('[data-account="money-account-2"]');
+    await waitFor(
+      async () =>
+        (await visible(invoice)) &&
+        (await text(".balance-card")).replace(/\s/g, "").includes("-3578,46€"),
+      "Solde de −3 578,46 € avant suppression",
+    );
+    await click(`${invoice} [data-delete]`);
+    await waitFor(
+      () => visible("#delete-transaction-dialog[open]"),
+      "Confirmation de suppression de la facture",
+    );
+    if (!(await text(".delete-confirmation-message")).includes("Test ventilation facture"))
+      throw new Error("La confirmation doit identifier la facture ventilée.");
+    await click(".delete-confirm");
+    await waitFor(
+      async () =>
+        !(await visible(invoice)) &&
+        (await text(".balance-card")).replace(/\s/g, "").includes("-3541,05€"),
+      "Registre et solde après suppression de la facture",
+    );
+    const remainingSpending = [
+      ["Alimentation", "80,25€"],
+      ["Auto/moto · Entretien/réparations", "19,75€"],
+    ];
+    await checkMoneySpending("100,00€", remainingSpending);
+    console.log(
+      "Facture Money supprimée : deux parts retirées du rapport et solde augmenté de 37,41 €",
+    );
+
+    writeFileSync(
+      ofxSource,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<OFX><BANKMSGSRSV1><STMTTRNRS><STATUS><CODE>0</CODE></STATUS><STMTRS>
+<CURDEF>EUR</CURDEF>
+<BANKACCTFROM><BANKID>12345</BANKID><ACCTID>00123456789</ACCTID><ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTFROM>
+<BANKTRANLIST>
+<STMTTRN><DTPOSTED>20261118</DTPOSTED><TRNAMT>-100.00</TRNAMT><FITID>money-split-groceries</FITID><NAME>Courses du relevé OFX</NAME></STMTTRN>
+</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`,
+    );
+    await click('[data-account="money-account-2"]');
+    const groceries = '[data-transaction="money-transaction-29"]';
+    await waitFor(
+      () => visible(`${groceries} [data-reconcile][aria-pressed="false"]`),
+      "Courses ventilées importées de Money avant rapprochement",
+    );
+    await click("#bank-import");
+    await waitFor(() => visible(".bank-import-dialog[open]"), "Aperçu OFX des courses");
+    await execute(`
+      const choice = document.querySelector('[data-bank-line="0"]');
+      const match = [...choice.options].find(option => option.value === 'match:money-transaction-29');
+      if (!match) throw new Error('Opération ventilée Money absente des suggestions OFX');
+      choice.value = match.value;
+      choice.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
+    await click("#bank-import-confirm");
+    await waitFor(
+      async () =>
+        (await visible(`${groceries} [data-reconcile][aria-pressed="true"]`)) &&
+        (await text(".bank-import-status")).includes("0 opérations ajoutées · 1 rapprochée") &&
+        (await text(".balance-card")).replace(/\s/g, "").includes("-3541,05€"),
+      "Rapprochement de l’opération Money sans nouvelle écriture ni variation du solde",
+    );
+    function checkMatchedGroceries(reconciled) {
+      const matchCheck = spawnSync(
+        "python3",
+        [
+          "-c",
+          `import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+assert c.execute("SELECT transaction_id FROM bank_statement_entries WHERE fit_id='money-split-groceries'").fetchall() == [('money-transaction-29',)]
+assert c.execute("SELECT count(*) FROM transactions WHERE account_id='money-account-2'").fetchone() == (11,)
+assert c.execute("SELECT reconciled FROM transactions WHERE id='money-transaction-29'").fetchone() == (int(sys.argv[2]),)
+assert c.execute("SELECT category,amount_cents,note FROM transaction_splits WHERE transaction_id='money-transaction-29' ORDER BY position").fetchall() == [
+    ('Alimentation',-8025,'alimentation'), ('Auto/moto · Entretien/réparations',-1975,'entretien')
+]
+print(c.execute("SELECT opening_balance_cents + COALESCE((SELECT sum(amount_cents) FROM transactions WHERE account_id=a.id AND reconciled=1 AND operation_date<='2026-11-18'),0) FROM accounts a WHERE id='money-account-2'").fetchone()[0])`,
+          destination,
+          reconciled ? "1" : "0",
+        ],
+        { encoding: "utf8" },
+      );
+      if (matchCheck.status !== 0)
+        throw new Error(
+          `Rapprochement OFX de la ventilation Money incorrect : ${matchCheck.stderr}`,
+        );
+      return Number(matchCheck.stdout.trim());
+    }
+    const pointedMoneyBalance = checkMatchedGroceries(true);
+    await enterClosingBalance(pointedMoneyBalance);
+    await waitFor(() => visible("#reconciliation-gap[data-balanced]"), "Écart initial nul");
+    await click(`${groceries} [data-reconcile]`);
+    await waitFor(
+      async () =>
+        (await visible(`${groceries} [data-reconcile][aria-pressed="false"]`)) &&
+        (await gapIs(-10000)),
+      "Dépointage et écart de −100 €",
+    );
+    checkMatchedGroceries(false);
+    await click("#bank-import");
+    await waitFor(
+      async () => (await text(".bank-import-dialog")).includes("Déjà importée"),
+      "Ligne OFX reconnue même quand l’opération est dépointée",
+    );
+    await click("#bank-import-cancel");
+    await click(`${groceries} [data-reconcile]`);
+    await waitFor(
+      async () =>
+        (await visible(`${groceries} [data-reconcile][aria-pressed="true"]`)) &&
+        (await visible("#reconciliation-gap[data-balanced]")),
+      "Repointage et retour à zéro",
+    );
+    checkMatchedGroceries(true);
+    await click("#end-reconciliation");
+
+    await checkMoneySpending("100,00€", remainingSpending);
+    console.log(
+      "Courses Money : écart de −100 € au dépointage puis retour à zéro, parts et lien OFX conservés",
+    );
+
+    await request("DELETE", `/session/${session}`);
+    session = undefined;
+    await openSession(destination);
+    await waitFor(
+      () => visible(`${groceries} [data-reconcile][aria-pressed="true"]`),
+      "Pointage de l’opération ventilée après redémarrage",
+    );
+    checkMatchedGroceries(true);
+    await click(`${groceries} .transaction-label`);
+    const reopenedParts = await execute(`
+      return [...document.querySelectorAll('.transaction-editor .split-amount')].map(input => input.value);
+    `);
+    if (reopenedParts.join("|") !== "80,25|19,75")
+      throw new Error(`Montants ventilés après redémarrage : ${reopenedParts}`);
+    await click(".transaction-editor .cancel-editor");
+    async function checkRecognizedMoneyOfx(context) {
+      await click("#bank-import");
+      await waitFor(
+        async () =>
+          (await text(".bank-import-dialog")).includes("Déjà importée") &&
+          (await visible("#bank-import-balance:not([hidden]):enabled")),
+        `Relevé OFX reconnu ${context}`,
+      );
+      if (await visible("#bank-import-confirm:not([hidden])"))
+        throw new Error(`Le doublon OFX ne doit pas pouvoir être ajouté ${context}.`);
+      await click("#bank-import-balance");
+      await waitFor(() => visible("#end-reconciliation"), "Vérification du relevé déjà importé");
+      await click("#end-reconciliation");
+    }
+    await checkRecognizedMoneyOfx("après redémarrage");
+    checkMatchedGroceries(true);
+    await checkMoneySpending("100,00€", remainingSpending);
+    console.log(
+      "Après redémarrage : pointage, parts et lien OFX persistants, relevé reconnu sans doublon",
+    );
+
+    renameSync(backupPath, join(temp, "backup-base-fictive.kresus"));
+    await menuAction("backup");
+    await waitFor(
+      async () =>
+        existsSync(backupPath) && (await text(".database-error")).includes("Sauvegarde créée"),
+      "Sauvegarde de la base Money rapprochée",
+    );
+    await click('[data-account="money-account-2"]');
+    await waitFor(() => visible(groceries), "Registre avant modification de la base sauvegardée");
+    await click(`${groceries} [data-delete]`);
+    await waitFor(
+      () => visible("#delete-transaction-dialog[open]"),
+      "Confirmation de suppression dans la base de test",
+    );
+    await click(".delete-confirm");
+    await waitFor(
+      async () => !(await visible(groceries)),
+      "Opération supprimée avant restauration",
+    );
+    function checkDeletedGroceries(reimported) {
+      const result = spawnSync(
+        "python3",
+        [
+          "-c",
+          `import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+reimported=int(sys.argv[2])
+assert c.execute("SELECT count(*) FROM transactions WHERE id='money-transaction-29'").fetchone() == (0,)
+assert c.execute("SELECT count(*) FROM transaction_splits WHERE transaction_id='money-transaction-29'").fetchone() == (0,)
+assert c.execute("SELECT count(*) FROM transactions WHERE account_id='money-account-2'").fetchone() == (10+reimported,)
+linked=c.execute("SELECT t.id,t.label,t.amount_cents,t.reconciled FROM bank_statement_entries e JOIN transactions t ON t.id=e.transaction_id WHERE e.fit_id='money-split-groceries'").fetchall()
+assert [row[1:] for row in linked] == ([('Courses du relevé OFX',-10000,1)] if reimported else []), linked
+assert c.execute("SELECT count(*) FROM bank_statement_entries WHERE fit_id='money-split-groceries'").fetchone() == (reimported,)
+if reimported: print(linked[0][0])`,
+          destination,
+          reimported ? "1" : "0",
+        ],
+        { encoding: "utf8" },
+      );
+      if (result.status !== 0)
+        throw new Error(`Lien du relevé OFX après suppression ou réimport : ${result.stderr}`);
+      return result.stdout.trim();
+    }
+    checkDeletedGroceries(false);
+    await click("#bank-import");
+    await waitFor(
+      () => visible(".bank-import-dialog[open] [data-bank-line]"),
+      "La ligne OFX redevient importable après suppression",
+    );
+    await execute(`
+      const choice = document.querySelector('[data-bank-line="0"]');
+      choice.value = "add";
+      choice.dispatchEvent(new Event("change", { bubbles: true }));
+    `);
+    await click("#bank-import-confirm");
+    await waitFor(
+      async () =>
+        (await text(".bank-import-status")).includes("1 opération ajoutée · 0 rapprochées") &&
+        (await text("tbody")).includes("Courses du relevé OFX"),
+      "Nouvelle opération créée depuis le même relevé OFX",
+    );
+    await click("#end-reconciliation");
+    const reimportedId = checkDeletedGroceries(true);
+    await checkRecognizedMoneyOfx("après réimport");
+    if (checkDeletedGroceries(true) !== reimportedId)
+      throw new Error("La ligne OFX doit rester liée à la même écriture après vérification.");
+    console.log(
+      "Après suppression et réimport : une seule nouvelle écriture, reconnue sans doublon",
+    );
+
+    await menuAction("restore");
+    await waitFor(
+      () => visible(".confirmation-dialog[open]"),
+      "Confirmation de restauration de la base Money",
+    );
+    await click(".confirmation-accept");
+    await waitFor(
+      async () =>
+        (await text(".database-error")).includes("Sauvegarde restaurée") &&
+        (await visible(`${groceries} [data-reconcile][aria-pressed="true"]`)),
+      "Opération ventilée restaurée avec son pointage",
+    );
+    checkMatchedGroceries(true);
+    await checkRecognizedMoneyOfx("après restauration");
+    checkMatchedGroceries(true);
+    await checkMoneySpending("100,00€", remainingSpending);
+    console.log(
+      "Après restauration : opération pointée, parts et lien OFX rétablis, relevé reconnu sans doublon",
+    );
+
     await click("#schedules-nav");
     // Record only the remaining occurrence; the two imported operations must not be duplicated.
     await click("#current-month");
