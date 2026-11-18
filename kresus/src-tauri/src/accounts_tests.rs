@@ -3,23 +3,71 @@ use crate::test_support::{account, database};
 
 #[test]
 fn account_number_is_optional_text_and_can_be_changed_or_cleared() {
-    let db = database();
+    let mut db = database();
     let mut new_account = account("numbered", "Compte courant", 10.0);
     new_account.account_number = Some("  00012 AB  ".into());
     create_account_in_db(&db, new_account).unwrap();
-    let current = || {
-        list_accounts_in_db(&db, "2027-01-01")
+    let current = |db: &Connection| {
+        list_accounts_in_db(db, "2027-01-01")
             .unwrap()
             .into_iter()
             .find(|account| account.id == "numbered")
             .unwrap()
     };
-    assert_eq!(current().account_number.as_deref(), Some("00012 AB"));
-    update_account_number_in_db(&db, "numbered", Some("00034")).unwrap();
-    assert_eq!(current().account_number.as_deref(), Some("00034"));
-    update_account_number_in_db(&db, "numbered", Some("   ")).unwrap();
-    assert_eq!(current().account_number, None);
-    assert_eq!(current().opening_balance, 1000);
+    let mut settings = AccountSettings {
+        name: "Household".into(),
+        bank: "Bank".into(),
+        account_number: Some("00034".into()),
+        archived: false,
+    };
+    assert_eq!(current(&db).account_number.as_deref(), Some("00012 AB"));
+    update_account_in_db(&mut db, "numbered", &settings).unwrap();
+    assert_eq!(current(&db).account_number.as_deref(), Some("00034"));
+    settings.account_number = Some("   ".into());
+    update_account_in_db(&mut db, "numbered", &settings).unwrap();
+    assert_eq!(current(&db).account_number, None);
+    assert_eq!(current(&db).opening_balance, 1000);
+}
+
+#[test]
+fn edits_account_settings_and_archives_without_losing_history() {
+    let mut db = database();
+    db.execute_batch("INSERT INTO transactions (id, account_id, operation_date, label, category, amount_cents, reconciled)
+                      VALUES ('kept','ccp','2027-01-01','Historique','Divers',-1234,1);").unwrap();
+    let current = |db: &Connection| {
+        list_accounts_in_db(db, "2027-01-01")
+            .unwrap()
+            .into_iter()
+            .find(|account| account.id == "ccp")
+            .unwrap()
+    };
+    let mut settings = AccountSettings {
+        name: "  Compte renommé  ".into(),
+        bank: "  Nouvelle banque  ".into(),
+        account_number: None,
+        archived: true,
+    };
+    update_account_in_db(&mut db, "ccp", &settings).unwrap();
+    let saved = current(&db);
+    assert!(saved.archived);
+    assert_eq!(saved.name, "Compte renommé");
+    assert_eq!(saved.bank, "Nouvelle banque");
+    assert_eq!(saved.current_balance, -1234);
+    let rows = crate::transactions::list_transactions_in_db(&db, "ccp").unwrap();
+    assert_eq!(rows[0].label, "Historique");
+    assert!(rows[0].reconciled);
+
+    settings.bank = "😀".repeat(101);
+    settings.archived = false;
+    assert!(update_account_in_db(&mut db, "ccp", &settings).is_err());
+    assert!(current(&db).archived);
+    assert_eq!(current(&db).bank, "Nouvelle banque");
+
+    settings.bank.clear();
+    update_account_in_db(&mut db, "ccp", &settings).unwrap();
+    assert!(!current(&db).archived);
+    assert!(current(&db).bank.is_empty());
+    assert!(update_account_in_db(&mut db, "missing", &settings).is_err());
 }
 
 #[test]

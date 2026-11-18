@@ -134,16 +134,26 @@ fn update_account_in_db(
 ) -> Result<(), String> {
     let name = settings.name.trim();
     let bank = settings.bank.trim();
-    let account_number = settings.account_number.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let account_number = settings
+        .account_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     if name.is_empty() {
         return Err("Saisissez un nom de compte.".into());
     }
-    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(database_error)?;
-    let (old_name, old_bank, old_number): (String, String, Option<String>) = tx.query_row(
-        "SELECT name,bank,account_number FROM accounts WHERE id=?1",
-        [id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    ).optional().map_err(database_error)?.ok_or("Compte introuvable.")?;
+    let tx = db
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(database_error)?;
+    let (old_name, old_bank, old_number): (String, String, Option<String>) = tx
+        .query_row(
+            "SELECT name,bank,account_number FROM accounts WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(database_error)?
+        .ok_or("Compte introuvable.")?;
     crate::text_limits::validate_name_length(name, name == old_name)?;
     crate::text_limits::validate_name_length(bank, bank == old_bank)?;
     if let Some(number) = account_number {
@@ -152,12 +162,17 @@ fn update_account_in_db(
     tx.execute(
         "UPDATE accounts SET name=?1, bank=?2, account_number=?3 WHERE id=?4",
         params![name, bank, account_number, id],
-    ).map_err(database_error)?;
+    )
+    .map_err(database_error)?;
     if settings.archived {
-        tx.execute("INSERT OR IGNORE INTO archived_accounts (account_id) VALUES (?1)", [id])
-            .map_err(database_error)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO archived_accounts (account_id) VALUES (?1)",
+            [id],
+        )
+        .map_err(database_error)?;
     } else {
-        tx.execute("DELETE FROM archived_accounts WHERE account_id=?1", [id]).map_err(database_error)?;
+        tx.execute("DELETE FROM archived_accounts WHERE account_id=?1", [id])
+            .map_err(database_error)?;
     }
     tx.commit().map_err(database_error)
 }

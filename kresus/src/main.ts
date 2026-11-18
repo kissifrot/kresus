@@ -1,10 +1,9 @@
 import { localDate } from "./format";
 import { listen } from "@tauri-apps/api/event";
-import { runMenuAction, openRequestedDatabase } from "./accounts";
+import { runMenuAction, openRequestedDatabase, openInitialAccount } from "./accounts";
 import { invoke } from "@tauri-apps/api/core";
 import type { Account, Schedule, Category } from "./types";
-import { accounts, setAccounts, setSelectedAccount, setSchedules, setCategories } from "./state";
-import { refreshTransactions } from "./transactions";
+import { setAccounts, setSchedules, setCategories } from "./state";
 
 // Serialize file requests, including those received during initial rendering.
 let openRequests = Promise.resolve();
@@ -23,10 +22,9 @@ async function initialize() {
     await listen("kresus-file-request", () => void initialized.then(drainFileRequests));
   }
   setAccounts(await invoke<Account[]>("list_accounts", { today: localDate(new Date()) }));
-  setSelectedAccount(accounts[0]);
   setSchedules(await invoke<Schedule[]>("list_schedules"));
   setCategories(await invoke<Category[]>("list_categories"));
-  await refreshTransactions({ showRegister: true });
+  await openInitialAccount();
   if ("__TAURI_INTERNALS__" in window) drainFileRequests();
 }
 const initialized = initialize();

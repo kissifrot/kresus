@@ -12,6 +12,7 @@ export type Account = {
   balanceWithFuture: number;
   bank: string;
   accountNumber?: string | null;
+  archived: boolean;
 };
 export type Transaction = {
   id: string;

@@ -67,9 +67,7 @@ describe("accounts", () => {
     expect(document.querySelectorAll("[data-account]")).toHaveLength(1);
     expect(document.querySelector("tr[data-transaction]")).toBeNull();
     expect(document.querySelector("#new-transaction")).not.toBeNull();
-    expect(document.querySelector("#edit-account-number")?.textContent).toBe(
-      "Ajouter un numéro de compte",
-    );
+    expect(document.querySelector("#edit-account")?.textContent).toBe("Modifier le compte");
   });
 
   it("loads the selected account’s balance history only when requested", async () => {
@@ -363,18 +361,79 @@ describe("accounts", () => {
     });
     expect(document.querySelector(".account-item.active")?.textContent).toContain("Livret A");
     expect(document.querySelector(".balance-card")?.textContent).toContain("12,50");
-    expect(document.querySelector("#edit-account-number")?.textContent).toContain("00012 AB");
+    expect(document.querySelector("#account-number")?.textContent).toContain("00012 AB");
 
-    click("#edit-account-number");
-    const numberForm = document.querySelector<HTMLFormElement>("#account-number-form")!;
+    click("#edit-account");
+    const numberForm = document.querySelector<HTMLFormElement>("#account-settings-form")!;
     expect(field(numberForm, "accountNumber").value).toBe("00012 AB");
     field(numberForm, "accountNumber").value = "";
     submit(numberForm);
+    await vi.waitFor(() => expect(document.querySelector("#account-number")).toBeNull());
+  });
+
+  it("keeps archived registers accessible and restores them to the sidebar", async () => {
+    const invoke = await openRegister();
+    click("#edit-account");
+    const form = document.querySelector<HTMLFormElement>("#account-settings-form")!;
+    field(form, "name").value = "Compte renommé";
+    field(form, "bank").value = "Nouvel établissement";
+    const archive = form.querySelector<HTMLInputElement>('[name="archived"]')!;
+    archive.checked = true;
+    submit(form);
     await vi.waitFor(() =>
-      expect(document.querySelector("#edit-account-number")?.textContent).toBe(
-        "Ajouter un numéro de compte",
+      expect(document.querySelector("h1")?.textContent).toBe("Compte renommé"),
+    );
+    expect(document.querySelector(".account-heading .eyebrow")?.textContent).toContain("Archivé");
+    expect(document.querySelector("[data-account]")).toBeNull();
+    expect(invoke).toHaveBeenCalledWith("update_account", {
+      id: "one",
+      settings: {
+        name: "Compte renommé",
+        bank: "Nouvel établissement",
+        accountNumber: null,
+        archived: true,
+      },
+    });
+
+    click("#accounts-nav");
+    expect(document.querySelector(".archived-accounts > summary")?.textContent).toBe(
+      "Comptes archivés (1)",
+    );
+    document.querySelector<HTMLDetailsElement>(".archived-accounts")!.open = true;
+    click('[data-open-account="one"]');
+    await vi.waitFor(() =>
+      expect(document.querySelector("tbody")?.textContent).toContain("Courses"),
+    );
+    click("#edit-account");
+    const restore = document.querySelector<HTMLFormElement>("#account-settings-form")!;
+    const checked = restore.querySelector<HTMLInputElement>('[name="archived"]')!;
+    expect(checked.checked).toBe(true);
+    checked.checked = false;
+    submit(restore);
+    await vi.waitFor(() =>
+      expect(document.querySelector("[data-account]")?.textContent).toContain(
+        "Nouvel établissement",
       ),
     );
+  });
+
+  it("opens the list of accounts on startup when only archives exist", async () => {
+    const invoke = await openRegister({
+      accounts: [
+        {
+          id: "old",
+          name: "Historique",
+          kind: "Épargne",
+          openingBalance: 0,
+          bank: "",
+          archived: true,
+        },
+      ],
+      transactions: [],
+    });
+    expect(document.querySelector("h1")?.textContent).toBe("Mes comptes");
+    expect(document.querySelector(".archived-accounts")?.textContent).toContain("Historique");
+    expect(invoke.mock.calls.some(([command]) => command === "list_register")).toBe(false);
   });
 
   it("shows an account creation error and allows a retry", async () => {

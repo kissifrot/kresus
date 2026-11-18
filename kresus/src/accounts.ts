@@ -78,29 +78,37 @@ function renderSearchResults(rows: Transaction[]) {
   }</tbody></table></div>`;
 }
 
-function bindAccountNumber(account: Account) {
-  const dialog = document.querySelector<HTMLDialogElement>("#account-number-dialog")!;
+function bindAccountSettings(account: Account) {
+  const dialog = document.querySelector<HTMLDialogElement>("#account-settings-dialog")!;
   const form = dialog.querySelector("form")!;
-  const input = form.querySelector<HTMLInputElement>('[name="accountNumber"]')!;
+  const name = form.querySelector<HTMLInputElement>('[name="name"]')!;
   const error = form.querySelector<HTMLElement>(".editor-error")!;
   const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-  document.querySelector("#edit-account-number")!.addEventListener("click", () => {
+  document.querySelector("#edit-account")!.addEventListener("click", () => {
     form.reset();
     error.textContent = "";
     dialog.showModal();
-    input.focus();
+    name.focus();
   });
   dialog.querySelector(".dialog-close")!.addEventListener("click", () => dialog.close());
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (submit.disabled) return;
+    const values = new FormData(form);
     submit.disabled = true;
+    error.textContent = "";
     try {
-      await invoke("update_account_number", {
+      await invoke("update_account", {
         id: account.id,
-        accountNumber: input.value.trim() || null,
+        settings: {
+          name: name.value.trim(),
+          bank: String(values.get("bank")).trim(),
+          accountNumber: String(values.get("accountNumber")).trim() || null,
+          archived: values.has("archived"),
+        },
       });
       await refreshTransactions({ strict: true });
-      document.querySelector<HTMLButtonElement>("#edit-account-number")?.focus();
+      document.querySelector<HTMLButtonElement>("#edit-account")?.focus();
     } catch (issue) {
       error.textContent = `Enregistrement impossible : ${String(issue)}`;
     } finally {
@@ -131,12 +139,13 @@ export function render(allAccounts = false) {
     debitCount,
   } = registerSummary(allAccounts);
   const visibleCount = allAccounts ? searchRows.length : rows.length;
+  const activeAccounts = accounts.filter((account) => !account.archived);
   const accountList = (kind: AccountKind) =>
-    accounts
+    activeAccounts
       .filter((account) => account.kind === kind)
       .map(
         (account) => `
-    <button class="account-item ${!allAccounts && account.id === selected?.id ? "active" : ""}" data-account="${account.id}">
+    <button class="account-item ${!allAccounts && account.id === selected?.id ? "active" : ""}" data-account="${escapeHtml(account.id)}">
       <span class="account-icon ${kind === "Compte courant" ? "checking" : kind === "Épargne" ? "savings" : "insurance"}">${kind === "Compte courant" ? "↗" : kind === "Épargne" ? "◈" : "✳"}</span>
       <span class="account-copy"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.bank)}</small></span>
       <span class="account-balance">${euro(account.currentBalance)}</span>
@@ -151,11 +160,11 @@ export function render(allAccounts = false) {
       <button class="nav-item" id="categories-nav"><span>▤</span> Catégories</button>
       <button class="nav-item" id="spending-nav" ${selected ? "" : "disabled"}><span>◔</span> Répartition des dépenses</button>
       <div class="sidebar-divider"></div>
-      <div class="section-heading">MES COMPTES <button class="add-account" title="Ajouter un compte">+</button></div>
+      <div class="section-heading"><button type="button" id="accounts-nav">Mes comptes</button> <button class="add-account" title="Ajouter un compte">+</button></div>
       <div class="sidebar-accounts" aria-label="Liste des comptes">
-      <div class="account-group"><div class="group-label">COURANTS <span>${accounts.filter((account) => account.kind === "Compte courant").length}</span></div>${accountList("Compte courant")}</div>
-      <div class="account-group"><div class="group-label">ÉPARGNE <span>${accounts.filter((account) => account.kind === "Épargne").length}</span></div>${accountList("Épargne")}</div>
-      <div class="account-group"><div class="group-label">ASSURANCE VIE <span>${accounts.filter((account) => account.kind === "Assurance vie").length}</span></div>${accountList("Assurance vie")}</div>
+      <div class="account-group"><div class="group-label">COURANTS <span>${activeAccounts.filter((account) => account.kind === "Compte courant").length}</span></div>${accountList("Compte courant")}</div>
+      <div class="account-group"><div class="group-label">ÉPARGNE <span>${activeAccounts.filter((account) => account.kind === "Épargne").length}</span></div>${accountList("Épargne")}</div>
+      <div class="account-group"><div class="group-label">ASSURANCE VIE <span>${activeAccounts.filter((account) => account.kind === "Assurance vie").length}</span></div>${accountList("Assurance vie")}</div>
       </div>
       <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><p class="database-error" role="status"></p></div>
     </aside>
@@ -168,8 +177,11 @@ export function render(allAccounts = false) {
                 allAccounts
                   ? ""
                   : `
-        <div class="page-heading account-heading"><div><div class="eyebrow">${escapeHtml(selected.kind)} <span>·</span> ${escapeHtml(selected.bank)}</div><h1>${escapeHtml(selected.name)}</h1><p>Suivez les mouvements et rapprochez vos opérations bancaires.</p>
-          <button type="button" class="secondary-button account-number-control" id="edit-account-number" aria-haspopup="dialog"${selected.accountNumber ? ' title="Modifier le numéro de compte"' : ""}>${selected.accountNumber ? `Numéro de compte · ${escapeHtml(selected.accountNumber)}` : "Ajouter un numéro de compte"}</button></div><div class="page-actions"><button type="button" class="secondary-button" id="balance-history-toggle" aria-expanded="false" aria-controls="balance-history">Historique du solde</button><button type="button" class="secondary-button" id="balance-forecast-toggle" aria-expanded="false" aria-controls="balance-forecast">Prévision du solde</button><button type="button" class="secondary-button" id="bank-import" aria-haspopup="dialog">Importer un relevé…</button><button type="button" class="secondary-button" id="start-reconciliation">Rapprocher un relevé</button><button class="primary-button" id="new-transaction"><span>+</span> Nouvelle opération</button></div></div>
+        <div class="page-heading account-heading"><div><div class="eyebrow">${escapeHtml(selected.kind)}${selected.bank ? ` <span>·</span> ${escapeHtml(selected.bank)}` : ""}${selected.archived ? " <span>·</span> Archivé" : ""}</div><h1>${escapeHtml(selected.name)}</h1><p>Suivez les mouvements et rapprochez vos opérations bancaires.</p>
+          <div class="account-settings-control">
+            <button type="button" class="secondary-button" id="edit-account" aria-haspopup="dialog">Modifier le compte</button>
+            ${selected.accountNumber ? `<small id="account-number">Numéro de compte · ${escapeHtml(selected.accountNumber)}</small>` : ""}
+          </div></div><div class="page-actions"><button type="button" class="secondary-button" id="balance-history-toggle" aria-expanded="false" aria-controls="balance-history">Historique du solde</button><button type="button" class="secondary-button" id="balance-forecast-toggle" aria-expanded="false" aria-controls="balance-forecast">Prévision du solde</button><button type="button" class="secondary-button" id="bank-import" aria-haspopup="dialog">Importer un relevé…</button><button type="button" class="secondary-button" id="start-reconciliation">Rapprocher un relevé</button><button class="primary-button" id="new-transaction"><span>+</span> Nouvelle opération</button></div></div>
         <p class="bank-import-status" role="status"></p>
         <section class="summary-grid">
           <article class="summary-card balance-card${balance < 0 ? " negative-balance" : ""}"><div class="card-label">Solde à ce jour <span class="help">i</span></div><strong>${euro(balance)}</strong><small>Solde initial · ${euro(selected.openingBalance)}</small>${balanceWithFuture !== undefined && balanceWithFuture !== balance ? `<small>Avec opérations futures · ${euro(balanceWithFuture)}</small>` : ""}<div class="balance-decoration">€</div></article>
@@ -227,10 +239,14 @@ export function render(allAccounts = false) {
     <dialog id="account-dialog"><form id="account-form"><div class="dialog-heading"><h2>Nouveau compte</h2><button type="button" class="dialog-close account-close" aria-label="Fermer">×</button></div><label>Nom du compte<input name="name" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Compte courant"></label><label>Type de compte<select name="kind"><option>Compte courant</option><option>Épargne</option><option>Assurance vie</option></select></label><label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="${TEXT_NAME_LIMIT}" placeholder="Nom de la banque"></label><label>Numéro de compte <span class="optional">(facultatif)</span><input name="accountNumber" maxlength="${TEXT_NAME_LIMIT}"></label><label>Solde initial (€)<input name="balance" type="text" inputmode="decimal" value="0" required></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button account-close">Annuler</button><button type="submit" class="primary-button">Créer le compte</button></div></form></dialog>
     ${
       selected
-        ? `<dialog id="account-number-dialog" aria-labelledby="account-number-title">
-      <form id="account-number-form">
-        <div class="dialog-heading"><h2 id="account-number-title">Numéro de compte</h2><button type="button" class="dialog-close" aria-label="Fermer">×</button></div>
+        ? `<dialog id="account-settings-dialog" aria-labelledby="account-settings-title">
+      <form id="account-settings-form">
+        <div class="dialog-heading"><h2 id="account-settings-title">Modifier le compte</h2><button type="button" class="dialog-close" aria-label="Fermer">×</button></div>
+        <label>Nom du compte<input name="name" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(selected.name)}"></label>
+        <label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(selected.bank)}"></label>
         <label>Numéro de compte <span class="optional">(facultatif)</span><input name="accountNumber" maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(selected.accountNumber ?? "")}"></label>
+        <label class="archive-account-control"><input name="archived" type="checkbox" aria-describedby="archive-account-help" ${selected.archived ? "checked" : ""}> Archiver le compte</label>
+        <p id="archive-account-help">Le compte sera accessible depuis « Mes comptes », dans les comptes archivés.</p>
         <p class="editor-error" role="alert"></p>
         <div class="dialog-actions"><button type="submit" class="primary-button">Enregistrer</button></div>
       </form>
@@ -253,12 +269,13 @@ export function render(allAccounts = false) {
   document.querySelector("#household-breadcrumb")?.addEventListener("click", renderHousehold);
   document.querySelector("#household-nav")?.addEventListener("click", renderHousehold);
   document.querySelector("#accounts-breadcrumb")?.addEventListener("click", renderAccountsList);
+  document.querySelector("#accounts-nav")?.addEventListener("click", renderAccountsList);
   if (selected) bindTransactionFilter();
   if (selected && !allAccounts) {
     const bankImport = document.querySelector<HTMLButtonElement>("#bank-import")!;
     bankImport.addEventListener("click", () => void openBankImport(selected, bankImport));
     bindReconciliation(selected.id);
-    bindAccountNumber(selected);
+    bindAccountSettings(selected);
     bindBalanceHistory();
     bindBalanceForecast();
     bindTransactionActions();
@@ -315,16 +332,23 @@ export function renderAccountsList() {
     { kind: "Épargne", label: "Comptes d’épargne" },
     { kind: "Assurance vie", label: "Assurances vie" },
   ];
+  const archived = accounts.filter((account) => account.archived);
+  const active = accounts.filter((account) => !account.archived);
+  const overviewRow = (account: Account) => {
+    const { kind } = account;
+    return `<button type="button" class="accounts-overview-row" data-open-account="${escapeHtml(account.id)}"><span class="account-icon ${kind === "Compte courant" ? "checking" : kind === "Épargne" ? "savings" : "insurance"}">${kind === "Compte courant" ? "↗" : kind === "Épargne" ? "◈" : "✳"}</span><span class="accounts-overview-name"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.bank)}</small></span><strong class="accounts-overview-balance">${euro(account.currentBalance)}</strong><span class="accounts-overview-arrow" aria-hidden="true">›</span></button>`;
+  };
+  document.querySelector(".account-item.active")?.classList.remove("active");
   document.querySelector<HTMLElement>(".page-content")!.innerHTML =
     `<div class="page-heading"><div><div class="eyebrow">MON FOYER</div><h1>Mes comptes</h1><p>Consultez les soldes et ouvrez le registre d’un compte.</p></div><button type="button" class="primary-button" id="list-add-account"><span>+</span> Nouveau compte</button></div><section class="accounts-overview">${
       groups
         .map(({ kind, label }) => {
-          const items = accounts.filter((account) => account.kind === kind);
+          const items = active.filter((account) => account.kind === kind);
           if (!items.length) return "";
-          return `<div class="accounts-overview-group"><h2>${label} <span>${items.length}</span></h2>${items.map((account) => `<button type="button" class="accounts-overview-row" data-open-account="${escapeHtml(account.id)}"><span class="account-icon ${kind === "Compte courant" ? "checking" : kind === "Épargne" ? "savings" : "insurance"}">${kind === "Compte courant" ? "↗" : kind === "Épargne" ? "◈" : "✳"}</span><span class="accounts-overview-name"><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.bank)}</small></span><strong class="accounts-overview-balance">${euro(account.currentBalance)}</strong><span class="accounts-overview-arrow" aria-hidden="true">›</span></button>`).join("")}</div>`;
+          return `<div class="accounts-overview-group"><h2>${label} <span>${items.length}</span></h2>${items.map(overviewRow).join("")}</div>`;
         })
-        .join("") || '<p class="accounts-overview-empty">Aucun compte disponible.</p>'
-    }</section>`;
+        .join("") || '<p class="accounts-overview-empty">Aucun compte actif.</p>'
+    }</section>${archived.length ? `<details class="accounts-overview archived-accounts"><summary>Comptes archivés (${archived.length})</summary>${archived.map(overviewRow).join("")}</details>` : ""}`;
   document
     .querySelector("#list-add-account")
     ?.addEventListener("click", () =>
@@ -389,10 +413,19 @@ export async function reloadDatabase(path: string | null) {
     invoke<Category[]>("list_categories"),
   ]);
   setAccounts(newAccounts);
-  setSelectedAccount(newAccounts[0]);
   setSchedules(newSchedules);
   setCategories(newCategories);
-  await refreshTransactions({ strict: true, showRegister: true });
+  await openInitialAccount();
+}
+
+export async function openInitialAccount() {
+  const first = accounts.find((account) => !account.archived);
+  setSelectedAccount(first);
+  if (!first && accounts.length) {
+    renderAccountsList();
+  } else {
+    await refreshTransactions({ strict: true, showRegister: true });
+  }
 }
 
 async function backupDatabase() {

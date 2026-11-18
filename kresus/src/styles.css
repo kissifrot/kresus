@@ -933,14 +933,14 @@ dialog::backdrop {
   gap: 14px;
 }
 #account-form,
-#account-number-form {
+#account-settings-form {
   padding: 25px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 #account-form label,
-#account-number-form label {
+#account-settings-form label {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -950,7 +950,7 @@ dialog::backdrop {
 }
 #account-form input,
 #account-form select,
-#account-number-form input {
+#account-settings-form input:not([type="checkbox"]) {
   height: 37px;
   border: 1px solid #dfe5df;
   border-radius: 5px;
@@ -962,18 +962,52 @@ dialog::backdrop {
 }
 #account-form input:focus,
 #account-form select:focus,
-#account-number-form input:focus {
+#account-settings-form input:focus {
   border-color: #69a27a;
   box-shadow: 0 0 0 3px #e8f3ea;
 }
-.account-heading .account-number-control {
+.account-settings-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
   margin-top: 8px;
-  max-width: 100%;
-  min-height: 30px;
-  height: auto;
-  padding: 5px 10px;
+}
+.account-settings-control small {
+  color: #657169;
   overflow-wrap: anywhere;
-  text-align: left;
+}
+#account-settings-form .archive-account-control {
+  flex-direction: row;
+  align-items: center;
+}
+#archive-account-help {
+  font-size: 12px;
+  color: #657169;
+}
+#account-settings-form .editor-error:empty {
+  display: none;
+}
+.accounts-overview.archived-accounts {
+  margin-top: 16px;
+}
+.archived-accounts > summary {
+  padding: 14px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+#accounts-nav {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: uppercase;
+}
+#accounts-nav:hover {
+  text-decoration: underline;
 }
 .page-actions {
   display: flex;

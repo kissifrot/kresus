@@ -688,13 +688,13 @@ try {
     async () => (await text(".page-heading h1")) === "Compte recette",
     "Création du compte",
   );
-  if (!(await text("#edit-account-number")).includes("00012 AB"))
+  if (!(await text("#account-number")).includes("00012 AB"))
     throw new Error("Le numéro de compte saisi doit conserver ses zéros initiaux.");
-  await click("#edit-account-number");
-  await fill("#account-number-form", { accountNumber: "00034" });
-  await click('#account-number-form button[type="submit"]');
+  await click("#edit-account");
+  await fill("#account-settings-form", { accountNumber: "00034" });
+  await click('#account-settings-form button[type="submit"]');
   await waitFor(
-    async () => (await text("#edit-account-number")).includes("00034"),
+    async () => (await text("#account-number")).includes("00034"),
     "Modification du numéro de compte",
   );
   await execute(
@@ -1576,6 +1576,32 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
   await waitFor(() => gapIs(-pointed), "Vérification du solde d’un relevé déjà importé");
   await click("#end-reconciliation");
   console.log("Relevé OFX : aperçu, rapprochement, ajout, doublons et écart de clôture vérifiés");
+
+  await click("#edit-account");
+  await fill("#account-settings-form", { name: "Compte clôturé", bank: "Nouvelle banque" });
+  await click('#account-settings-form [name="archived"]');
+  await click('#account-settings-form button[type="submit"]');
+  await waitFor(
+    async () =>
+      (await text(".page-heading h1")) === "Compte clôturé" &&
+      /nouvelle banque/i.test(await text(".account-heading .eyebrow")) &&
+      !(await visible(`[data-account="${receiptId}"]`)),
+    "Modification et archivage du compte",
+  );
+  await click("#accounts-nav");
+  await click(".archived-accounts > summary");
+  await click(`[data-open-account="${receiptId}"]`);
+  await waitFor(
+    async () =>
+      /archivé/i.test(await text(".account-heading .eyebrow")) &&
+      (await text("tbody")).includes("Remboursement OFX"),
+    "Registre du compte archivé",
+  );
+  await click("#edit-account");
+  await click('#account-settings-form [name="archived"]');
+  await click('#account-settings-form button[type="submit"]');
+  await waitFor(() => visible(`[data-account="${receiptId}"]`), "Réactivation du compte");
+  console.log("Compte : nom, établissement, archive et accès au registre vérifiés");
 
   // The debug-only E2E build substitutes paths for native portal dialogs.
   if (moneySample) {

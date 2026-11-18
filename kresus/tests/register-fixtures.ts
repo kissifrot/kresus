@@ -8,6 +8,7 @@ type Account = {
   openingBalance: number;
   bank: string;
   accountNumber?: string | null;
+  archived?: boolean;
 };
 type Transaction = {
   id: string;
@@ -212,8 +213,11 @@ export async function openRegister(
         if (options.failAccount) throw new Error("Erreur de base");
         accounts.push(args!.account);
         return;
-      case "update_account_number":
-        accounts.find((account) => account.id === args?.id)!.accountNumber = args!.accountNumber;
+      case "update_account":
+        Object.assign(
+          accounts.find((account) => account.id === args?.id)!,
+          args!.settings,
+        );
         return;
       case "create_transaction":
         transactions.push({ ...args!.transaction, reconciled: false });
@@ -311,7 +315,11 @@ export async function openRegister(
   });
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
   await import("../src/main");
-  const ready = accounts.length ? "#new-transaction" : "#empty-add-account";
+  const ready = accounts.some((account) => !account.archived)
+    ? "#new-transaction"
+    : accounts.length
+      ? "#list-add-account"
+      : "#empty-add-account";
   await vi.waitFor(() => expect(document.querySelector(ready)).not.toBeNull());
   return invoke;
 }

@@ -296,6 +296,7 @@ pub(crate) fn create_schema(db: &Connection) -> Result<(), String> {
 }
 
 fn initialize_schema_extensions(db: &Connection) -> Result<(), String> {
-    db.execute_batch(include_str!("account_archive_schema.sql")).map_err(database_error)?;
+    db.execute_batch(include_str!("account_archive_schema.sql"))
+        .map_err(database_error)?;
     crate::bank_import::initialize_schema(db)
 }
