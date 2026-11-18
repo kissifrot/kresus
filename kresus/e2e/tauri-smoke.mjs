@@ -1663,8 +1663,8 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
     const preview = await text(".money-import-dialog");
     if (
       !preview.includes("138 catégories") ||
-      !preview.replace(/\s/g, "").includes("3491,55") ||
-      !preview.includes("9 opérations") ||
+      !preview.replace(/\s/g, "").includes("3576,46") ||
+      !preview.includes("12 opérations") ||
       !preview.includes("12 échéances") ||
       !preview.includes("3 virements enregistrés") ||
       preview.includes("ne sera pas importée") ||
@@ -1705,13 +1705,13 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
     await waitFor(
       async () =>
         existsSync(destination) &&
-        (await text(".balance-card")).replace(/\s/g, "").includes("3491,55"),
+        (await text(".balance-card")).replace(/\s/g, "").includes("3576,46"),
       "Import Money et affichage du compte",
     );
     await waitFor(
       async () =>
-        (await text(".table-footer")).includes("9 opérations") ||
-        (await text(".table-footer")).includes("sur 9"),
+        (await text(".table-footer")).includes("12 opérations") ||
+        (await text(".table-footer")).includes("sur 12"),
       "Opérations importées",
     );
     const verification = spawnSync(
@@ -1721,6 +1721,34 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
     );
     if (verification.status !== 0)
       throw new Error(`Base Money incorrecte : ${verification.stderr}`);
+    await click("#spending-nav");
+    await waitFor(
+      () => visible('#spending-filter button[type="submit"]:enabled'),
+      "Rapport du compte importé",
+    );
+    await fill("#spending-filter", { start: "2026-11-18", end: "2026-11-18" });
+    await click('#spending-filter button[type="submit"]');
+    await waitFor(
+      async () => (await text(".spending-total strong")).replace(/\s/g, "") === "135,41€",
+      "Total des dépenses ventilées importées",
+    );
+    const importedSpending = await execute(`
+      return Array.from(document.querySelectorAll('.spending-row'), row => [
+        row.querySelector('.spending-name').textContent,
+        row.querySelector('strong').textContent.replace(/\\s/g, ''),
+      ]);
+    `);
+    const expectedSpending = [
+      ["Alimentation", "80,25€"],
+      ["Équipement du logement · Travaux / Décoration", "20,10€"],
+      ["Auto/moto · Entretien/réparations", "19,75€"],
+      ["Abonnement/factures · Service d'entretien", "15,31€"],
+    ];
+    if (JSON.stringify(importedSpending) !== JSON.stringify(expectedSpending))
+      throw new Error(
+        `Répartition des dépenses Money incorrecte : ${JSON.stringify(importedSpending)}`,
+      );
+    console.log("Rapport Money : quatre parts dans les catégories attendues, total 135,41 €");
     await click("#schedules-nav");
     // Record only the remaining occurrence; the two imported operations must not be duplicated.
     await click("#current-month");

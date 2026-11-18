@@ -5,28 +5,19 @@
 - Travailler sur une copie du fichier fictif de référence, sans mot de passe ni données bancaires réelles. Conserver le fichier d’origine et ses exemples pour comparer les soldes et les états de pointage.
 - Enregistrer les nouvelles opérations, fermer le fichier, puis le rouvrir dans Money avant de relever les résultats.
 
-## Priorité · opérations ventilées
+## Ventilations vérifiées dans le fichier du 18 novembre 2026
 
-Ajouter ces trois opérations au compte courant, dans le même mois passé. Utiliser des libellés distincts pour les retrouver dans le registre.
+Les trois opérations ont été enregistrées le 18 novembre 2026 sur le compte courant. Le fichier fictif versionné contient ces cas.
 
 | Libellé | Montant total | Détail des parts | État dans Money |
 | --- | ---: | --- | --- |
-| Test ventilation courses | −100,00 € | −80,25 € en alimentation et −19,75 € en entretien | Non pointée |
-| Test ventilation facture | −35,41 € | −20,10 € en logement et −15,31 € en services | Pointée |
-| Test ventilation remboursement | +50,50 € | +40,25 € en remboursement santé et +10,25 € dans une autre catégorie | Rapprochée, si Money permet de conserver les autres états de pointage |
+| Test ventilation courses | −100,00 € | Alimentation −80,25 € · Auto/moto → Entretien/réparations −19,75 € | Non pointée |
+| Test ventilation facture | −35,41 € | Équipement du logement → Travaux / Décoration −20,10 € · Abonnement/factures → Service d’entretien −15,31 € | Pointée |
+| Test ventilation remboursement | +50,50 € | Autres revenus → Accident du travail +40,25 € · Autres revenus +10,25 € | Rapprochée |
 
-- Utiliser au moins une sous-catégorie et noter son chemin complet tel qu’il apparaît dans Money. Les noms de catégories du tableau sont des exemples.
-- Sur le premier achat, saisir un commentaire général et un commentaire différent sur chacune des deux parts.
-- Si Money accepte une part de sens opposé, ajouter un quatrième cas nommé « Test ventilation remise ». Saisir un débit de **−25,40 €**, avec **−28,40 € d’achat** et **+3,00 € de remise**. Noter son état de pointage affiché.
+Le fichier contient six parts avec leurs catégories et commentaires. Les trois opérations diminuent le solde de **84,91 €** et ajoutent **135,41 €** au rapport de dépenses. Le solde final du compte courant est de **−3 576,46 €**, comme dans les captures. Le registre Kresus montre trois lignes, avec la facture et le remboursement pointés.
 
-### Résultats attendus dans Kresus
-
-| Cas saisis | Effet sur le solde du compte | Dépenses nettes ajoutées au rapport | Lignes ajoutées au registre |
-| --- | ---: | ---: | ---: |
-| Les trois cas principaux | −84,91 € | +135,41 € | 3 |
-| Avec le cas de la remise | −110,31 € | +160,81 € | 4 |
-
-Chaque opération doit avoir une seule ligne et un seul pointage. Les états Money « Pointée » et « Rapprochée » apparaissent tous deux comme pointés dans Kresus. Vérifier les montants et commentaires de chaque part, le chemin des sous-catégories et la répartition des débits dans le rapport de dépenses.
+La saisie Money essayée n’a pas permis de mélanger débit et crédit dans une même ventilation. Le cas de la remise n’a pas été ajouté au fichier.
 
 ## Vérifications facultatives encore ouvertes
 
@@ -39,5 +30,5 @@ Les cas déjà vérifiés et leurs captures sont documentés dans [l’étude de
 ## À rapporter sur Linux
 
 1. Placer la copie finale du `.mny` sous un nom distinct dans `references/`. Le fichier figé `kresus/tests/fixtures/money-reference.mny` sert de point de comparaison.
-2. Joindre une capture du registre et une par ventilation après réouverture. Elles doivent montrer le compte, les dates, les montants, le pointage, le détail des parts, les catégories et les commentaires. Noter séparément les valeurs absentes des captures.
+2. Pour chaque nouveau cas, joindre les captures après réouverture et noter les valeurs absentes des captures.
 3. Relever le solde affiché par Money après les ajouts et signaler toute différence entre ce qui a été saisi et ce que Money affiche.

@@ -654,56 +654,90 @@ describe("Money reader", () => {
   });
   const sample = resolve("tests/fixtures/money-reference.mny");
 
-  it("reads split links from the Money tables and counts the parent once", () => {
+  it("imports the three recorded splits and keeps the Money parent statuses", () => {
     const source = Buffer.from(readFileSync(sample));
     const reader = new MDBReader(decodeMoney(source));
-    const transactions = reader.getTable("TRN");
-    const splits = reader.getTable("TRN_SPLIT");
-    expect(splits.getColumnNames()).toEqual(
-      expect.arrayContaining(["htrn", "htrnParent", "iSplit"]),
-    );
+    const links = reader.getTable("TRN_SPLIT").getData();
+    const rows = reader.getTable("TRN").getData();
+    const preview = inspect(source);
+    const children = new Set(links.map((link) => link.htrn));
+    expect(children.size).toBe(6);
+    expect(preview.operations.some((row) => children.has(row.id))).toBe(false);
+    const entries = preview.operations
+      .filter((row) => row.splits?.length)
+      .sort((a, b) => a.id - b.id);
+    expect(entries).toMatchObject([
+      {
+        id: 29,
+        label: "Test ventilation courses",
+        amount: -10000,
+        reconciled: false,
+        note: "Commentaire de Test ventilation courses",
+        splits: [
+          { category: "Alimentation", amount: -8025, note: "alimentation" },
+          { category: "Auto/moto · Entretien/réparations", amount: -1975, note: "entretien" },
+        ],
+      },
+      {
+        id: 32,
+        label: "Test ventilation facture",
+        amount: -3541,
+        reconciled: true,
+        note: "Commentaire de Test ventilation facture",
+        splits: [
+          {
+            category: "Équipement du logement · Travaux / Décoration",
+            amount: -2010,
+            note: "logement",
+          },
+          {
+            category: "Abonnement/factures · Service d'entretien",
+            amount: -1531,
+            note: "services",
+          },
+        ],
+      },
+      {
+        id: 35,
+        label: "Test ventilation remboursement",
+        amount: 5050,
+        reconciled: true,
+        note: "",
+        splits: [
+          {
+            category: "Autres revenus · Accident du travail",
+            amount: 4025,
+            note: "remboursement santé",
+          },
+          { category: "Autres revenus", amount: 1025, note: "autre catégorie" },
+        ],
+      },
+    ]);
+    expect(entries.map((entry) => rows.find((row) => row.htrn === entry.id)?.cs)).toEqual([
+      0, 1, 2,
+    ]);
+  });
+
+  it("rejects a split that differs from the recorded amount by one cent", () => {
+    const source = Buffer.from(readFileSync(sample));
+    const transactions = new MDBReader(decodeMoney(source)).getTable("TRN");
     const rows = transactions.getData();
-    const baseline = inspect(source);
-    const original = baseline.operations.find(
-      (row) => row.amount === -10000 && !baseline.transfers.some((pair) => pair.debitId === row.id),
-    )!;
-    const parent = rows.find((row) => row.htrn === original.id)!;
-    parent.grftt = 0x20;
-    const child = { ...parent, grftt: 0x40 };
-    const [first, second] = baseline.categories.filter((row) => row.parentId === null);
-    rows.push(
-      { ...child, htrn: 90001, hcat: first!.id, amt: "-80.25", mMemo: "Ligne 1" },
-      { ...child, htrn: 90002, hcat: second!.id, amt: "-19.75", mMemo: "Ligne 2" },
-    );
-    const links = [
-      { htrn: 90002, htrnParent: parent.htrn, iSplit: 1 },
-      { htrn: 90001, htrnParent: parent.htrn, iSplit: 0 },
-    ];
+    rows.find((row) => row.htrn === 31)!.amt = "-19.74";
     vi.spyOn(transactions, "getData").mockReturnValue(rows);
-    vi.spyOn(splits, "getData").mockReturnValue(links);
     const getTable = MDBReader.prototype.getTable;
     const spy = vi.spyOn(MDBReader.prototype, "getTable").mockImplementation(function (
       this: MDBReader,
       name,
     ) {
-      if (name === "TRN") return transactions;
-      if (name === "TRN_SPLIT") return splits;
-      return getTable.call(this, name);
+      return name === "TRN" ? transactions : getTable.call(this, name);
     });
     try {
-      const imported = inspect(source);
-      expect(imported.accounts).toEqual(baseline.accounts);
-      expect(imported.operations).toHaveLength(baseline.operations.length);
-      expect(imported.operations.find((row) => row.id === parent.htrn)?.splits).toEqual([
-        { category: first!.name, amount: -8025, note: "Ligne 1" },
-        { category: second!.name, amount: -1975, note: "Ligne 2" },
-      ]);
-      rows.at(-1)!.amt = "-19.74";
       expect(() => inspect(source)).toThrow(/ne correspond pas au montant/);
     } finally {
       spy.mockRestore();
     }
   });
+
   it("keeps the Money spelling of Divers and rejects an operation dated before 1970", () => {
     const source = Buffer.from(readFileSync(sample));
     const reader = new MDBReader(decodeMoney(source));
@@ -770,7 +804,8 @@ describe("Money reader", () => {
     expect(preview.accounts).toHaveLength(2);
     expect(preview.categories).toHaveLength(138);
     expect(preview.operations.map((operation) => operation.amount).sort((a, b) => a - b)).toEqual([
-      -364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -2500, 10000, 10000, 10000,
+      -364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -10000, -3541, -2500, 5050,
+      10000, 10000, 10000,
     ]);
     expect(preview.operations.find((operation) => operation.id === 21)).toMatchObject({
       reference: "200001",
@@ -790,7 +825,7 @@ describe("Money reader", () => {
       current.balance,
       saving.openingBalance,
       saving.balance,
-    ]).toEqual([100000, -349155, 200000, 210000]);
+    ]).toEqual([100000, -357646, 200000, 210000]);
     expect(preview.transfers).toEqual([
       { debitId: 9, creditId: 10 },
       { debitId: 17, creditId: 16 },

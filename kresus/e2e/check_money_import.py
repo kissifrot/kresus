@@ -8,8 +8,25 @@ accounts = connection.execute(
 ).fetchall()
 assert accounts == [("Compte courant", 100000), ("Livret A", 200000)], accounts
 amounts = connection.execute("SELECT amount_cents FROM transactions ORDER BY amount_cents").fetchall()
-assert amounts == [(x,) for x in (-364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -2500, 10000, 10000, 10000)], amounts
+assert amounts == [(x,) for x in (-364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -10000, -3541, -2500, 5050, 10000, 10000, 10000)], amounts
 assert connection.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetchone() == (138,)
+assert connection.execute(
+    "SELECT a.name, a.opening_balance_cents + SUM(t.amount_cents) "
+    "FROM accounts a JOIN transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.name"
+).fetchall() == [("Compte courant", -357646), ("Livret A", 210000)]
+splits = connection.execute(
+    "SELECT t.id, t.amount_cents, t.reconciled, s.category, s.amount_cents, s.note "
+    "FROM transaction_splits s JOIN transactions t ON t.id=s.transaction_id "
+    "ORDER BY t.id, s.position"
+).fetchall()
+assert splits == [
+    ('money-transaction-29', -10000, 0, 'Alimentation', -8025, 'alimentation'),
+    ('money-transaction-29', -10000, 0, 'Auto/moto · Entretien/réparations', -1975, 'entretien'),
+    ('money-transaction-32', -3541, 1, 'Équipement du logement · Travaux / Décoration', -2010, 'logement'),
+    ('money-transaction-32', -3541, 1, "Abonnement/factures · Service d'entretien", -1531, 'services'),
+    ('money-transaction-35', 5050, 1, 'Autres revenus · Accident du travail', 4025, 'remboursement santé'),
+    ('money-transaction-35', 5050, 1, 'Autres revenus', 1025, 'autre catégorie'),
+], splits
 for transfer_id, expected in [
     ("money-transfer-9-10", (-10000, 1, 10000, 0)),
     ("money-transfer-17-16", (-10000, 0, 10000, 1)),

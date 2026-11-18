@@ -484,7 +484,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
     }, "Aperçu du fichier Money sélectionné");
     if (
       !preview.includes("Compte courant") ||
-      !preview.replace(/\s/g, "").includes("3491,55") ||
+      !preview.replace(/\s/g, "").includes("3576,46") ||
       !preview.includes("138 catégories")
     )
       throw new Error(`Aperçu Money inattendu après sélection native : ${preview}`);
@@ -510,7 +510,7 @@ c=sqlite3.connect(sys.argv[1]); print(json.dumps([c.execute("select count(*) fro
     await waitFor(
       async () =>
         existsSync(destination) &&
-        (await text(".balance-card")).replace(/\s/g, "").includes("3491,55"),
+        (await text(".balance-card")).replace(/\s/g, "").includes("3576,46"),
       "Import Money natif",
     );
     const verified = spawnSync("python3", [join(root, "e2e/check_money_import.py"), destination], {
