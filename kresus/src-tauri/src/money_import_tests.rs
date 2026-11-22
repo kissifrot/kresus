@@ -295,6 +295,7 @@ fn rejects_dates_before_1970_before_creating_the_schema() {
 fn fallback_category_uses_the_imported_spelling_for_operations_and_schedules() {
     let mut preview = fixture();
     preview.categories.push(MoneyCategory {
+        kind: None,
         id: 99,
         name: "  DIVERS  ".into(),
         parent_id: None,

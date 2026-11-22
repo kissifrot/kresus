@@ -2,25 +2,40 @@ use super::*;
 use crate::test_support::database;
 
 #[test]
-fn defaults_are_available_on_creation_and_are_not_recreated_on_open() {
+fn startup_catalog_includes_expenses_and_inherited_income_categories() {
     let db = database();
-    assert_eq!(
-        db.query_row("SELECT name FROM categories WHERE id='other'", [], |row| {
-            row.get::<_, String>(0)
-        })
-        .unwrap(),
-        "Divers"
-    );
-    db.execute("DELETE FROM categories WHERE id='other'", [])
-        .unwrap();
+    let categories = list_in_db(&db).unwrap();
+    assert_eq!(categories.len(), 138);
+    for (name, kind) in [("Divers", "debit"), ("Dividendes", "credit")] {
+        assert!(
+            categories
+                .iter()
+                .any(|category| category.name == name && category.kind.as_deref() == Some(kind))
+        );
+    }
+}
+
+#[test]
+fn opening_an_existing_catalog_preserves_custom_categories_and_deletions() {
+    let mut db = database();
+    delete_in_db(&mut db, "default-category-133".into()).unwrap();
+    db.execute_batch("DROP TABLE category_kinds").unwrap();
+    db.execute(
+        "INSERT INTO categories (id,name) VALUES ('custom','Personnalisée')",
+        [],
+    )
+    .unwrap();
     crate::database::initialize_database(&db).unwrap();
+    let categories = list_in_db(&db).unwrap();
     assert!(
-        !db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM categories WHERE id='other')",
-            [],
-            |row| row.get::<_, bool>(0)
-        )
-        .unwrap()
+        !categories
+            .iter()
+            .any(|category| category.name == "Dividendes")
+    );
+    assert!(
+        categories
+            .iter()
+            .any(|category| category.name == "Personnalisée" && category.kind.is_none())
     );
 }
 
@@ -29,6 +44,7 @@ fn category(id: &str, name: &str, parent: Option<&str>) -> Category {
         id: id.into(),
         name: name.into(),
         parent_id: parent.map(str::to_string),
+        kind: None,
     }
 }
 

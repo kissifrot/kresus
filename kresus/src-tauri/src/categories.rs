@@ -12,6 +12,7 @@ pub struct Category {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) parent_id: Option<String>,
+    pub(crate) kind: Option<String>,
 }
 
 fn validate_name(name: &str) -> Result<&str, String> {
@@ -50,13 +51,24 @@ pub fn list_categories(state: tauri::State<'_, AppState>) -> Result<Vec<Category
         .database
         .lock()
         .map_err(|_| "Base indisponible.".to_string())?;
-    let mut q = db.prepare("SELECT id,name,parent_id FROM categories ORDER BY parent_id IS NOT NULL, name COLLATE NOCASE, id").map_err(database_error)?;
+    list_in_db(&db)
+}
+
+fn list_in_db(db: &Connection) -> Result<Vec<Category>, String> {
+    let mut q = db
+        .prepare(
+            "SELECT c.id, c.name, c.parent_id, k.kind FROM categories c
+         LEFT JOIN category_kinds k ON k.category_id=COALESCE(c.parent_id, c.id)
+         ORDER BY c.parent_id IS NOT NULL, c.name COLLATE NOCASE, c.id",
+        )
+        .map_err(database_error)?;
     let rows = q
         .query_map([], |r| {
             Ok(Category {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 parent_id: r.get(2)?,
+                kind: r.get(3)?,
             })
         })
         .map_err(database_error)?;
@@ -82,16 +94,35 @@ fn create_in_db(db: &Connection, category: Category) -> Result<(), String> {
     if category.id.trim().is_empty() {
         return Err("Identifiant invalide.".into());
     }
+    let tx = db.unchecked_transaction().map_err(database_error)?;
     if let Some(parent) = &category.parent_id {
-        if path(&db, parent)?.1.is_some() {
+        if path(&tx, parent)?.1.is_some() {
             return Err("Choisissez une catégorie principale.".into());
         }
     }
-    db.execute(
+    tx.execute(
         "INSERT INTO categories (id,name,parent_id) VALUES (?1,?2,?3)",
-        params![category.id, name, category.parent_id],
+        params![&category.id, name, category.parent_id],
     )
     .map_err(|_| "Cette catégorie existe déjà ou ne peut pas être créée.".to_string())?;
+    if category.parent_id.is_none() {
+        insert_category_kind(&tx, &category.id, category.kind.as_deref())?;
+    }
+    tx.commit().map_err(database_error)
+}
+
+pub(crate) fn insert_category_kind(
+    db: &Connection,
+    id: &str,
+    kind: Option<&str>,
+) -> Result<(), String> {
+    if let Some(kind) = kind {
+        db.execute(
+            "INSERT INTO category_kinds (category_id,kind) VALUES (?1,?2)",
+            params![id, kind],
+        )
+        .map_err(database_error)?;
+    }
     Ok(())
 }
 

@@ -2,7 +2,13 @@ import type { Frequency } from "./frequency";
 
 // Monetary values in the frontend and Tauri API are integer cents.
 export type AccountKind = "Compte courant" | "Épargne" | "Assurance vie";
-export type Category = { id: string; name: string; parentId: string | null };
+export type CategoryKind = "debit" | "credit";
+export type Category = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  kind?: CategoryKind | null;
+};
 export type Account = {
   id: string;
   name: string;

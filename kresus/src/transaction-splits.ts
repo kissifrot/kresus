@@ -30,11 +30,13 @@ export function bindSplitEditor(
   const balance = controls.querySelector<HTMLOutputElement>(".split-balance")!;
   let enabled = initial.length > 0;
 
+  const choices = (current = "") => categoryOptions(current, type.value, true);
+
   function appendRow(part?: TransactionSplit) {
     const row = document.createElement("div");
     row.className = "split-row";
     row.innerHTML = `
-      <label>Catégorie<select class="split-category"><option value="">Choisir…</option>${categoryOptions(part?.category)}</select></label>
+      <label>Catégorie<select class="split-category">${choices(part?.category)}</select></label>
       <label>Montant (€)<input class="split-amount" inputmode="decimal" value="${part ? centsInput(part.amount * direction) : ""}"></label>
       <label>Commentaire (facultatif)<textarea class="split-note" rows="1">${escapeHtml(part?.note ?? "")}</textarea></label>
       <button type="button" class="secondary-button remove-split" aria-label="Supprimer cette ligne" title="Supprimer cette ligne">×</button>`;
@@ -105,7 +107,12 @@ export function bindSplitEditor(
   });
   amount.addEventListener("input", showBalance);
   rows.addEventListener("input", showBalance);
-  type.addEventListener("change", sync);
+  type.addEventListener("change", () => {
+    rows.querySelectorAll<HTMLSelectElement>(".split-category").forEach((select) => {
+      select.innerHTML = choices(select.value);
+    });
+    sync();
+  });
   sync();
 
   return {

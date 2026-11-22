@@ -803,6 +803,12 @@ describe("Money reader", () => {
     const preview = inspect(Buffer.from(readFileSync(sample)));
     expect(preview.accounts).toHaveLength(2);
     expect(preview.categories).toHaveLength(138);
+    expect(preview.categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Alimentation", kind: "debit" }),
+        expect.objectContaining({ name: "Traitements et salaires", kind: "credit" }),
+      ]),
+    );
     expect(preview.operations.map((operation) => operation.amount).sort((a, b) => a - b)).toEqual([
       -364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -10000, -3541, -2500, 5050,
       10000, 10000, 10000,

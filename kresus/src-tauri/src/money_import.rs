@@ -46,6 +46,7 @@ struct MoneyCategory {
     id: i64,
     name: String,
     parent_id: Option<i64>,
+    kind: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -323,15 +324,19 @@ fn import_into_database(
         .filter(|c| c.parent_id.is_none())
         .chain(preview.categories.iter().filter(|c| c.parent_id.is_some()))
     {
+        let id = format!("money-cat-{}", c.id);
         tx.execute(
             "INSERT INTO categories (id,name,parent_id) VALUES (?1,?2,?3)",
             params![
-                format!("money-cat-{}", c.id),
+                &id,
                 c.name.trim(),
                 c.parent_id.map(|id| format!("money-cat-{id}"))
             ],
         )
         .map_err(database_error)?;
+        if c.parent_id.is_none() {
+            crate::categories::insert_category_kind(&tx, &id, c.kind.as_deref())?;
+        }
     }
     let fallback = preview
         .categories

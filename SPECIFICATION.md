@@ -71,7 +71,7 @@ Tauri 2 relie l’interface TypeScript à Rust. SQLite stocke les données dans 
 
 Les noms de comptes, d’établissements et de catégories ainsi que les tiers des opérations et échéances saisis sont limités à 200 unités UTF-16, dans l’interface et côté Rust. Les commentaires et références ne sont pas concernés. Les données importées ne sont pas raccourcies ; une valeur plus longue déjà enregistrée peut être conservée lors d’une modification.
 
-**Premier démarrage :** une nouvelle base est créée sans compte, opération ni échéance. L’écran « Mes comptes » propose d’ajouter un compte ou d’importer un fichier Money. Quelques catégories de base sont disponibles pour la saisie.
+**Premier démarrage :** une nouvelle base est créée sans compte, opération ni échéance. L’écran « Mes comptes » propose d’ajouter un compte ou d’importer un fichier Money. Le catalogue français de référence fournit les catégories et sous-catégories de dépenses et de recettes. La saisie d’une opération ou d’une échéance propose en premier le groupe correspondant à son type. L’import Money conserve les groupes reconnus dans le fichier source.
 
 Les espaces en début et fin des champs textuels saisis ou importés sont supprimés à l’enregistrement ; les espaces et retours à la ligne internes sont conservés. Les données déjà enregistrées ne sont pas modifiées automatiquement.
 

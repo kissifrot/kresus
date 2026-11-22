@@ -1193,6 +1193,13 @@ dialog::backdrop {
   border-radius: 8px;
   overflow: hidden;
 }
+.category-group-heading {
+  margin: 0;
+  padding: 10px 18px;
+  border-bottom: 1px solid #e7ebe7;
+  background: #f6f8f6;
+  font-size: 14px;
+}
 .category-row {
   min-height: 55px;
   display: flex;

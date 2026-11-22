@@ -6,7 +6,7 @@ import { Buffer } from "buffer";
 import MDBReader from "mdb-reader";
 import { FREQUENCY, type Frequency } from "./frequency";
 import { displayReference, MIN_CALENDAR_DATE } from "./format";
-import type { TransactionSplit } from "./types";
+import type { CategoryKind, TransactionSplit } from "./types";
 
 type Row = Record<string, any>;
 // mdb-reader’s browser build expects the standard Buffer global.
@@ -643,6 +643,24 @@ export function inspect(buffer: Buffer) {
   const transferIds = new Set(transfers.flatMap((pair) => [pair.debitId, pair.creditId]));
   // Reject category trees that cannot be represented without losing information.
   const importedCategories = categories.filter((c) => c.hct === 0 && c.nLevel > 0);
+  const categoryKinds = new Map<number, CategoryKind>();
+  for (const root of categories.filter((c) => c.hct === 0 && c.nLevel === 0)) {
+    switch (
+      String(root.szFull ?? "")
+        .trim()
+        .toLowerCase()
+    ) {
+      case "dépenses":
+      case "expenses":
+        categoryKinds.set(root.hcat, "debit");
+        break;
+      case "revenus":
+      case "recettes":
+      case "income":
+        categoryKinds.set(root.hcat, "credit");
+        break;
+    }
+  }
   const seen = new Set<string>();
   for (const category of importedCategories) {
     const name = String(category.szFull ?? "").trim();
@@ -736,6 +754,7 @@ export function inspect(buffer: Buffer) {
       id: c.hcat,
       name: String(c.szFull).trim(),
       parentId: c.nLevel === 2 ? c.hcatParent : null,
+      kind: c.nLevel === 1 ? (categoryKinds.get(c.hcatParent) ?? null) : null,
     })),
     operations,
   };

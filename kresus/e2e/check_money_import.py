@@ -11,6 +11,9 @@ amounts = connection.execute("SELECT amount_cents FROM transactions ORDER BY amo
 assert amounts == [(x,) for x in (-364155, -22500, -20000, -20000, -10000, -10000, -10000, -10000, -10000, -3541, -2500, 5050, 10000, 10000, 10000)], amounts
 assert connection.execute("SELECT count(*) FROM categories WHERE id LIKE 'money-cat-%'").fetchone() == (138,)
 assert connection.execute(
+    "SELECT kind, count(*) FROM category_kinds GROUP BY kind ORDER BY kind"
+).fetchall() == [("credit", 4), ("debit", 17)]
+assert connection.execute(
     "SELECT a.name, a.opening_balance_cents + SUM(t.amount_cents) "
     "FROM accounts a JOIN transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.name"
 ).fetchall() == [("Compte courant", -357646), ("Livret A", 210000)]

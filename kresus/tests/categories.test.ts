@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Category } from "../src/types";
 
-type Category = { id: string; name: string; parentId: string | null };
-
-async function openCategories() {
-  let categories: Category[] = [
+async function openCategories(
+  categories: Category[] = [
     { id: "food", name: "Alimentation", parentId: null },
     { id: "other", name: "Divers", parentId: null },
-  ];
+  ],
+) {
   const invoke = vi.fn(async (command: string, args?: Record<string, any>) => {
     switch (command) {
       case "list_accounts":
@@ -131,5 +131,26 @@ describe("category management", () => {
       expect(document.querySelector(".category-panel")?.textContent).toContain("Aucune catégorie"),
     );
     expect(invoke).toHaveBeenCalledWith("delete_category", { id: "other" });
+  });
+
+  it("proposes the group matching the operation type and allows an expense refund", async () => {
+    await openCategories([
+      { id: "food", name: "Alimentation", parentId: null, kind: "debit" },
+      { id: "salary", name: "Salaire", parentId: null, kind: "credit" },
+    ]);
+    expect(
+      Array.from(document.querySelectorAll(".category-panel h2"), (heading) => heading.textContent),
+    ).toEqual(["Dépenses", "Recettes"]);
+    click('[data-account="one"]');
+    const form = document.querySelector<HTMLFormElement>("#transaction-form")!;
+    const category = form.elements.namedItem("category") as HTMLSelectElement;
+    expect(category.value).toBe("Alimentation");
+    const type = form.elements.namedItem("type") as HTMLSelectElement;
+    type.value = "credit";
+    type.dispatchEvent(new Event("change"));
+    expect(category.value).toBe("Salaire");
+    expect(category.querySelector("optgroup")?.label).toBe("Recettes");
+    category.value = "Alimentation";
+    expect(category.value).toBe("Alimentation");
   });
 });

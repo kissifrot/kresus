@@ -4,7 +4,7 @@ import { reloadDatabase } from "./accounts";
 import { Buffer } from "buffer";
 import browserProcess from "process";
 import type { Frequency } from "./frequency";
-import type { TransactionSplit } from "./types";
+import type { CategoryKind, TransactionSplit } from "./types";
 
 type MoneyAccount = {
   id: number;
@@ -14,7 +14,12 @@ type MoneyAccount = {
   balance: number;
   count: number;
 };
-type MoneyCategory = { id: number; name: string; parentId: number | null };
+type MoneyCategory = {
+  id: number;
+  name: string;
+  parentId: number | null;
+  kind: CategoryKind | null;
+};
 type MoneyOperation = {
   accountId: number;
   date: string;

@@ -281,11 +281,8 @@ pub(crate) fn initialize_database(connection: &Connection) -> Result<(), String>
     }
     let tx = connection.unchecked_transaction().map_err(database_error)?;
     create_schema(&tx)?;
-    tx.execute_batch(
-        "INSERT INTO categories (id,name) VALUES ('other','Divers'), ('food','Alimentation'),
-         ('home','Logement'), ('transport','Transports'), ('income','Revenus');",
-    )
-    .map_err(database_error)?;
+    tx.execute_batch(include_str!("default_categories.sql"))
+        .map_err(database_error)?;
     tx.commit().map_err(database_error)
 }
 
@@ -296,6 +293,13 @@ pub(crate) fn create_schema(db: &Connection) -> Result<(), String> {
 }
 
 fn initialize_schema_extensions(db: &Connection) -> Result<(), String> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS category_kinds (
+            category_id TEXT PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK (kind IN ('debit', 'credit'))
+        ) WITHOUT ROWID;",
+    )
+    .map_err(database_error)?;
     db.execute_batch(include_str!("account_archive_schema.sql"))
         .map_err(database_error)?;
     db.execute_batch(include_str!("transaction_split_schema.sql"))

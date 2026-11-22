@@ -424,7 +424,7 @@ export function bindTransactionActions() {
         <form class="transaction-editor">
           <label>Date<input name="date" type="date" min="${MIN_CALENDAR_DATE}" required value="${escapeHtml(item.date)}"></label>
           <label>Tiers<input name="label" list="edit-payee-suggestions" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(item.label)}"><datalist id="edit-payee-suggestions"></datalist></label>
-          <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(item.splits?.[0]?.category ?? item.category)}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
+          <div class="category-picker"><label>Catégorie<select name="category" required>${categoryOptions(item.splits?.[0]?.category ?? item.category, item.amount > 0 ? "credit" : "debit")}</select></label><button type="button" class="secondary-button add-category" aria-label="Ajouter une catégorie" title="Ajouter une catégorie">+</button></div>
           <label>Réf. / N° chèque<input name="reference" maxlength="${REFERENCE_LIMIT}" value="${escapeHtml(initialReference)}"></label>
           <label>Type<select name="type">
             <option value="debit" ${item.amount < 0 ? "selected" : ""}>Débit</option>
@@ -492,7 +492,7 @@ export function bindTransactionActions() {
     });
   });
   const creationForm = document.querySelector<HTMLFormElement>("#transaction-form")!;
-  bindCategoryCreation(creationForm);
+  const resetCreationCategories = bindCategoryCreation(creationForm);
   const creationSplits = bindSplitEditor(creationForm);
   // A transfer has two accounts; ordinary debits and credits have a payee and reference.
   function updateCreationType() {
@@ -524,6 +524,7 @@ export function bindTransactionActions() {
     const dialog = document.querySelector<HTMLDialogElement>("#transaction-dialog")!;
     const suggestions = dialog.querySelector<HTMLDataListElement>("#payee-suggestions")!;
     creationForm.reset();
+    resetCreationCategories();
     creationSplits.reset();
     (creationForm.elements.namedItem("sourceId") as HTMLSelectElement).value = account.id;
     (creationForm.elements.namedItem("destinationId") as HTMLSelectElement).value =
