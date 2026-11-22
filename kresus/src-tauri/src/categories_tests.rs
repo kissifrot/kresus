@@ -5,12 +5,35 @@ use crate::test_support::database;
 fn startup_catalog_includes_expenses_and_inherited_income_categories() {
     let db = database();
     let categories = list_in_db(&db).unwrap();
-    assert_eq!(categories.len(), 138);
+    assert_eq!(categories.len(), 158);
     for (name, kind) in [("Divers", "debit"), ("Dividendes", "credit")] {
         assert!(
             categories
                 .iter()
                 .any(|category| category.name == name && category.kind.as_deref() == Some(kind))
+        );
+    }
+    for (parent_name, name, kind) in [
+        ("Numérique et télécoms", "Forfait mobile", "debit"),
+        (
+            "Numérique et télécoms",
+            "Stockage et sauvegarde en ligne",
+            "debit",
+        ),
+        ("Logement", "Rénovation énergétique", "debit"),
+        ("Auto/moto", "Recharge électrique", "debit"),
+        ("Autres revenus", "Aides au logement", "credit"),
+        ("Autres revenus", "Ventes de biens d'occasion", "credit"),
+    ] {
+        let parent = categories
+            .iter()
+            .find(|category| category.name == parent_name)
+            .unwrap();
+        assert!(
+            categories.iter().any(|category| category.name == name
+                && category.parent_id.as_deref() == Some(parent.id.as_str())
+                && category.kind.as_deref() == Some(kind)),
+            "Catégorie manquante ou mal classée : {parent_name} · {name}"
         );
     }
 }
