@@ -4,7 +4,20 @@ import config from "../src-tauri/tauri.conf.json";
 export function showAbout() {
   const dialog = document.createElement("dialog");
   dialog.className = "about-dialog";
-  dialog.innerHTML = `<div class="about-content"><img alt="" width="80" height="80"><div><h2>À propos de Kresus</h2><p>Finances familiales</p><p class="about-version"></p><p>Application de gestion financière personnelle.</p></div></div><div class="dialog-actions"><button type="button" class="primary-button">Fermer</button></div>`;
+  dialog.innerHTML = `
+    <div class="about-content">
+      <img alt="" width="80" height="80">
+      <div>
+        <h2>À propos de Kresus</h2>
+        <p>Finances familiales</p>
+        <p class="about-version"></p>
+        <p>Application de gestion financière personnelle.</p>
+        <p>Propulsé par <a href="https://tauri.app/" target="_blank" rel="noopener noreferrer">Tauri</a></p>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="primary-button" autofocus>Fermer</button>
+    </div>`;
   dialog.querySelector("img")!.src = new URL(
     "../src-tauri/icons/128x128.png",
     import.meta.url,

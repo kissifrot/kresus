@@ -2304,6 +2304,7 @@ tr[data-transaction].editing {
 
 .about-dialog {
   max-width: 430px;
+  padding: 25px;
 }
 .about-content {
   display: flex;
@@ -2316,6 +2317,9 @@ tr[data-transaction].editing {
 }
 .about-content p {
   margin: 6px 0;
+}
+.about-content a {
+  color: #246a49;
 }
 
 .forecast-point {
