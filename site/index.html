@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Kresus, l’application de bureau pour suivre les comptes et les échéances de votre foyer. Disponible en préversion pour Windows et Debian.">
+    <meta name="theme-color" content="#f3f7f0">
+    <title>Kresus — Les comptes du foyer</title>
+    <link rel="icon" href="kresus.png" type="image/png">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <header class="site-header wrap">
+      <a class="brand" href="./"><img src="kresus.png" alt="" width="35" height="35"> Kresus</a>
+      <nav aria-label="Navigation principale">
+        <a href="#fonctionnalites">Fonctionnalités</a>
+        <a href="#telechargement">Téléchargement</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero wrap" aria-labelledby="titre">
+        <div class="intro">
+          <h1 id="titre">Les comptes<br>du foyer,<br><em>au clair.</em></h1>
+          <p>Kresus rassemble vos comptes, vos opérations et vos échéances dans une application de bureau en français. Vos données sont stockées sur votre ordinateur.</p>
+          <a class="button" href="#telechargement">Essayer Kresus</a>
+          <span class="platforms">Préversion · Windows et Debian</span>
+        </div>
+
+        <figure class="preview">
+          <div class="ledger">
+            <div class="ledger-header">
+              <img src="kresus.png" alt="" width="24" height="24">
+              <span>Mon foyer</span>
+            </div>
+            <div class="ledger-content">
+              <div class="balance">
+                <p>Solde du foyer</p>
+                <strong>3 248,50&nbsp;€</strong>
+              </div>
+              <dl class="accounts">
+                <div><dt>Compte courant</dt><dd>1 448,50&nbsp;€</dd></div>
+                <div><dt>Épargne</dt><dd>1 800,00&nbsp;€</dd></div>
+              </dl>
+              <div class="upcoming">
+                <h2>Prochaines échéances</h2>
+                <dl>
+                  <div><dt><time datetime="12-03">3 déc.</time> Électricité</dt><dd>−62,00&nbsp;€</dd></div>
+                  <div><dt><time datetime="12-05">5 déc.</time> Internet</dt><dd>−29,99&nbsp;€</dd></div>
+                </dl>
+              </div>
+            </div>
+          </div>
+          <figcaption>Vue illustrative · Données fictives</figcaption>
+        </figure>
+      </section>
+
+      <section class="features wrap" id="fonctionnalites" aria-labelledby="titre-fonctionnalites">
+        <h2 id="titre-fonctionnalites">Du relevé aux prochaines échéances</h2>
+        <div class="feature-grid">
+          <div>
+            <h3>Tenir ses comptes</h3>
+            <p>Saisissez et catégorisez vos opérations. Importez vos relevés OFX et rapprochez-les des écritures de votre registre.</p>
+          </div>
+          <div>
+            <h3>Anticiper le mois à venir</h3>
+            <p>Suivez vos échéances récurrentes et consultez la prévision de votre solde sur trois mois.</p>
+          </div>
+          <div>
+            <h3>Reprendre ses comptes Money</h3>
+            <p>L’import expérimental affiche un aperçu des données prises en charge avant de créer une nouvelle base.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="download" id="telechargement" aria-labelledby="titre-telechargement">
+        <div class="wrap download-content">
+          <div>
+            <h2 id="titre-telechargement">Télécharger la préversion</h2>
+            <p>Ouvrez la préversion de votre choix sur GitHub et choisissez un installateur dans la liste des fichiers.</p>
+          </div>
+          <div>
+            <dl class="installers">
+              <div><dt>Windows</dt><dd><code>.exe</code> ou <code>.msi</code></dd></div>
+              <div><dt>Debian</dt><dd><code>.deb</code></dd></div>
+            </dl>
+            <a class="button" href="https://github.com/kissifrot/kresus/releases">Voir les préversions sur GitHub</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer wrap">
+      <a class="brand" href="./"><img src="kresus.png" alt="" width="28" height="28"> Kresus</a>
+      <a href="https://github.com/kissifrot/kresus">Code source sur GitHub</a>
+    </footer>
+  </body>
+</html>
