@@ -2063,8 +2063,8 @@ tr[data-transaction].editing {
   table-layout: fixed;
   font-size: 13px;
 }
-.bank-import-table th:first-child,
-.bank-import-table th:nth-child(3) {
+.bank-import-table th:nth-child(2),
+.bank-import-table th:nth-child(4) {
   width: 112px;
 }
 .bank-import-table th:last-child {
@@ -2072,6 +2072,15 @@ tr[data-transaction].editing {
 }
 .bank-import-table td {
   padding-block: 8px;
+}
+.bank-import-table .bank-import-select {
+  width: 38px;
+  padding-inline: 4px;
+  text-align: center;
+}
+.bank-import-select input {
+  margin: 0;
+  accent-color: #30744f;
 }
 .bank-import-table td small {
   display: block;
@@ -2083,6 +2092,22 @@ tr[data-transaction].editing {
 }
 .bank-import-decision select {
   width: 100%;
+}
+#bank-import-summary,
+#bank-import-bulk-actions:not([hidden]),
+#bank-import-selection-actions:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#bank-import-selection-actions {
+  align-items: center;
+  font-size: 13px;
+}
+#bank-import-summary button[aria-pressed="true"] {
+  background: #e8f3ea;
+  border-color: #69a27a;
+  color: #286e49;
 }
 .bank-import-dialog .table-footer,
 .bank-import-dialog .dialog-actions,

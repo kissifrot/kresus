@@ -25,9 +25,18 @@ type StatementPreview = {
   closing: ClosingBalance;
   rows: StatementRow[];
 };
-type Choice = { action: "add" | "skip" } | { action: "match"; transactionId: string };
+type BulkAction = "add" | "skip";
+type Choice = { action: BulkAction } | { action: "match"; transactionId: string };
 type ImportResult = { added: number; matched: number; skipped: number };
 
+const summaryLabels = {
+  add: ["à ajouter", "à ajouter"],
+  match: ["à rapprocher", "à rapprocher"],
+  duplicate: ["doublon", "doublons"],
+  skip: ["ignorée", "ignorées"],
+  pending: ["à vérifier", "à vérifier"],
+} as const;
+type SummaryFilter = keyof typeof summaryLabels;
 const pageSize = 25;
 const matchPrefix = "match:";
 const plural = (count: number, singular: string, plural: string) =>
@@ -64,7 +73,7 @@ function optionValue(choice: Choice | null): string {
   return choice.action === "match" ? matchPrefix + choice.transactionId : choice.action;
 }
 
-function renderRow(row: StatementRow, index: number, choice: Choice | null) {
+function renderRow(row: StatementRow, index: number, choice: Choice | null, selected: boolean) {
   const label = escapeHtml(row.label);
   const value = optionValue(choice);
   const action = row.duplicate
@@ -82,7 +91,10 @@ function renderRow(row: StatementRow, index: number, choice: Choice | null) {
           })
           .join("")}
       </select>${row.moreCandidates ? "<small>20 opérations les plus proches affichées.</small>" : ""}`;
-  return `<tr><td class="date-cell">${dateLabel(row.date)}</td>
+  const checkbox = row.duplicate
+    ? ""
+    : `<input type="checkbox" data-bank-select="${index}" aria-label="Sélectionner la ligne ${index + 1}, ${label}" ${selected ? "checked" : ""}>`;
+  return `<tr><td class="bank-import-select">${checkbox}</td><td class="date-cell">${dateLabel(row.date)}</td>
     <td class="bank-import-label"><strong>${label}</strong>${row.reference ? `<small>Réf. ${escapeHtml(row.reference)}</small>` : ""}${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</td>
     <td class="amount ${row.amount < 0 ? "debit" : "credit"}">${euro(row.amount)}</td>
     <td class="bank-import-decision">${action}</td></tr>`;
@@ -101,10 +113,15 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   const choices: (Choice | null)[] = preview.rows.map((row) =>
     row.duplicate ? { action: "skip" } : row.candidates.length ? null : { action: "add" },
   );
-  const duplicates = preview.rows.filter((row) => row.duplicate).length;
-  const lastPage = Math.max(0, Math.ceil(choices.length / pageSize) - 1);
+  const rows = preview.rows.map((row, index) => ({ row, index }));
+  const selection = new Set<number>();
+  const statusOf = (index: number): SummaryFilter =>
+    preview.rows[index]!.duplicate ? "duplicate" : (choices[index]?.action ?? "pending");
   let page = 0;
+  let lastPage = 0;
+  let filter: SummaryFilter | null = null;
   let saving = false;
+  let showPendingError = false;
   const dialog = document.createElement("dialog");
   dialog.className = "bank-import-dialog";
   dialog.setAttribute("aria-labelledby", "bank-import-title");
@@ -123,13 +140,31 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
       <p>Kresus propose les opérations de même montant et de même sens, à ${preview.matchDays} jours près. Rapprocher une ligne pointe l’opération existante.</p>
     </div>
     <div class="table-wrap bank-import-table">
-      <table><thead><tr><th scope="col">DATE</th><th scope="col">LIBELLÉ</th><th scope="col" class="right">MONTANT</th><th scope="col">ACTION</th></tr></thead><tbody></tbody></table>
+      <table><thead><tr><th scope="col" class="bank-import-select"><span class="visually-hidden">Sélection</span></th><th scope="col">DATE</th><th scope="col">LIBELLÉ</th><th scope="col" class="right">MONTANT</th><th scope="col">ACTION</th></tr></thead><tbody id="bank-import-lines"></tbody></table>
     </div>
-    <div class="table-footer"><span id="bank-import-range"></span><div class="pagination">
+    <div class="table-footer"><span id="bank-import-range" role="status"></span><div class="pagination">
       <button type="button" id="bank-import-previous" aria-label="Page précédente">‹</button>
       <button type="button" id="bank-import-next" aria-label="Page suivante">›</button>
     </div></div>
-    <p id="bank-import-summary" role="status"></p>
+    <div id="bank-import-summary" role="group" aria-label="Filtrer les lignes du relevé">
+      ${Object.keys(summaryLabels)
+        .map(
+          (key) =>
+            `<button type="button" class="secondary-button" data-bank-filter="${key}" aria-pressed="false" aria-controls="bank-import-lines"></button>`,
+        )
+        .join("")}
+    </div>
+    <p id="bank-import-totals" class="visually-hidden" role="status"></p>
+    <div id="bank-import-bulk-actions" role="group" aria-label="Choisir une action pour toutes les lignes à vérifier" hidden>
+      <button type="button" class="secondary-button" id="bank-import-add-pending">Ajouter les lignes à vérifier</button>
+      <button type="button" class="secondary-button" id="bank-import-skip-pending">Ignorer les lignes à vérifier</button>
+    </div>
+    <div id="bank-import-selection-actions" role="group" aria-label="Actions sur la sélection" hidden>
+      <span id="bank-import-selection-count" role="status"></span>
+      <button type="button" class="secondary-button" id="bank-import-add-selection">Ajouter la sélection</button>
+      <button type="button" class="secondary-button" id="bank-import-skip-selection">Ignorer la sélection</button>
+      <button type="button" class="secondary-button" id="bank-import-clear-selection">Désélectionner tout</button>
+    </div>
     <p class="editor-error" role="alert"></p>
     <div class="dialog-actions">
       <button type="button" class="secondary-button" id="bank-import-review">Voir la prochaine ligne à vérifier</button>
@@ -145,27 +180,62 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   const review = dialog.querySelector<HTMLButtonElement>("#bank-import-review")!;
   const verify = dialog.querySelector<HTMLButtonElement>("#bank-import-balance")!;
   const range = dialog.querySelector<HTMLElement>("#bank-import-range")!;
-  const summary = dialog.querySelector<HTMLElement>("#bank-import-summary")!;
+  const filterButtons = dialog.querySelectorAll<HTMLButtonElement>("[data-bank-filter]");
+  const totals = dialog.querySelector<HTMLElement>("#bank-import-totals")!;
+  const bulk = dialog.querySelector<HTMLElement>("#bank-import-bulk-actions")!;
+  const addPending = dialog.querySelector<HTMLButtonElement>("#bank-import-add-pending")!;
+  const skipPending = dialog.querySelector<HTMLButtonElement>("#bank-import-skip-pending")!;
+  const selectionActions = dialog.querySelector<HTMLElement>("#bank-import-selection-actions")!;
+  const selectionCount = dialog.querySelector<HTMLElement>("#bank-import-selection-count")!;
+  const selectionButtons = selectionActions.querySelectorAll<HTMLButtonElement>("button");
   const error = dialog.querySelector<HTMLElement>(".editor-error")!;
   const submit = dialog.querySelector<HTMLButtonElement>("#bank-import-confirm")!;
   const cancelButtons = dialog.querySelectorAll<HTMLButtonElement>(
     ".dialog-close, #bank-import-cancel",
   );
 
+  const syncSelection = () => {
+    selectionActions.hidden = selection.size === 0;
+    selectionCount.textContent = plural(selection.size, "ligne cochée", "lignes cochées");
+    bulk.hidden = selection.size > 0 || !choices.includes(null);
+  };
+
   const sync = () => {
-    const counts = { add: 0, match: 0, skip: 0, pending: 0 };
+    const counts = { add: 0, match: 0, duplicate: 0, skip: 0, pending: 0 };
     const claimed = new Set<string>();
-    for (const choice of choices) {
-      counts[choice?.action ?? "pending"]++;
+    choices.forEach((choice, index) => {
+      counts[statusOf(index)]++;
       if (choice?.action === "match") claimed.add(optionValue(choice));
+    });
+    const summary = Array.from(filterButtons, (button) => {
+      const key = button.dataset.bankFilter as SummaryFilter;
+      const [singular, pluralLabel] = summaryLabels[key];
+      const label = plural(counts[key], singular, pluralLabel);
+      button.textContent = label;
+      button.setAttribute("aria-pressed", String(filter === key));
+      button.title =
+        filter === key ? "Afficher toutes les lignes" : "Afficher uniquement ces lignes";
+      button.disabled = saving || (counts[key] === 0 && filter !== key);
+      return label;
+    }).join(" · ");
+    if (totals.textContent !== summary) totals.textContent = summary;
+    syncSelection();
+    addPending.disabled = saving;
+    skipPending.disabled = saving;
+    selectionButtons.forEach((button) => {
+      button.disabled = saving;
+    });
+    if (showPendingError) {
+      if (counts.pending === 0) {
+        showPendingError = false;
+        error.textContent = "";
+      } else {
+        error.textContent =
+          counts.pending === 1
+            ? "Il reste une ligne à vérifier. Choisissez une action avant de confirmer l’import."
+            : `Il reste ${counts.pending} lignes à vérifier. Choisissez une action pour chacune avant de confirmer l’import.`;
+      }
     }
-    summary.textContent = [
-      plural(counts.add, "à ajouter", "à ajouter"),
-      plural(counts.match, "à rapprocher", "à rapprocher"),
-      plural(duplicates, "doublon", "doublons"),
-      plural(counts.skip - duplicates, "ignorée", "ignorées"),
-      plural(counts.pending, "à vérifier", "à vérifier"),
-    ].join(" · ");
     previous.disabled = saving || page === 0;
     next.disabled = saving || page === lastPage;
     review.disabled = saving;
@@ -173,9 +243,12 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
     verify.hidden = counts.pending > 0 || counts.add + counts.match > 0;
     verify.disabled = saving || verify.hidden;
     submit.hidden = !verify.hidden;
-    submit.disabled = saving || counts.pending > 0 || submit.hidden;
+    submit.disabled = saving || submit.hidden;
     cancelButtons.forEach((button) => {
       button.disabled = saving;
+    });
+    table.querySelectorAll<HTMLInputElement>("[data-bank-select]").forEach((checkbox) => {
+      checkbox.disabled = saving;
     });
     table.querySelectorAll<HTMLSelectElement>("select").forEach((select) => {
       select.disabled = saving;
@@ -186,15 +259,22 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   };
 
   const renderPage = () => {
+    const visible = filter ? rows.filter(({ index }) => statusOf(index) === filter) : rows;
+    lastPage = Math.max(0, Math.ceil(visible.length / pageSize) - 1);
+    page = Math.min(page, lastPage);
     const start = page * pageSize;
-    const end = Math.min(start + pageSize, choices.length);
+    const end = Math.min(start + pageSize, visible.length);
+    const emptyMessage = filter
+      ? "Aucune ligne ne correspond à ce filtre."
+      : "Ce relevé ne contient aucune opération.";
     table.innerHTML =
-      preview.rows
+      visible
         .slice(start, end)
-        .map((row, offset) => renderRow(row, start + offset, choices[start + offset]!))
-        .join("") ||
-      '<tr><td colspan="4" class="empty-row">Ce relevé ne contient aucune opération.</td></tr>';
-    range.textContent = choices.length ? `Lignes ${start + 1} à ${end} sur ${choices.length}` : "";
+        .map(({ row, index }) => renderRow(row, index, choices[index]!, selection.has(index)))
+        .join("") || `<tr><td colspan="5" class="empty-row">${emptyMessage}</td></tr>`;
+    range.textContent = visible.length
+      ? `Lignes ${start + 1} à ${end} sur ${visible.length}${filter ? ` · ${rows.length} au total` : ""}`
+      : "";
     sync();
   };
   const close = () => {
@@ -216,14 +296,61 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
     page++;
     renderPage();
   });
-  review.addEventListener("click", () => {
-    const index = choices.indexOf(null);
+  filterButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.bankFilter as SummaryFilter;
+      filter = filter === key ? null : key;
+      page = 0;
+      renderPage();
+    });
+  });
+  const applyToPending = (action: BulkAction) => {
+    choices.forEach((choice, index) => {
+      if (choice === null) choices[index] = { action };
+    });
+    renderPage();
+    dialog.querySelector<HTMLButtonElement>(`[data-bank-filter="${action}"]`)?.focus();
+  };
+  addPending.addEventListener("click", () => applyToPending("add"));
+  skipPending.addEventListener("click", () => applyToPending("skip"));
+  const applyToSelection = (action: BulkAction) => {
+    for (const index of selection) choices[index] = { action };
+    selection.clear();
+    if (!showPendingError) error.textContent = "";
+    renderPage();
+    dialog.querySelector<HTMLButtonElement>(`[data-bank-filter="${action}"]`)?.focus();
+  };
+  dialog
+    .querySelector("#bank-import-add-selection")!
+    .addEventListener("click", () => applyToSelection("add"));
+  dialog
+    .querySelector("#bank-import-skip-selection")!
+    .addEventListener("click", () => applyToSelection("skip"));
+  dialog.querySelector("#bank-import-clear-selection")!.addEventListener("click", () => {
+    selection.clear();
+    renderPage();
+    (
+      table.querySelector<HTMLInputElement>("[data-bank-select]") ??
+      dialog.querySelector<HTMLButtonElement>("[data-bank-filter][aria-pressed='true']") ??
+      (submit.hidden ? verify : submit)
+    ).focus();
+  });
+  const focusPending = (index: number) => {
     if (index < 0) return;
+    filter = null;
     page = Math.floor(index / pageSize);
     renderPage();
     table.querySelector<HTMLSelectElement>(`[data-bank-line="${index}"]`)?.focus();
-  });
+  };
+  review.addEventListener("click", () => focusPending(choices.indexOf(null)));
   table.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLInputElement && event.target.dataset.bankSelect !== undefined) {
+      const index = Number(event.target.dataset.bankSelect);
+      if (event.target.checked) selection.add(index);
+      else selection.delete(index);
+      syncSelection();
+      return;
+    }
     if (!(event.target instanceof HTMLSelectElement)) return;
     const { value } = event.target;
     const index = Number(event.target.dataset.bankLine);
@@ -233,8 +360,11 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
         : value.startsWith(matchPrefix)
           ? { action: "match", transactionId: value.slice(matchPrefix.length) }
           : null;
-    error.textContent = "";
-    sync();
+    if (!showPendingError) error.textContent = "";
+    if (filter && statusOf(index) !== filter) {
+      renderPage();
+      dialog.querySelector<HTMLButtonElement>("[data-bank-filter][aria-pressed='true']")?.focus();
+    } else sync();
   });
   cancelButtons.forEach((button) => button.addEventListener("click", cancel));
   dialog.addEventListener("cancel", (event) => {
@@ -243,7 +373,13 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   });
   dialog.querySelector("form")!.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (submit.disabled && verify.disabled) return;
+    if (saving) return;
+    const pending = choices.indexOf(null);
+    if (pending >= 0) {
+      showPendingError = true;
+      focusPending(pending);
+      return;
+    }
     const checkingOnly = submit.hidden;
     saving = true;
     error.textContent = "";

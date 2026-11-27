@@ -1524,12 +1524,22 @@ assert rows==[(sys.argv[2],-825,'test-courant',825)],rows`,
   await waitFor(() => visible(".bank-import-dialog[open]"), "Aperçu du relevé OFX");
   if (
     !(await text(".bank-import-dialog")).includes("00123456789") ||
-    !(await text(".bank-import-dialog")).includes("Solde de clôture") ||
-    !(await execute("return document.querySelector('#bank-import-confirm').disabled"))
+    !(await text(".bank-import-dialog")).includes("Solde de clôture")
   )
     throw new Error(
       "L’aperçu OFX doit afficher le compte du fichier et demander de vérifier le rapprochement.",
     );
+  await click('[data-bank-filter="add"]');
+  const additions = await text("#bank-import-lines");
+  if (!additions.includes("Remboursement OFX") || additions.includes("Virement bancaire OFX"))
+    throw new Error("Le compteur des ajouts doit filtrer le relevé sur les opérations à ajouter.");
+  await click("#bank-import-confirm");
+  await waitFor(
+    async () => (await text(".bank-import-dialog .editor-error")).includes("une ligne à vérifier"),
+    "Message de validation des choix OFX",
+  );
+  if (!(await execute("return document.activeElement.dataset.bankLine === '0'")))
+    throw new Error("Le choix requis de la première ligne OFX doit recevoir le focus.");
   await execute(`
     const choice = document.querySelector('[data-bank-line="0"]');
     const match = [...choice.options].find(option => option.textContent.includes('Virement vers Compte courant'));

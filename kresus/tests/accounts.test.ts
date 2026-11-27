@@ -19,6 +19,123 @@ describe("accounts", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it.each(["add", "skip"] as const)(
+    "filters OFX lines across pages and can %s all remaining choices",
+    async (action) => {
+      const invoke = await openRegister();
+      const original = invoke.getMockImplementation()!;
+      const candidate = {
+        id: "debit",
+        date: "2027-01-01",
+        label: "Courses",
+        category: "Alimentation",
+        reconciled: false,
+      };
+      const pendingRows = [25, 26, 50];
+      const newRows = [0, 53];
+      invoke.mockImplementation(async (command, args) => {
+        if (command === "preview_bank_statement") {
+          return {
+            previewId: "preview",
+            fileName: "releve.ofx",
+            bankId: "00001",
+            bankAccount: "0012",
+            matchDays: 3,
+            closing: { amount: 0, date: "2027-01-01" },
+            rows: Array.from({ length: 54 }, (_, index) => ({
+              date: "2027-01-01",
+              label: `Opération ${index + 1}`,
+              amount: -2000,
+              duplicate:
+                pendingRows.includes(index) || newRows.includes(index) ? null : "alreadyImported",
+              candidates: pendingRows.includes(index) ? [candidate] : [],
+            })),
+          };
+        }
+        if (command === "import_bank_statement") return { added: 1, matched: 1, skipped: 52 };
+        if (command === "reconciliation_balance") return 0;
+        return original(command, args);
+      });
+      click("#bank-import");
+      await vi.waitFor(() => expect(document.querySelector("#bank-import-confirm")).not.toBeNull());
+      click("#bank-import-confirm");
+      const error = document.querySelector(".bank-import-dialog .editor-error")!;
+      expect(error.textContent).toContain("3 lignes à vérifier");
+      expect(document.activeElement).toBe(document.querySelector('[data-bank-line="25"]'));
+      expect(invoke).not.toHaveBeenCalledWith("import_bank_statement", expect.anything());
+
+      const choose = (index: number, value: string) => {
+        const select = document.querySelector<HTMLSelectElement>(`[data-bank-line="${index}"]`)!;
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      const visibleChoices = () =>
+        Array.from(document.querySelectorAll<HTMLElement>("[data-bank-line]"), (select) =>
+          Number(select.dataset.bankLine),
+        );
+      const filter = (name: string) => click(`[data-bank-filter="${name}"]`);
+      choose(25, "match:debit");
+      expect(error.textContent).toContain("2 lignes à vérifier");
+      filter("add");
+      expect(visibleChoices()).toEqual([0, 53]);
+      choose(0, "skip");
+      expect(visibleChoices()).toEqual([53]);
+      filter("skip");
+      expect(visibleChoices()).toEqual([0]);
+      filter("duplicate");
+      expect(visibleChoices()).toEqual([]);
+      expect(document.querySelector("[data-bank-select]")).toBeNull();
+      expect(document.querySelector("#bank-import-lines")?.textContent).toContain("Déjà importée");
+      filter("pending");
+      expect(visibleChoices()).toEqual([26, 50]);
+      filter("pending");
+      expect(visibleChoices()).toEqual([0]);
+      filter("match");
+      expect(visibleChoices()).toEqual([25]);
+
+      click(`#bank-import-${action}-pending`);
+      expect(error.textContent).toBe("");
+      expect(invoke).not.toHaveBeenCalledWith("import_bank_statement", expect.anything());
+      filter(action);
+      expect(visibleChoices()).toEqual(action === "add" ? [26, 50, 53] : [0, 26, 50]);
+      const selectionActions = document.querySelector<HTMLElement>(
+        "#bank-import-selection-actions",
+      )!;
+      const checkbox = (index: number) => `[data-bank-select="${index}"]`;
+      const opposite = action === "add" ? "skip" : "add";
+      expect(selectionActions.hidden).toBe(true);
+      click(checkbox(50));
+      expect(selectionActions.hidden).toBe(false);
+      click("#bank-import-clear-selection");
+      expect(selectionActions.hidden).toBe(true);
+      expect(document.querySelector<HTMLInputElement>(checkbox(50))?.checked).toBe(false);
+      click(checkbox(50));
+      filter(action);
+      click("#bank-import-next");
+      click(checkbox(26));
+      filter(action);
+      expect(document.querySelector<HTMLInputElement>(checkbox(50))?.checked).toBe(true);
+      expect(document.querySelector<HTMLInputElement>(checkbox(26))?.checked).toBe(true);
+      expect(document.querySelector("#bank-import-selection-count")?.textContent).toBe(
+        "2 lignes cochées",
+      );
+      click(`#bank-import-${opposite}-selection`);
+      expect(selectionActions.hidden).toBe(true);
+      expect(visibleChoices()).toEqual(action === "add" ? [53] : [0]);
+      expect(invoke).not.toHaveBeenCalledWith("import_bank_statement", expect.anything());
+      click("#bank-import-confirm");
+      await vi.waitFor(() => expect(document.querySelector(".bank-import-dialog")).toBeNull());
+      expect(invoke).toHaveBeenCalledWith("import_bank_statement", {
+        previewId: "preview",
+        choices: Array.from({ length: 54 }, (_, index) => {
+          if (index === 25) return { action: "match", transactionId: "debit" };
+          if (index === 53) return { action: "add" };
+          return { action: [26, 50].includes(index) ? opposite : "skip" };
+        }),
+      });
+    },
+  );
+
   it("keeps the household view when a pending register request finishes", async () => {
     const invoke = await openRegister();
     const original = invoke.getMockImplementation()!;
