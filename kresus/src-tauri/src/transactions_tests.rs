@@ -388,8 +388,8 @@ fn failed_transfer_update_rolls_back_both_operations() {
 
 #[test]
 fn operations_are_saved_as_cents_and_listed_by_account_and_date() {
-    let db = database();
-    create_account_in_db(&db, account("new-account", "Compte courant", 0.0)).unwrap();
+    let mut db = database();
+    create_account_in_db(&mut db, account("new-account", "Compte courant", 0.0)).unwrap();
     let mut later = operation("later", "new-account", 123.45);
     later.date = "2027-02-10".into();
     create_transaction_in_db(&db, later).unwrap();
@@ -542,8 +542,8 @@ fn api_amounts_are_integer_cents_and_reject_fractional_values() {
 
 #[test]
 fn register_pages_filter_after_calculating_balances_and_clamp_page() {
-    let db = database();
-    create_account_in_db(&db, account("paged", "Compte courant", 100.0)).unwrap();
+    let mut db = database();
+    create_account_in_db(&mut db, account("paged", "Compte courant", 100.0)).unwrap();
     for i in 0..205 {
         let mut item = operation(
             &format!("row-{i:03}"),
@@ -688,8 +688,8 @@ fn register_page_includes_linked_transfer_identity() {
 
 #[test]
 fn register_search_matches_text_across_history_and_combines_with_filters() {
-    let db = database();
-    create_account_in_db(&db, account("search", "Compte courant", 100.0)).unwrap();
+    let mut db = database();
+    create_account_in_db(&mut db, account("search", "Compte courant", 100.0)).unwrap();
     for i in 0..105 {
         let mut item = operation(&format!("search-{i:03}"), "search", -1.0);
         item.date = "2027-01-01".into();
@@ -758,8 +758,8 @@ fn register_search_matches_text_across_history_and_combines_with_filters() {
 
 #[test]
 fn register_amount_range_filters_both_signs_and_preserves_history() {
-    let db = database();
-    create_account_in_db(&db, account("amount", "Compte courant", 100.0)).unwrap();
+    let mut db = database();
+    create_account_in_db(&mut db, account("amount", "Compte courant", 100.0)).unwrap();
     for (id, amount, label) in [
         ("a", -20.10, "Facture"),
         ("b", -20.11, "Facture"),
@@ -814,8 +814,8 @@ fn register_amount_range_filters_both_signs_and_preserves_history() {
 
 #[test]
 fn register_period_includes_bounds_and_combines_with_other_filters() {
-    let db = database();
-    create_account_in_db(&db, account("period", "Compte courant", 100.0)).unwrap();
+    let mut db = database();
+    create_account_in_db(&mut db, account("period", "Compte courant", 100.0)).unwrap();
     for (id, date, amount) in [
         ("a", "2027-01-01", -10.0),
         ("b", "2027-01-02", -20.0),
@@ -870,8 +870,8 @@ fn register_period_includes_bounds_and_combines_with_other_filters() {
 
 #[test]
 fn sparse_search_pages_keep_balances_from_hidden_transactions_across_dates() {
-    let db = database();
-    create_account_in_db(&db, account("sparse", "Compte courant", 100.0)).unwrap();
+    let mut db = database();
+    create_account_in_db(&mut db, account("sparse", "Compte courant", 100.0)).unwrap();
     for i in 0..2_000 {
         let mut item = operation(
             &format!("sparse-{i:04}"),
@@ -936,8 +936,8 @@ fn cheque_validation_is_shared_by_creation_and_editing() {
 
 #[test]
 fn balance_history_uses_daily_totals_and_prior_history_without_future_operations() {
-    let db = database();
-    create_account_in_db(&db, account("history", "Compte courant", 100.0)).unwrap();
+    let mut db = database();
+    create_account_in_db(&mut db, account("history", "Compte courant", 100.0)).unwrap();
     for (id, date, amount) in [
         ("before", "2027-01-01", 25.0),
         ("feb", "2028-02-29", -30.0),
@@ -968,8 +968,8 @@ fn balance_history_uses_daily_totals_and_prior_history_without_future_operations
 
 #[test]
 fn register_orders_same_day_operations_by_entry_order_across_pages() {
-    let db = database();
-    create_account_in_db(&db, account("ordered", "Compte courant", 100.0)).unwrap();
+    let mut db = database();
+    create_account_in_db(&mut db, account("ordered", "Compte courant", 100.0)).unwrap();
     for index in (0..101).rev() {
         let mut item = operation(&format!("row-{index:03}"), "ordered", 1.0);
         item.date = "2027-01-01".into();

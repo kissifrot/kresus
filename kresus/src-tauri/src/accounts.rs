@@ -1,5 +1,5 @@
 use crate::database::{AppState, database_error};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -66,15 +66,15 @@ pub(crate) fn list_accounts_in_db(
 #[tauri::command]
 /// Creates an account with its opening balance stored in cents.
 pub fn create_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let connection = state
+    let mut connection = state
         .database
         .lock()
         .map_err(|_| "La base de données est indisponible.".to_string())?;
-    create_account_in_db(&connection, account)
+    create_account_in_db(&mut connection, account)
 }
 
 pub(crate) fn create_account_in_db(
-    connection: &Connection,
+    connection: &mut Connection,
     account: Account,
 ) -> Result<(), String> {
     let name = account.name.trim();
@@ -93,8 +93,49 @@ pub(crate) fn create_account_in_db(
     if account.opening_balance.unsigned_abs() > 100_000_000_000 {
         return Err("Le solde initial est invalide.".to_string());
     }
-    connection.execute("INSERT INTO accounts (id, name, kind, opening_balance_cents, bank, account_number) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![account.id, name, account.kind, account.opening_balance, bank, account_number]).map_err(database_error)?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(database_error)?;
+    check_account_uniqueness(&tx, None, Some(name), account_number)?;
+    tx.execute("INSERT INTO accounts (id, name, kind, opening_balance_cents, bank, account_number) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![account.id, name, account.kind, account.opening_balance, bank, account_number]).map_err(database_error)?;
+    tx.commit().map_err(database_error)
+}
+
+fn check_account_uniqueness(
+    db: &Connection,
+    current_id: Option<&str>,
+    name: Option<&str>,
+    number: Option<&str>,
+) -> Result<(), String> {
+    if name.is_none() && number.is_none() {
+        return Ok(());
+    }
+    let name = name.map(str::to_lowercase);
+    let number = number.map(account_number_key);
+    let mut statement = db
+        .prepare("SELECT name, account_number FROM accounts WHERE id IS NOT ?1")
+        .map_err(database_error)?;
+    let mut rows = statement.query([current_id]).map_err(database_error)?;
+    while let Some(row) = rows.next().map_err(database_error)? {
+        let existing_name: String = row.get(0).map_err(database_error)?;
+        if name
+            .as_ref()
+            .is_some_and(|name| *name == existing_name.trim().to_lowercase())
+        {
+            return Err("Ce nom de compte est déjà utilisé.".into());
+        }
+        let existing_number: Option<String> = row.get(1).map_err(database_error)?;
+        if let (Some(number), Some(existing_number)) = (&number, existing_number)
+            && *number == account_number_key(&existing_number)
+        {
+            return Err("Ce numéro de compte est déjà utilisé.".into());
+        }
+    }
     Ok(())
+}
+
+fn account_number_key(number: &str) -> String {
+    number.replace(char::is_whitespace, "").to_lowercase()
 }
 
 fn normalize_account_number(value: Option<&str>) -> Result<Option<&str>, String> {
@@ -143,7 +184,7 @@ fn update_account_in_db(
         return Err("Saisissez un nom de compte.".into());
     }
     let tx = db
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(database_error)?;
     let (old_name, old_bank, old_number): (String, String, Option<String>) = tx
         .query_row(
@@ -159,6 +200,13 @@ fn update_account_in_db(
     if let Some(number) = account_number {
         crate::text_limits::validate_name_length(number, Some(number) == old_number.as_deref())?;
     }
+    // Existing duplicates can be corrected one field at a time.
+    check_account_uniqueness(
+        &tx,
+        Some(id),
+        (name != old_name.trim()).then_some(name),
+        account_number.filter(|number| Some(*number) != old_number.as_deref().map(str::trim)),
+    )?;
     tx.execute(
         "UPDATE accounts SET name=?1, bank=?2, account_number=?3 WHERE id=?4",
         params![name, bank, account_number, id],
