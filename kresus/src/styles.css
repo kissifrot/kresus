@@ -2080,7 +2080,8 @@ tr[data-transaction].editing {
   width: 100%;
 }
 .bank-import-dialog .table-footer,
-.bank-import-dialog .dialog-actions {
+.bank-import-dialog .dialog-actions,
+.money-import-dialog .dialog-actions {
   flex-wrap: wrap;
 }
 .money-import-dialog {

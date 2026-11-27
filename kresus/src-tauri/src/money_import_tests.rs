@@ -175,6 +175,106 @@ fn fixture() -> MoneyPreview {
 }
 
 #[test]
+fn imports_into_the_fresh_default_database_and_persists_on_reopen() {
+    let path = crate::test_support::temporary_database_path();
+    let mut db = Connection::open(&path.0).unwrap();
+    crate::database::initialize_database(&db).unwrap();
+    let selection = [MoneySelection {
+        id: 1,
+        kind: "Compte courant".into(),
+    }];
+    let mut preview = fixture();
+    let original_categories = crate::categories::list_in_db(&db).unwrap();
+
+    // Fail after inserting the account and the first operation.
+    preview.operations[1].id = preview.operations[0].id;
+    assert!(try_import_into_default_database(&mut db, &path.0, &preview, &selection).is_err());
+    assert!(crate::categories::list_in_db(&db).unwrap() == original_categories);
+    assert!(
+        crate::accounts::list_accounts_in_db(&db, "2026-12-01")
+            .unwrap()
+            .is_empty()
+    );
+
+    let preview = fixture();
+    assert!(try_import_into_default_database(&mut db, &path.0, &preview, &selection).unwrap());
+    assert!(!try_import_into_default_database(&mut db, &path.0, &preview, &selection).unwrap());
+    drop(db);
+
+    let reopened = Connection::open(&path.0).unwrap();
+    crate::database::initialize_database(&reopened).unwrap();
+    let accounts = crate::accounts::list_accounts_in_db(&reopened, "2026-12-01").unwrap();
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].id, "money-account-1");
+    assert_eq!(accounts[0].current_balance, 87500);
+    let categories = crate::categories::list_in_db(&reopened).unwrap();
+    assert_eq!(categories.len(), 3);
+    assert!(categories.iter().any(|category| category.name == "Charges"));
+}
+
+#[test]
+fn leaves_another_open_database_and_customized_startup_categories_alone() {
+    let default_path = crate::test_support::temporary_database_path();
+    let mut default_db = Connection::open(&default_path.0).unwrap();
+    crate::database::initialize_database(&default_db).unwrap();
+    let other_path = crate::test_support::temporary_database_path();
+    let mut db = Connection::open(&other_path.0).unwrap();
+    crate::database::initialize_database(&db).unwrap();
+    let preview = fixture();
+    let selection = [MoneySelection {
+        id: 1,
+        kind: "Compte courant".into(),
+    }];
+    assert!(
+        !try_import_into_default_database(&mut db, &default_path.0, &preview, &selection).unwrap()
+    );
+
+    default_db
+        .execute(
+            "UPDATE categories SET name='Alimentation du foyer' WHERE id='food'",
+            [],
+        )
+        .unwrap();
+    assert!(
+        !try_import_into_default_database(&mut default_db, &default_path.0, &preview, &selection)
+            .unwrap()
+    );
+    assert!(
+        crate::categories::list_in_db(&default_db)
+            .unwrap()
+            .iter()
+            .any(|category| category.name == "Alimentation du foyer")
+    );
+}
+
+#[test]
+fn importing_to_a_new_file_preserves_the_available_default_database() {
+    let default_path = crate::test_support::temporary_database_path();
+    let other_path = crate::test_support::temporary_database_path();
+    let db = Connection::open(&default_path.0).unwrap();
+    crate::database::initialize_database(&db).unwrap();
+    let state = AppState {
+        database: std::sync::Mutex::new(db),
+        default_path: default_path.0.clone(),
+        money_preview: std::sync::Mutex::new(None),
+        bank_preview: std::sync::Mutex::new(None),
+    };
+    let preview = fixture();
+    let selection = [MoneySelection {
+        id: 1,
+        kind: "Compte courant".into(),
+    }];
+
+    assert!(import_into_new_file(&state, &default_path.0, &preview, &selection).is_err());
+    import_into_new_file(&state, &other_path.0, &preview, &selection).unwrap();
+    let active = state.database.lock().unwrap();
+    let accounts = crate::accounts::list_accounts_in_db(&active, "2026-12-01").unwrap();
+    assert_eq!(accounts[0].id, "money-account-1");
+    let default_db = Connection::open(&default_path.0).unwrap();
+    assert!(can_import_into_default_database(&default_db, &default_path.0).unwrap());
+}
+
+#[test]
 fn import_keeps_names_and_payees_longer_than_the_manual_entry_limit() {
     let mut preview = fixture();
     let long = "é".repeat(201);

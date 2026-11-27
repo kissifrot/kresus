@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[path = "categories_tests.rs"]
 mod tests;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Category {
     pub(crate) id: String,
@@ -54,7 +54,7 @@ pub fn list_categories(state: tauri::State<'_, AppState>) -> Result<Vec<Category
     list_in_db(&db)
 }
 
-fn list_in_db(db: &Connection) -> Result<Vec<Category>, String> {
+pub(crate) fn list_in_db(db: &Connection) -> Result<Vec<Category>, String> {
     let mut q = db
         .prepare(
             "SELECT c.id, c.name, c.parent_id, k.kind FROM categories c

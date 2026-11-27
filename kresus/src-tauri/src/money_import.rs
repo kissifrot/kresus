@@ -1,12 +1,12 @@
 use crate::database::{AppState, database_error};
 use crate::frequency::Frequency;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fs,
     io::Read,
-    path::Path,
+    path::{Path, PathBuf},
 };
 use tauri_plugin_dialog::DialogExt;
 
@@ -115,6 +115,11 @@ pub struct MoneySelection {
     kind: String,
 }
 
+#[derive(Serialize)]
+pub struct MoneyImportResult {
+    path: Option<String>,
+}
+
 // Read the selected file only; parsing happens locally in the WebView.
 #[tauri::command]
 pub async fn choose_money_file(
@@ -160,12 +165,16 @@ pub async fn choose_money_file(
 pub fn set_money_preview(
     preview: MoneyPreview,
     state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
+    let default_available = {
+        let current = state.database.lock().map_err(|_| "Base indisponible.")?;
+        can_import_into_default_database(&current, &state.default_path)?
+    };
     *state
         .money_preview
         .lock()
         .map_err(|_| "Aperçu indisponible.".to_string())? = Some(preview);
-    Ok(())
+    Ok(default_available)
 }
 
 #[tauri::command]
@@ -173,7 +182,8 @@ pub async fn import_money(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     selection: Vec<MoneySelection>,
-) -> Result<Option<String>, String> {
+    choose_another_location: bool,
+) -> Result<Option<MoneyImportResult>, String> {
     let preview = state
         .money_preview
         .lock()
@@ -183,44 +193,71 @@ pub async fn import_money(
     if selection.is_empty() {
         return Err("Sélectionnez au moins un compte.".into());
     }
-    #[cfg(all(feature = "e2e", debug_assertions))]
-    let path = if let Some(path) = std::env::var_os("KRESUS_E2E_MONEY_DESTINATION") {
-        std::path::PathBuf::from(path)
+    let imported_into_default = if choose_another_location {
+        false
     } else {
-        let Some(file) = app
-            .dialog()
-            .file()
-            .set_file_name("kresus-import.kresus")
-            .add_filter("Base Kresus", &["kresus"])
-            .blocking_save_file()
-        else {
+        let mut current = state.database.lock().map_err(|_| "Base indisponible.")?;
+        let mut bank_preview = state
+            .bank_preview
+            .lock()
+            .map_err(|_| "Aperçu indisponible.")?;
+        let imported = try_import_into_default_database(
+            &mut current,
+            &state.default_path,
+            &preview,
+            &selection,
+        )?;
+        if imported {
+            *bank_preview = None;
+        }
+        imported
+    };
+    let path = if imported_into_default {
+        None
+    } else {
+        let Some(path) = choose_import_destination(&app)? else {
             return Ok(None);
         };
-        file.into_path().map_err(|e| e.to_string())?
+        import_into_new_file(&state, &path, &preview, &selection)?;
+        Some(path.to_string_lossy().into_owned())
     };
-    #[cfg(not(all(feature = "e2e", debug_assertions)))]
-    let path = {
-        let Some(file) = app
-            .dialog()
-            .file()
-            .set_file_name("kresus-import.kresus")
-            .add_filter("Base Kresus", &["kresus"])
-            .blocking_save_file()
-        else {
-            return Ok(None);
-        };
-        file.into_path().map_err(|e| e.to_string())?
-    };
-    crate::database::validate_kresus_extension(&path)?;
+    *state
+        .money_preview
+        .lock()
+        .map_err(|_| "Aperçu indisponible.")? = None;
+    Ok(Some(MoneyImportResult { path }))
+}
+
+fn choose_import_destination(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    #[cfg(all(feature = "e2e", debug_assertions))]
+    if let Some(path) = std::env::var_os("KRESUS_E2E_MONEY_DESTINATION") {
+        return Ok(Some(PathBuf::from(path)));
+    }
+    app.dialog()
+        .file()
+        .set_file_name("kresus-import.kresus")
+        .add_filter("Base Kresus", &["kresus"])
+        .blocking_save_file()
+        .map(|file| file.into_path().map_err(|error| error.to_string()))
+        .transpose()
+}
+
+fn import_into_new_file(
+    state: &AppState,
+    path: &Path,
+    preview: &MoneyPreview,
+    selection: &[MoneySelection],
+) -> Result<(), String> {
+    crate::database::validate_kresus_extension(path)?;
     // create_new prevents overwriting any existing file, including a live database.
     fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&path)
+        .open(path)
         .map_err(|e| format!("Impossible de créer une nouvelle base : {e}"))?;
     let result = (|| {
-        let mut db = Connection::open(&path).map_err(database_error)?;
-        import_into_database(&mut db, &preview, &selection)?;
+        let mut db = Connection::open(path).map_err(database_error)?;
+        import_into_database(&mut db, preview, selection)?;
         let mut current = state
             .database
             .lock()
@@ -232,15 +269,53 @@ pub async fn import_money(
         *current = db;
         Ok::<(), String>(())
     })();
-    if let Err(error) = result {
-        let _ = fs::remove_file(&path);
-        return Err(error);
+    if result.is_err() {
+        let _ = fs::remove_file(path);
     }
-    *state
-        .money_preview
-        .lock()
-        .map_err(|_| "Aperçu indisponible.".to_string())? = None;
-    Ok(Some(path.to_string_lossy().into_owned()))
+    result
+}
+
+fn try_import_into_default_database(
+    db: &mut Connection,
+    default_path: &Path,
+    preview: &MoneyPreview,
+    selection: &[MoneySelection],
+) -> Result<bool, String> {
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(database_error)?;
+    if !can_import_into_default_database(&tx, default_path)? {
+        return Ok(false);
+    }
+
+    tx.execute_batch("DELETE FROM categories WHERE parent_id IS NOT NULL; DELETE FROM categories;")
+        .map_err(database_error)?;
+    import_money_data(&tx, preview, selection)?;
+    tx.commit().map_err(database_error)?;
+    Ok(true)
+}
+
+fn can_import_into_default_database(db: &Connection, default_path: &Path) -> Result<bool, String> {
+    if !db.path().is_some_and(|path| {
+        fs::canonicalize(default_path)
+            .is_ok_and(|default| fs::canonicalize(path).is_ok_and(|active| active == default))
+    }) {
+        return Ok(false);
+    }
+
+    let has_accounts: bool = db
+        .query_row("SELECT EXISTS(SELECT 1 FROM accounts)", [], |row| {
+            row.get(0)
+        })
+        .map_err(database_error)?;
+    if has_accounts {
+        return Ok(false);
+    }
+
+    // A user can customize categories before creating their first account.
+    let fresh = Connection::open_in_memory().map_err(database_error)?;
+    crate::database::initialize_database(&fresh)?;
+    Ok(crate::categories::list_in_db(db)? == crate::categories::list_in_db(&fresh)?)
 }
 
 fn canonical_money_category<'a>(label: &'a str, fallback: &'a str) -> &'a str {
@@ -254,6 +329,19 @@ fn canonical_money_category<'a>(label: &'a str, fallback: &'a str) -> &'a str {
 
 fn import_into_database(
     db: &mut Connection,
+    preview: &MoneyPreview,
+    selection: &[MoneySelection],
+) -> Result<(), String> {
+    db.execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(database_error)?;
+    let tx = db.transaction().map_err(database_error)?;
+    crate::database::create_schema(&tx)?;
+    import_money_data(&tx, preview, selection)?;
+    tx.commit().map_err(database_error)
+}
+
+fn import_money_data(
+    tx: &Transaction<'_>,
     preview: &MoneyPreview,
     selection: &[MoneySelection],
 ) -> Result<(), String> {
@@ -274,10 +362,6 @@ fn import_into_database(
                 .into(),
         );
     }
-    db.execute_batch("PRAGMA foreign_keys = ON;")
-        .map_err(database_error)?;
-    let tx = db.transaction().map_err(database_error)?;
-    crate::database::create_schema(&tx)?;
     let selected: HashMap<i64, &str> = selection.iter().map(|s| (s.id, s.kind.as_str())).collect();
     if selected.len() != selection.len()
         || selected.is_empty()
@@ -335,7 +419,7 @@ fn import_into_database(
         )
         .map_err(database_error)?;
         if c.parent_id.is_none() {
-            crate::categories::insert_category_kind(&tx, &id, c.kind.as_deref())?;
+            crate::categories::insert_category_kind(tx, &id, c.kind.as_deref())?;
         }
     }
     let fallback = preview
@@ -374,7 +458,7 @@ fn import_into_database(
                 ""
             };
             tx.execute("INSERT INTO transactions (id,account_id,operation_date,label,category,amount_cents,reconciled,note,reference) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![id,format!("money-account-{}",op.account_id),op.date,op.label.trim(),category,op.amount,op.reconciled,op.note.trim(),op.reference.as_deref().map(str::trim)]).map_err(database_error)?;
-            crate::transactions::replace_splits(&tx, &id, op.amount, &op.splits)?;
+            crate::transactions::replace_splits(tx, &id, op.amount, &op.splits)?;
         }
     }
     for transfer in &preview.transfers {
@@ -515,7 +599,7 @@ fn import_into_database(
             .map_err(database_error)?;
         }
     }
-    tx.commit().map_err(database_error)
+    Ok(())
 }
 
 #[cfg(test)]

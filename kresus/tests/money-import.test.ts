@@ -18,14 +18,17 @@ afterEach(() => {
   vi.doUnmock("../src/money-reader");
 });
 
-it("reviews accounts and warnings before importing selected types", async () => {
-  const invoke = vi.fn(async (command: string) =>
-    command === "choose_money_file"
-      ? [1, 2, 3]
-      : command === "import_money"
-        ? "/tmp/import.kresus"
-        : undefined,
-  );
+it.each([
+  { destination: "default", defaultAvailable: true, path: null },
+  { destination: "alternative", defaultAvailable: true, path: "/tmp/import.kresus" },
+  { destination: "new file", defaultAvailable: false, path: "/tmp/import.kresus" },
+])("imports selected accounts to $destination", async ({ destination, defaultAvailable, path }) => {
+  let cancelSelection = destination === "alternative";
+  const invoke = vi.fn(async (command: string) => {
+    if (command === "choose_money_file") return [1, 2, 3];
+    if (command === "set_money_preview") return defaultAvailable;
+    if (command === "import_money") return cancelSelection ? null : { path };
+  });
   const reload = vi.fn();
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
   vi.doMock("../src/accounts", () => ({ reloadDatabase: reload }));
@@ -59,10 +62,29 @@ it("reviews accounts and warnings before importing selected types", async () => 
   expect(document.querySelector("dialog")?.textContent).toContain("875,00");
   expect(document.querySelector("dialog test")).toBeNull();
   expect(invoke).not.toHaveBeenCalledWith("import_money", expect.anything());
-  document.querySelector<HTMLSelectElement>('[data-kind="1"]')!.value = "Épargne";
-  document
-    .querySelector("dialog form")!
-    .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  await vi.waitFor(() => expect(reload).toHaveBeenCalledWith("/tmp/import.kresus"));
-  expect(invoke).toHaveBeenCalledWith("import_money", { selection: [{ id: 1, kind: "Épargne" }] });
+  const selectedKind = document.querySelector<HTMLSelectElement>('[data-kind="1"]')!;
+  const submit = document.querySelector<HTMLButtonElement>('dialog button[type="submit"]')!;
+  const otherLocation = document.querySelector<HTMLButtonElement>("#money-import-other-location");
+  expect(submit.textContent).toBe(
+    defaultAvailable ? "Importer dans la base habituelle" : "Choisir un emplacement",
+  );
+  expect(otherLocation?.textContent).toBe(
+    defaultAvailable ? "Choisir un autre emplacement" : undefined,
+  );
+  selectedKind.value = "Épargne";
+  if (cancelSelection) {
+    otherLocation!.click();
+    expect(submit.disabled).toBe(true);
+    await vi.waitFor(() => expect(otherLocation!.disabled).toBe(false));
+    expect(document.querySelector("dialog[open]")).not.toBeNull();
+    expect(selectedKind.value).toBe("Épargne");
+    expect(reload).not.toHaveBeenCalled();
+    cancelSelection = false;
+  }
+  (destination === "alternative" ? otherLocation! : submit).click();
+  await vi.waitFor(() => expect(reload).toHaveBeenCalledWith(path));
+  expect(invoke).toHaveBeenCalledWith("import_money", {
+    selection: [{ id: 1, kind: "Épargne" }],
+    chooseAnotherLocation: destination !== "default",
+  });
 });
