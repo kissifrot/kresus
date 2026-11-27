@@ -11,8 +11,14 @@ use std::{
 pub(crate) struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) startup_database: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(crate) show_transaction_comments: bool,
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Config {

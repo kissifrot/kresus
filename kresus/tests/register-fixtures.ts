@@ -21,6 +21,7 @@ type Transaction = {
   reconciled: boolean;
   transferId?: string;
   note?: string;
+  bankDate?: string;
   splits?: { category: string; amount: number; note?: string }[];
   reference?: string | null;
 };
@@ -31,6 +32,7 @@ export async function openRegister(
     accounts?: Account[];
     transactions?: Transaction[];
     schedules?: Schedule[];
+    showTransactionComments?: boolean;
   } = {},
 ) {
   const accounts: Account[] = (
@@ -95,7 +97,13 @@ export async function openRegister(
         ));
     switch (command) {
       case "startup_database":
-        return { path: null, warning: null };
+        return {
+          path: null,
+          warning: null,
+          showTransactionComments: options.showTransactionComments,
+        };
+      case "set_show_transaction_comments":
+        return;
       case "list_accounts":
         return accounts.map((account) => {
           const movements = transactions.filter((item) => item.accountId === account.id);

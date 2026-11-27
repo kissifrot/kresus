@@ -101,6 +101,24 @@ fn saving_and_resetting_the_startup_choice_preserves_other_settings() {
 }
 
 #[test]
+fn transaction_comments_are_hidden_by_default_and_the_preference_preserves_the_startup_choice() {
+    let default_path = temporary_database_path();
+    let imported_path = temporary_database_path();
+    let config_path = super::config_path(&default_path.0);
+    let load = || crate::config::Config::load(&config_path).unwrap();
+    super::remember_startup_database(&default_path.0, &imported_path.0).unwrap();
+    assert!(!load().show_transaction_comments);
+
+    for show in [true, false] {
+        super::save_show_transaction_comments(&default_path.0, show).unwrap();
+        let config = load();
+        assert_eq!(config.show_transaction_comments, show);
+        assert_eq!(config.startup_database.as_ref(), Some(&imported_path.0));
+    }
+    std::fs::remove_file(config_path).unwrap();
+}
+
+#[test]
 #[ignore = "manual performance reference; run with --ignored --nocapture"]
 fn performance_reference_10000_operations() {
     performance_reference(10_000, 3652);

@@ -773,6 +773,9 @@ tbody tr:last-child {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.transaction-comment[hidden] {
+  display: none;
+}
 .category-pill {
   display: inline-block;
   border-radius: 4px;

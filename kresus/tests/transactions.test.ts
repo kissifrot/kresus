@@ -891,7 +891,7 @@ describe("transaction register", () => {
   });
 
   it("creates, edits, cancels and clears an operation comment safely", async () => {
-    const invoke = await openRegister({ transactions: [] });
+    const invoke = await openRegister({ transactions: [], showTransactionComments: true });
     click("#new-transaction");
     let form = document.querySelector<HTMLFormElement>("#transaction-form")!;
     field(form, "label").value = "Test commentaire";
@@ -900,7 +900,7 @@ describe("transaction register", () => {
     field(form, "note").value = "  Note <importante>\nSeconde ligne  ";
     submit(form);
     await vi.waitFor(() =>
-      expect(document.querySelector(".transaction-note")?.textContent).toContain(
+      expect(document.querySelector(".transaction-comment:not([hidden])")?.textContent).toContain(
         "Note <importante>",
       ),
     );
@@ -929,6 +929,52 @@ describe("transaction register", () => {
     field(form, "note").value = "";
     submit(form);
     await vi.waitFor(() => expect(document.querySelector(".transaction-note")).toBeNull());
+  });
+
+  it("hides comments by default and applies the display preference to the register and search", async () => {
+    const invoke = await openRegister({
+      transactions: [
+        {
+          id: "debit",
+          accountId: "one",
+          date: "2027-01-01",
+          bankDate: "2027-01-02",
+          label: "Courses",
+          category: "Alimentation",
+          amount: -20,
+          reconciled: true,
+          note: "Marché du samedi",
+        },
+      ],
+    });
+    const { runMenuAction } = await import("../src/accounts");
+    const comment = () => document.querySelector<HTMLElement>(".transaction-comment")!;
+    expect(document.querySelector("#show-transaction-comments")).toBeNull();
+    expect(comment().hidden).toBe(true);
+    expect(document.querySelector(".date-cell .transaction-note")?.textContent).toContain("Banque");
+    click('tr[data-transaction="debit"] .date-cell');
+    const editor = document.querySelector<HTMLFormElement>(".transaction-editor")!;
+    expect(field(editor, "note").value).toBe("Marché du samedi");
+    click(".cancel-editor");
+
+    document.querySelector<HTMLInputElement>("#transaction-search")!.value = "Marché du samedi";
+    document.querySelector<HTMLSelectElement>("#transaction-search-scope")!.value = "all";
+    submit(document.querySelector<HTMLFormElement>("#transaction-search-form")!);
+    await vi.waitFor(() => expect(document.querySelector("[data-search-result]")).not.toBeNull());
+    expect(comment().hidden).toBe(true);
+
+    await runMenuAction("toggle-transaction-comments");
+    expect(comment().hidden).toBe(false);
+    expect(invoke).toHaveBeenCalledWith("set_show_transaction_comments", { show: true });
+    click("[data-search-result]");
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-transaction="debit"]')).not.toBeNull(),
+    );
+    expect(comment().hidden).toBe(false);
+
+    await runMenuAction("toggle-transaction-comments");
+    expect(comment().hidden).toBe(true);
+    expect(invoke).toHaveBeenCalledWith("set_show_transaction_comments", { show: false });
   });
 
   it("suggests previous payees from other accounts while allowing a new label", async () => {

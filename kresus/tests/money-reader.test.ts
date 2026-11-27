@@ -773,12 +773,12 @@ describe("Money reader", () => {
       spy.mockRestore();
     }
   });
-  it("reads a populated account number as text and leaves missing numbers empty", () => {
+  it.each(["偈ᙃЮ", "  00012 AB  "])("omits a populated Money account number (%s)", (number) => {
     const source = Buffer.from(readFileSync(sample));
     const accounts = new MDBReader(decodeMoney(source)).getTable("ACCT");
     expect(accounts.getColumnNames()).toContain("mNum");
     const rows = accounts.getData();
-    rows.find((row) => row.szFull === "Compte courant")!.mNum = "  00012 AB  ";
+    rows.find((row) => row.szFull === "Compte courant")!.mNum = number;
     vi.spyOn(accounts, "getData").mockReturnValue(rows);
     const getTable = MDBReader.prototype.getTable;
     const spy = vi.spyOn(MDBReader.prototype, "getTable").mockImplementation(function (
@@ -789,12 +789,11 @@ describe("Money reader", () => {
     });
     try {
       const preview = inspect(source);
-      expect(
-        preview.accounts.find((account) => account.name === "Compte courant")?.accountNumber,
-      ).toBe("00012 AB");
-      expect(
-        preview.accounts.find((account) => account.name === "Livret A")?.accountNumber,
-      ).toBeNull();
+      expect(preview.accounts).toHaveLength(2);
+      expect(preview.accounts.every((account) => !("accountNumber" in account))).toBe(true);
+      expect(preview.warnings.filter((warning) => warning.startsWith("Numéro de compte"))).toEqual([
+        "Numéro de compte non repris pour « Compte courant » (format Money non pris en charge).",
+      ]);
     } finally {
       spy.mockRestore();
     }

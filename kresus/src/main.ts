@@ -1,5 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
-import { runMenuAction, openRequestedDatabase, reloadDatabase } from "./accounts";
+import {
+  runMenuAction,
+  openRequestedDatabase,
+  reloadDatabase,
+  setTransactionCommentsVisible,
+} from "./accounts";
 import { invoke } from "@tauri-apps/api/core";
 
 // Serialize file requests, including those received during initial rendering.
@@ -15,12 +20,22 @@ function drainFileRequests() {
 
 async function initialize() {
   if ("__TAURI_INTERNALS__" in window) {
-    await listen<string>("kresus-menu", (event) => void runMenuAction(event.payload));
+    await listen<string>(
+      "kresus-menu",
+      (event) => void initialized.then(() => runMenuAction(event.payload)),
+    );
     await listen("kresus-file-request", () => void initialized.then(drainFileRequests));
   }
-  const { path, warning } = await invoke<{ path: string | null; warning: string | null }>(
-    "startup_database",
-  );
+  const {
+    path,
+    warning,
+    showTransactionComments = false,
+  } = await invoke<{
+    path: string | null;
+    warning: string | null;
+    showTransactionComments: boolean;
+  }>("startup_database");
+  setTransactionCommentsVisible(showTransactionComments);
   await reloadDatabase(path);
   if (warning) document.querySelector<HTMLElement>(".database-error")!.textContent = warning;
   if ("__TAURI_INTERNALS__" in window) drainFileRequests();

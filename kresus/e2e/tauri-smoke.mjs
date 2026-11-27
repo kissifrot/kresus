@@ -878,10 +878,10 @@ try {
   );
   if (
     !(await text("tbody")).includes("0012345") ||
-    !(await text("tbody")).includes("Commentaire initial") ||
+    (await text("tbody")).includes("Commentaire initial") ||
     !(await text(".balance-card")).includes("87,66")
   )
-    throw new Error("Chèque, commentaire ou solde incorrect");
+    throw new Error("Chèque, visibilité du commentaire ou solde incorrect");
   await execute(
     "document.querySelector('#transaction-search').value='Commentaire initial'; document.querySelector('#transaction-search-form').requestSubmit()",
   );
@@ -904,6 +904,11 @@ try {
     "Réinitialisation recherche",
   );
   console.log("Recherche par commentaire et réinitialisation OK");
+  await menuAction("toggle-transaction-comments");
+  await waitFor(
+    async () => (await text("tbody")).includes("Commentaire initial"),
+    "Affichage des commentaires",
+  );
   await click("#amount-filter");
   await fill("#amount-filter-form", { exact: "12,35" });
   await click('#amount-filter-form button[type="submit"]');

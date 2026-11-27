@@ -27,11 +27,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            menu::install(app)?;
             // Keep the database in the platform-specific application data directory.
             let directory = app.path().app_data_dir()?;
             fs::create_dir_all(&directory)?;
             let default_path = directory.join("comptes.kresus");
+            menu::install(app, database::show_transaction_comments(&default_path))?;
             let cwd = std::env::current_dir().unwrap_or_default();
             let args = std::env::args_os()
                 .map(|arg| arg.to_string_lossy().into_owned())
@@ -76,6 +76,7 @@ pub fn run() {
             database::restore_database,
             database::choose_database,
             database::startup_database,
+            database::set_show_transaction_comments,
             database::open_database_path,
             file_open::take_file_requests,
             database::use_default_database,

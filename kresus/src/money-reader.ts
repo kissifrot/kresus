@@ -736,6 +736,13 @@ export function inspect(buffer: Buffer) {
             `${accounts.length - bank.length} compte(s) non pris en charge ou incomplets sont exclus, notamment les placements.`,
           ]
         : []),
+      // Money scrambles this field, so the decoded memo text is not an account number.
+      ...bank
+        .filter((account) => typeof account.mNum === "string" && account.mNum.trim())
+        .map(
+          (account) =>
+            `Numéro de compte non repris pour « ${String(account.szFull).trim()} » (format Money non pris en charge).`,
+        ),
       ...scheduleResult.warnings,
     ],
     accounts: bank.map((a) => {
@@ -744,7 +751,6 @@ export function inspect(buffer: Buffer) {
       return {
         id: a.hacct,
         name: String(a.szFull).trim(),
-        accountNumber: typeof a.mNum === "string" ? a.mNum.trim() || null : null,
         openingBalance,
         balance: entries.reduce((sum, t) => sum + t.amount, openingBalance),
         count: entries.length,

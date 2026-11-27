@@ -12,7 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 #[path = "database_tests.rs"]
 mod tests;
 
-// Serialize access to the shared SQLite connection across Tauri commands.
+// Serialize access to the database and configuration across Tauri commands.
 pub(crate) struct AppState {
     pub(crate) database: Mutex<Connection>,
     pub(crate) default_path: PathBuf,
@@ -22,9 +22,11 @@ pub(crate) struct AppState {
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StartupDatabase {
     path: Option<String>,
     warning: Option<String>,
+    show_transaction_comments: bool,
 }
 
 fn config_path(default_path: &Path) -> PathBuf {
@@ -102,7 +104,43 @@ pub fn startup_database(state: tauri::State<'_, AppState>) -> Result<StartupData
         .lock()
         .map_err(|_| "Base indisponible.")?
         .take();
-    Ok(StartupDatabase { path, warning })
+    Ok(StartupDatabase {
+        path,
+        warning,
+        show_transaction_comments: show_transaction_comments(&state.default_path),
+    })
+}
+
+pub(crate) fn show_transaction_comments(default_path: &Path) -> bool {
+    Config::load(&config_path(default_path))
+        .unwrap_or_default()
+        .show_transaction_comments
+}
+
+#[tauri::command]
+pub fn set_show_transaction_comments(
+    show: bool,
+    state: tauri::State<'_, AppState>,
+    item: tauri::State<'_, tauri::menu::CheckMenuItem<tauri::Wry>>,
+) -> Result<(), String> {
+    let result = state
+        .database
+        .lock()
+        .map_err(|_| "Base indisponible.".to_string())
+        .and_then(|_database| {
+            save_show_transaction_comments(&state.default_path, show)
+                .map_err(|error| error.to_string())
+        });
+    // The platform toggles the item before dispatching its menu event.
+    let _ = item.set_checked(if result.is_ok() { show } else { !show });
+    result
+}
+
+fn save_show_transaction_comments(default_path: &Path, show: bool) -> std::io::Result<()> {
+    let path = config_path(default_path);
+    let mut config = Config::load(&path)?;
+    config.show_transaction_comments = show;
+    config.save(&path)
 }
 
 // Validate the file read-only before opening it for normal application use.

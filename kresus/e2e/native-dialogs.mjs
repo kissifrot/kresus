@@ -208,6 +208,17 @@ try {
   if (!about[0].includes(version) || !about[1] || !about[2])
     throw new Error("Version ou icône absente de la fenêtre À propos.");
   await click(".about-dialog button");
+  const configPath = join(appData, "config.json");
+  for (const show of [true, false]) {
+    xdotool("windowfocus", "--sync", windowId);
+    xdotool("key", "alt+p", "Return");
+    await waitFor(
+      () =>
+        existsSync(configPath) &&
+        Boolean(JSON.parse(readFileSync(configPath, "utf8")).showTransactionComments) === show,
+      "Préférences → Afficher les commentaires",
+    );
+  }
   for (const [selector, name] of [
     ["open", "Ouverture d’une base"],
     ["backup", "Sauvegarde"],

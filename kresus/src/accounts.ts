@@ -49,6 +49,32 @@ import { showAbout } from "./about";
 
 const brandIcon = new URL("../assets/kresus-icon.svg", import.meta.url).href;
 let activeDatabase: string | null = null;
+let showTransactionComments = false;
+let commentPreferenceChange = Promise.resolve();
+
+export function setTransactionCommentsVisible(show: boolean) {
+  showTransactionComments = show;
+  document.querySelectorAll<HTMLElement>(".transaction-comment").forEach((comment) => {
+    comment.hidden = !show;
+  });
+}
+
+function transactionComment(note?: string | null) {
+  return note
+    ? `<small class="transaction-note transaction-comment" ${showTransactionComments ? "" : "hidden"}>${escapeHtml(note)}</small>`
+    : "";
+}
+
+async function toggleTransactionComments() {
+  const show = !showTransactionComments;
+  try {
+    await invoke("set_show_transaction_comments", { show });
+    setTransactionCommentsVisible(show);
+  } catch (issue) {
+    const error = document.querySelector<HTMLElement>(".database-error");
+    if (error) error.textContent = `Réglage non enregistré : ${String(issue)}`;
+  }
+}
 
 function referenceCell(reference?: string | null, cheque?: string | null): string {
   const formatted = reference ? displayReference(reference) : "";
@@ -82,7 +108,7 @@ function renderSearchResults(rows: Transaction[]) {
       .map((transaction) => {
         const accountName = escapeHtml(accountNames.get(transaction.accountId) ?? "Compte");
         const label = escapeHtml(transaction.label);
-        return `<tr><td class="date-cell">${dateLabel(transaction.date)}</td><td>${accountName}</td><td class="cheque-cell">${referenceCell(transaction.reference, transaction.cheque)}</td><td><strong class="transaction-label">${label}</strong>${transaction.note ? `<small class="transaction-note">${escapeHtml(transaction.note)}</small>` : ""}</td><td>${transactionCategory(transaction)}</td><td class="amount ${transaction.amount < 0 ? "debit" : "credit"}">${amountWithoutCurrency(transaction.amount)}</td><td><button type="button" class="secondary-button" data-search-result="${escapeHtml(transaction.id)}" aria-label="Ouvrir ${label} dans ${accountName}">Ouvrir</button></td></tr>`;
+        return `<tr><td class="date-cell">${dateLabel(transaction.date)}</td><td>${accountName}</td><td class="cheque-cell">${referenceCell(transaction.reference, transaction.cheque)}</td><td><strong class="transaction-label">${label}</strong>${transactionComment(transaction.note)}</td><td>${transactionCategory(transaction)}</td><td class="amount ${transaction.amount < 0 ? "debit" : "credit"}">${amountWithoutCurrency(transaction.amount)}</td><td><button type="button" class="secondary-button" data-search-result="${escapeHtml(transaction.id)}" aria-label="Ouvrir ${label} dans ${accountName}">Ouvrir</button></td></tr>`;
       })
       .join("") ||
     '<tr><td colspan="7" class="empty-row">Aucune opération ne correspond à cette recherche.</td></tr>'
@@ -227,7 +253,7 @@ export function render(allAccounts = false) {
                   rows
                     .map(
                       (transaction) => `
-            <tr data-transaction="${escapeHtml(transaction.id)}" tabindex="0" title="Appuyez sur Entrée pour modifier l’opération"><td class="date-cell">${dateLabel(transaction.date)}${transaction.bankDate && transaction.bankDate !== transaction.date ? `<small class="transaction-note">Banque · ${dateLabel(transaction.bankDate)}</small>` : ""}</td><td class="cheque-cell">${referenceCell(transaction.reference, transaction.cheque)}</td><td><strong class="transaction-label">${escapeHtml(transaction.label)}</strong>${transaction.note ? `<small class="transaction-note">${escapeHtml(transaction.note)}</small>` : ""}</td><td>${transactionCategory(transaction)}</td><td class="center"><button class="reconcile ${transaction.reconciled ? "done" : "pending"}" data-reconcile="${transaction.id}" aria-pressed="${transaction.reconciled}" aria-label="${transaction.reconciled ? "Dépointer l’opération" : "Pointer l’opération"}" title="${transaction.reconciled ? "Marquer comme non pointée" : "Pointer l’opération"}">${transaction.reconciled ? "P" : "·"}</button></td><td class="amount debit">${transaction.amount < 0 ? amountWithoutCurrency(Math.abs(transaction.amount)) : "—"}</td><td class="amount credit">${transaction.amount > 0 ? amountWithoutCurrency(transaction.amount) : "—"}</td><td class="amount running-balance">${amountWithoutCurrency(transaction.runningBalance)}</td><td><button type="button" class="row-delete" data-delete="${escapeHtml(transaction.id)}" title="Supprimer l’opération" aria-label="Supprimer ${escapeHtml(transaction.label)}">Supprimer</button></td></tr>`,
+            <tr data-transaction="${escapeHtml(transaction.id)}" tabindex="0" title="Appuyez sur Entrée pour modifier l’opération"><td class="date-cell">${dateLabel(transaction.date)}${transaction.bankDate && transaction.bankDate !== transaction.date ? `<small class="transaction-note">Banque · ${dateLabel(transaction.bankDate)}</small>` : ""}</td><td class="cheque-cell">${referenceCell(transaction.reference, transaction.cheque)}</td><td><strong class="transaction-label">${escapeHtml(transaction.label)}</strong>${transactionComment(transaction.note)}</td><td>${transactionCategory(transaction)}</td><td class="center"><button class="reconcile ${transaction.reconciled ? "done" : "pending"}" data-reconcile="${transaction.id}" aria-pressed="${transaction.reconciled}" aria-label="${transaction.reconciled ? "Dépointer l’opération" : "Pointer l’opération"}" title="${transaction.reconciled ? "Marquer comme non pointée" : "Pointer l’opération"}">${transaction.reconciled ? "P" : "·"}</button></td><td class="amount debit">${transaction.amount < 0 ? amountWithoutCurrency(Math.abs(transaction.amount)) : "—"}</td><td class="amount credit">${transaction.amount > 0 ? amountWithoutCurrency(transaction.amount) : "—"}</td><td class="amount running-balance">${amountWithoutCurrency(transaction.runningBalance)}</td><td><button type="button" class="row-delete" data-delete="${escapeHtml(transaction.id)}" title="Supprimer l’opération" aria-label="Supprimer ${escapeHtml(transaction.label)}">Supprimer</button></td></tr>`,
                     )
                     .join("") ||
                   `<tr><td colspan="9" class="empty-row">Aucune opération ne correspond à ce filtre.</td></tr>`
@@ -483,6 +509,11 @@ async function restoreDatabase() {
 // Serialize menu workflows and ignore actions while a modal is already open.
 let menuBusy = false;
 export async function runMenuAction(action: string) {
+  if (action === "toggle-transaction-comments") {
+    commentPreferenceChange = commentPreferenceChange.then(toggleTransactionComments);
+    await commentPreferenceChange;
+    return;
+  }
   if (menuBusy || document.querySelector("dialog[open]")) return;
   menuBusy = true;
   try {
