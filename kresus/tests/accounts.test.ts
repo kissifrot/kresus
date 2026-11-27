@@ -19,6 +19,151 @@ describe("accounts", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 
+  it("stages unique OFX matches across pages while leaving competing or incomplete choices pending", async () => {
+    const invoke = await openRegister();
+    const candidates = new Map([
+      [0, ["unique"]],
+      [1, ["shared"]],
+      [2, ["shared"]],
+      [3, ["overlap"]],
+      [4, ["overlap", "other"]],
+      [5, ["reserved"]],
+      [6, ["reserved", "available"]],
+      [7, ["possibly-hidden"]],
+      [8, ["truncated"]],
+      [25, ["next-page"]],
+    ]);
+    invoke.mockResolvedValueOnce({
+      previewId: "preview",
+      fileName: "releve.ofx",
+      bankId: "00001",
+      bankAccount: "0012",
+      matchDays: 7,
+      closing: { amount: 0, date: "2027-01-01" },
+      rows: Array.from({ length: 27 }, (_, index) => ({
+        date: "2027-01-01",
+        label: `Opération ${index + 1}`,
+        amount: index === 7 || index === 8 ? -5000 : -1000,
+        duplicate: index === 26 ? "alreadyImported" : null,
+        candidates: (candidates.get(index) ?? []).map((id) => ({
+          id,
+          date: "2027-01-01",
+          label: id,
+          category: "Alimentation",
+          reconciled: false,
+        })),
+        moreCandidates: index === 8,
+      })),
+    });
+    click("#bank-import");
+    const button = "#bank-import-match-pending";
+    await vi.waitFor(() => expect(document.querySelector(button)?.textContent).toContain("(2)"));
+    const reserve = document.querySelector<HTMLSelectElement>('[data-bank-line="5"]')!;
+    reserve.value = "match:reserved";
+    reserve.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(document.querySelector(button)?.textContent).toContain("(3)");
+
+    click('[data-bank-select="0"]');
+    click('[data-bank-select="1"]');
+    click('[data-bank-select="7"]');
+    click("#bank-import-next");
+    click('[data-bank-select="25"]');
+    click('[data-bank-filter="pending"]');
+    const visibleChoices = () =>
+      Array.from(document.querySelectorAll<HTMLSelectElement>("[data-bank-line]"));
+    const selectionButton = document.querySelector<HTMLButtonElement>(
+      "#bank-import-match-selection",
+    )!;
+    expect(selectionButton.hidden).toBe(false);
+    expect(selectionButton.textContent).toContain("(2)");
+    selectionButton.click();
+    expect(visibleChoices().map((select) => Number(select.dataset.bankLine))).toEqual([
+      1, 2, 3, 4, 6, 7, 8,
+    ]);
+    expect(selectionButton.hidden).toBe(true);
+    expect(document.querySelector("#bank-import-selection-count")?.textContent).toBe(
+      "2 lignes cochées",
+    );
+
+    click("#bank-import-clear-selection");
+    expect(document.querySelector(button)?.textContent).toContain("(1)");
+    click(button);
+    expect(visibleChoices().map((select) => Number(select.dataset.bankLine))).toEqual([
+      1, 2, 3, 4, 7, 8,
+    ]);
+    expect(visibleChoices().every((select) => select.value === "")).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>(button)?.hidden).toBe(true);
+
+    click('[data-bank-filter="match"]');
+    expect(visibleChoices().map((select) => select.value)).toEqual([
+      "match:unique",
+      "match:reserved",
+      "match:available",
+      "match:next-page",
+    ]);
+    expect(invoke).not.toHaveBeenCalledWith("import_bank_statement", expect.anything());
+  });
+
+  it("selects and clears all eligible OFX rows in the active filter across pages", async () => {
+    const invoke = await openRegister();
+    invoke.mockResolvedValueOnce({
+      previewId: "preview",
+      fileName: "releve.ofx",
+      bankId: "00001",
+      bankAccount: "0012",
+      matchDays: 3,
+      closing: { amount: 0, date: "2027-01-01" },
+      rows: Array.from({ length: 54 }, (_, index) => ({
+        date: "2027-01-01",
+        label: `Opération ${index + 1}`,
+        amount: -2000,
+        duplicate: index === 52 ? "alreadyImported" : null,
+        candidates:
+          index === 53
+            ? [{ id: "debit", date: "2027-01-01", label: "Courses", category: "Alimentation" }]
+            : [],
+      })),
+    });
+    click("#bank-import");
+    await vi.waitFor(() =>
+      expect(document.querySelector("#bank-import-select-all")).not.toBeNull(),
+    );
+    const selectAll = document.querySelector<HTMLInputElement>("#bank-import-select-all")!;
+    const count = () => document.querySelector("#bank-import-selection-count")?.textContent;
+    const rowCheckbox = (index: number) =>
+      document.querySelector<HTMLInputElement>(`[data-bank-select="${index}"]`)!;
+    click('[data-bank-filter="pending"]');
+    rowCheckbox(53).click();
+    expect(selectAll.checked).toBe(true);
+
+    click('[data-bank-filter="add"]');
+    expect(selectAll.checked).toBe(false);
+    selectAll.click();
+    expect(count()).toBe("53 lignes cochées");
+    click("#bank-import-next");
+    expect(rowCheckbox(25).checked).toBe(true);
+    rowCheckbox(25).click();
+    expect(selectAll.checked).toBe(false);
+    expect(selectAll.indeterminate).toBe(true);
+    expect(count()).toBe("52 lignes cochées");
+    selectAll.click();
+    expect(selectAll.checked).toBe(true);
+    expect(selectAll.indeterminate).toBe(false);
+    selectAll.click();
+    expect(count()).toBe("1 ligne cochée");
+    expect(rowCheckbox(25).checked).toBe(false);
+
+    click('[data-bank-filter="duplicate"]');
+    expect(selectAll.disabled).toBe(true);
+    expect(selectAll.checked).toBe(false);
+    click('[data-bank-filter="pending"]');
+    expect(rowCheckbox(53).checked).toBe(true);
+    click('[data-bank-filter="pending"]');
+    expect(selectAll.indeterminate).toBe(true);
+    selectAll.click();
+    expect(count()).toBe("53 lignes cochées");
+  });
+
   it.each(["add", "skip"] as const)(
     "filters OFX lines across pages and can %s all remaining choices",
     async (action) => {

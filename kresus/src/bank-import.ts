@@ -73,6 +73,35 @@ function optionValue(choice: Choice | null): string {
   return choice.action === "match" ? matchPrefix + choice.transactionId : choice.action;
 }
 
+function uniquePendingMatches(
+  preview: StatementPreview,
+  choices: (Choice | null)[],
+  claimed: Set<string>,
+) {
+  const contenders = new Map<string, number>();
+  const truncatedDates = new Map<number, number[]>();
+  const singleMatches: { index: number; candidate: Candidate; amount: number }[] = [];
+  preview.rows.forEach((row, index) => {
+    if (choices[index] !== null) return;
+    const available = row.candidates.filter(({ id }) => !claimed.has(matchPrefix + id));
+    for (const { id } of available) contenders.set(id, (contenders.get(id) ?? 0) + 1);
+    if (row.moreCandidates) {
+      const dates = truncatedDates.get(row.amount) ?? [];
+      dates.push(Date.parse(row.date));
+      truncatedDates.set(row.amount, dates);
+    } else if (available.length === 1) {
+      singleMatches.push({ index, candidate: available[0]!, amount: row.amount });
+    }
+  });
+  const matchWindow = preview.matchDays * 86_400_000;
+  return singleMatches.filter(({ candidate, amount }) => {
+    if (contenders.get(candidate.id) !== 1) return false;
+    const date = Date.parse(candidate.date);
+    // A truncated list can hide this candidate within the same amount and date window.
+    return !truncatedDates.get(amount)?.some((other) => Math.abs(date - other) <= matchWindow);
+  });
+}
+
 function renderRow(row: StatementRow, index: number, choice: Choice | null, selected: boolean) {
   const label = escapeHtml(row.label);
   const value = optionValue(choice);
@@ -120,8 +149,10 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   let page = 0;
   let lastPage = 0;
   let filter: SummaryFilter | null = null;
+  let selectableIndices: number[] = [];
   let saving = false;
   let showPendingError = false;
+  let uniqueMatches: ReturnType<typeof uniquePendingMatches> = [];
   const dialog = document.createElement("dialog");
   dialog.className = "bank-import-dialog";
   dialog.setAttribute("aria-labelledby", "bank-import-title");
@@ -140,7 +171,7 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
       <p>Kresus propose les opérations de même montant et de même sens, à ${preview.matchDays} jours près. Rapprocher une ligne pointe l’opération existante.</p>
     </div>
     <div class="table-wrap bank-import-table">
-      <table><thead><tr><th scope="col" class="bank-import-select"><span class="visually-hidden">Sélection</span></th><th scope="col">DATE</th><th scope="col">LIBELLÉ</th><th scope="col" class="right">MONTANT</th><th scope="col">ACTION</th></tr></thead><tbody id="bank-import-lines"></tbody></table>
+      <table><thead><tr><th scope="col" class="bank-import-select"><input type="checkbox" id="bank-import-select-all" aria-label="Tout sélectionner" title="Tout sélectionner (toutes les pages du filtre)"></th><th scope="col">DATE</th><th scope="col">LIBELLÉ</th><th scope="col" class="right">MONTANT</th><th scope="col">ACTION</th></tr></thead><tbody id="bank-import-lines"></tbody></table>
     </div>
     <div class="table-footer"><span id="bank-import-range" role="status"></span><div class="pagination">
       <button type="button" id="bank-import-previous" aria-label="Page précédente">‹</button>
@@ -156,11 +187,13 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
     </div>
     <p id="bank-import-totals" class="visually-hidden" role="status"></p>
     <div id="bank-import-bulk-actions" role="group" aria-label="Choisir une action pour toutes les lignes à vérifier" hidden>
+      <button type="button" class="secondary-button" id="bank-import-match-pending" hidden>Rapprocher les correspondances uniques</button>
       <button type="button" class="secondary-button" id="bank-import-add-pending">Ajouter les lignes à vérifier</button>
       <button type="button" class="secondary-button" id="bank-import-skip-pending">Ignorer les lignes à vérifier</button>
     </div>
     <div id="bank-import-selection-actions" role="group" aria-label="Actions sur la sélection" hidden>
       <span id="bank-import-selection-count" role="status"></span>
+      <button type="button" class="secondary-button" id="bank-import-match-selection" hidden>Rapprocher les correspondances uniques de la sélection</button>
       <button type="button" class="secondary-button" id="bank-import-add-selection">Ajouter la sélection</button>
       <button type="button" class="secondary-button" id="bank-import-skip-selection">Ignorer la sélection</button>
       <button type="button" class="secondary-button" id="bank-import-clear-selection">Désélectionner tout</button>
@@ -183,9 +216,12 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   const filterButtons = dialog.querySelectorAll<HTMLButtonElement>("[data-bank-filter]");
   const totals = dialog.querySelector<HTMLElement>("#bank-import-totals")!;
   const bulk = dialog.querySelector<HTMLElement>("#bank-import-bulk-actions")!;
+  const matchPending = dialog.querySelector<HTMLButtonElement>("#bank-import-match-pending")!;
   const addPending = dialog.querySelector<HTMLButtonElement>("#bank-import-add-pending")!;
   const skipPending = dialog.querySelector<HTMLButtonElement>("#bank-import-skip-pending")!;
   const selectionActions = dialog.querySelector<HTMLElement>("#bank-import-selection-actions")!;
+  const matchSelection = dialog.querySelector<HTMLButtonElement>("#bank-import-match-selection")!;
+  const selectAll = dialog.querySelector<HTMLInputElement>("#bank-import-select-all")!;
   const selectionCount = dialog.querySelector<HTMLElement>("#bank-import-selection-count")!;
   const selectionButtons = selectionActions.querySelectorAll<HTMLButtonElement>("button");
   const error = dialog.querySelector<HTMLElement>(".editor-error")!;
@@ -195,8 +231,15 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   );
 
   const syncSelection = () => {
+    const checked = selectableIndices.filter((index) => selection.has(index)).length;
+    selectAll.disabled = saving || selectableIndices.length === 0;
+    selectAll.checked = checked > 0 && checked === selectableIndices.length;
+    selectAll.indeterminate = checked > 0 && checked < selectableIndices.length;
     selectionActions.hidden = selection.size === 0;
     selectionCount.textContent = plural(selection.size, "ligne cochée", "lignes cochées");
+    const matches = uniqueMatches.filter(({ index }) => selection.has(index)).length;
+    matchSelection.hidden = matches === 0;
+    matchSelection.textContent = `Rapprocher les correspondances uniques de la sélection (${matches})`;
     bulk.hidden = selection.size > 0 || !choices.includes(null);
   };
 
@@ -219,7 +262,11 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
       return label;
     }).join(" · ");
     if (totals.textContent !== summary) totals.textContent = summary;
+    uniqueMatches = uniquePendingMatches(preview, choices, claimed);
     syncSelection();
+    matchPending.hidden = uniqueMatches.length === 0;
+    matchPending.disabled = saving;
+    matchPending.textContent = `Rapprocher les correspondances uniques (${uniqueMatches.length})`;
     addPending.disabled = saving;
     skipPending.disabled = saving;
     selectionButtons.forEach((button) => {
@@ -260,6 +307,7 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
 
   const renderPage = () => {
     const visible = filter ? rows.filter(({ index }) => statusOf(index) === filter) : rows;
+    selectableIndices = visible.filter(({ row }) => !row.duplicate).map(({ index }) => index);
     lastPage = Math.max(0, Math.ceil(visible.length / pageSize) - 1);
     page = Math.min(page, lastPage);
     const start = page * pageSize;
@@ -296,6 +344,13 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
     page++;
     renderPage();
   });
+  selectAll.addEventListener("change", () => {
+    for (const index of selectableIndices) {
+      if (selectAll.checked) selection.add(index);
+      else selection.delete(index);
+    }
+    renderPage();
+  });
   filterButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const key = button.dataset.bankFilter as SummaryFilter;
@@ -313,6 +368,18 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   };
   addPending.addEventListener("click", () => applyToPending("add"));
   skipPending.addEventListener("click", () => applyToPending("skip"));
+  const applyUniqueMatches = (selectionOnly: boolean) => {
+    for (const { index, candidate } of uniqueMatches) {
+      if (selectionOnly && !selection.has(index)) continue;
+      choices[index] = { action: "match", transactionId: candidate.id };
+      selection.delete(index);
+    }
+    if (!showPendingError) error.textContent = "";
+    renderPage();
+    dialog.querySelector<HTMLButtonElement>('[data-bank-filter="match"]')?.focus();
+  };
+  matchPending.addEventListener("click", () => applyUniqueMatches(false));
+  matchSelection.addEventListener("click", () => applyUniqueMatches(true));
   const applyToSelection = (action: BulkAction) => {
     for (const index of selection) choices[index] = { action };
     selection.clear();
