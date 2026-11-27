@@ -1,6 +1,7 @@
 mod accounts;
 mod bank_import;
 mod categories;
+mod config;
 mod database;
 mod file_open;
 mod frequency;
@@ -13,8 +14,7 @@ mod test_support;
 mod text_limits;
 mod transactions;
 
-use database::{AppState, initialize_database};
-use rusqlite::Connection;
+use database::{AppState, open_startup_database};
 use std::{fs, sync::Mutex};
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -39,22 +39,25 @@ pub fn run() {
             app.manage(file_open::OpenRequests(Mutex::new(file_open::collect(
                 args, &cwd,
             ))));
-            let connection = Connection::open(&default_path)?;
-            if let Err(error) = initialize_database(&connection) {
-                let handle = app.handle().clone();
-                app.dialog()
-                    .message(format!(
-                        "{error}\n\nBase habituelle : {}",
-                        default_path.display()
-                    ))
-                    .title("Impossible d’ouvrir la base habituelle")
-                    .kind(MessageDialogKind::Error)
-                    .show(move |_| handle.exit(1));
-                return Ok(());
-            }
+            let (connection, warning) = match open_startup_database(&default_path) {
+                Ok(result) => result,
+                Err(error) => {
+                    let handle = app.handle().clone();
+                    app.dialog()
+                        .message(format!(
+                            "{error}\n\nBase habituelle : {}",
+                            default_path.display()
+                        ))
+                        .title("Impossible d’ouvrir la base habituelle")
+                        .kind(MessageDialogKind::Error)
+                        .show(move |_| handle.exit(1));
+                    return Ok(());
+                }
+            };
             app.manage(AppState {
                 database: Mutex::new(connection),
                 default_path,
+                startup_warning: Mutex::new(warning),
                 money_preview: Mutex::new(None),
                 bank_preview: Mutex::new(None),
             });
@@ -72,6 +75,7 @@ pub fn run() {
             database::choose_restore_file,
             database::restore_database,
             database::choose_database,
+            database::startup_database,
             database::open_database_path,
             file_open::take_file_requests,
             database::use_default_database,

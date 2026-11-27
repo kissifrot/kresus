@@ -1,3 +1,4 @@
+use crate::config::Config;
 use rusqlite::{
     Connection,
     backup::{Backup, StepResult},
@@ -15,8 +16,93 @@ mod tests;
 pub(crate) struct AppState {
     pub(crate) database: Mutex<Connection>,
     pub(crate) default_path: PathBuf,
+    pub(crate) startup_warning: Mutex<Option<String>>,
     pub(crate) money_preview: Mutex<Option<crate::money_import::MoneyPreview>>,
     pub(crate) bank_preview: Mutex<Option<crate::bank_import::PendingStatement>>,
+}
+
+#[derive(serde::Serialize)]
+pub struct StartupDatabase {
+    path: Option<String>,
+    warning: Option<String>,
+}
+
+fn config_path(default_path: &Path) -> PathBuf {
+    default_path.with_file_name("config.json")
+}
+
+pub(crate) fn remember_startup_database(default_path: &Path, path: &Path) -> Result<(), String> {
+    let preference = config_path(default_path);
+    let result = (|| {
+        let mut config = Config::load(&preference)?;
+        if config.startup_database.is_none() {
+            config.startup_database = Some(std::path::absolute(path)?);
+            config.save(&preference)?;
+        }
+        Ok::<(), std::io::Error>(())
+    })();
+    result.map_err(|error| format!("Impossible de mémoriser la base de démarrage : {error}"))
+}
+
+fn forget_startup_database(default_path: &Path) -> Result<(), String> {
+    let preference = config_path(default_path);
+    let result = (|| {
+        let mut config = Config::load(&preference)?;
+        if config.startup_database.take().is_some() {
+            config.save(&preference)?;
+        }
+        Ok::<(), std::io::Error>(())
+    })();
+    result.map_err(|error| format!("Impossible de rétablir la base de démarrage : {error}"))
+}
+
+pub(crate) fn open_startup_database(
+    default_path: &Path,
+) -> Result<(Connection, Option<String>), String> {
+    let warning = match Config::load(&config_path(default_path))
+        .map(|config| config.startup_database)
+    {
+        Ok(Some(path)) => {
+            match validate_kresus_extension(&path).and_then(|()| open_existing_database(&path)) {
+                Ok(db) => return Ok((db, None)),
+                Err(error) => Some(format!(
+                    "Impossible de rouvrir « {} » : {error}. La base habituelle est ouverte.",
+                    path.display()
+                )),
+            }
+        }
+        Ok(None) => None,
+        Err(error) => Some(format!(
+            "Impossible de lire la base de démarrage mémorisée : {error}. La base habituelle est ouverte."
+        )),
+    };
+    let db = Connection::open(default_path).map_err(database_error)?;
+    initialize_database(&db)?;
+    Ok((db, warning))
+}
+
+pub(crate) fn is_default_database(db: &Connection, default_path: &Path) -> bool {
+    db.path().is_some_and(|path| {
+        Path::new(path) == default_path
+            || fs::canonicalize(default_path)
+                .is_ok_and(|default| fs::canonicalize(path).is_ok_and(|active| active == default))
+    })
+}
+
+#[tauri::command]
+pub fn startup_database(state: tauri::State<'_, AppState>) -> Result<StartupDatabase, String> {
+    let db = state.database.lock().map_err(|_| "Base indisponible.")?;
+    let path = if is_default_database(&db, &state.default_path) {
+        None
+    } else {
+        db.path().map(str::to_owned)
+    };
+    let warning = state
+        .startup_warning
+        .lock()
+        .map_err(|_| "Base indisponible.")?
+        .take();
+    Ok(StartupDatabase { path, warning })
 }
 
 // Validate the file read-only before opening it for normal application use.
@@ -78,16 +164,24 @@ fn validate_database(db: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn switch_database(state: &AppState, path: &Path) -> Result<(), String> {
+pub(crate) fn switch_database(
+    state: &AppState,
+    path: &Path,
+    reset_startup: bool,
+) -> Result<(), String> {
     let next = open_existing_database(path)?;
     let mut current = state
         .database
         .lock()
         .map_err(|_| "La base de données est indisponible.".to_string())?;
-    *state
+    let mut bank_preview = state
         .bank_preview
         .lock()
-        .map_err(|_| "Aperçu indisponible.")? = None;
+        .map_err(|_| "Aperçu indisponible.")?;
+    if reset_startup {
+        forget_startup_database(&state.default_path)?;
+    }
+    *bank_preview = None;
     *current = next;
     Ok(())
 }
@@ -107,7 +201,7 @@ pub(crate) fn validate_kresus_extension(path: &Path) -> Result<(), String> {
 #[tauri::command]
 pub fn open_database_path(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     validate_kresus_extension(Path::new(&path))?;
-    switch_database(&state, Path::new(&path))?;
+    switch_database(&state, Path::new(&path), false)?;
     *state
         .money_preview
         .lock()
@@ -130,13 +224,13 @@ pub async fn choose_database(
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
     validate_kresus_extension(&path)?;
-    switch_database(&state, &path)?;
+    switch_database(&state, &path, false)?;
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
 pub fn use_default_database(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    switch_database(&state, &state.default_path)
+    switch_database(&state, &state.default_path, true)
 }
 
 // Copy through SQLite so uncheckpointed WAL data is included.

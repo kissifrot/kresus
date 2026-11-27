@@ -94,6 +94,8 @@ export async function openRegister(
           value?.toLowerCase().includes(args.search.toLowerCase()),
         ));
     switch (command) {
+      case "startup_database":
+        return { path: null, warning: null };
       case "list_accounts":
         return accounts.map((account) => {
           const movements = transactions.filter((item) => item.accountId === account.id);

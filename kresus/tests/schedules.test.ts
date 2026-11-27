@@ -56,6 +56,7 @@ async function openCalendar(
       command: string,
       args?: { schedule?: Schedule; scope?: string; id?: string; originalDue?: string },
     ) => {
+      if (command === "startup_database") return { path: null, warning: null };
       if (command === "list_accounts")
         return [
           {

@@ -256,6 +256,7 @@ fn importing_to_a_new_file_preserves_the_available_default_database() {
     let state = AppState {
         database: std::sync::Mutex::new(db),
         default_path: default_path.0.clone(),
+        startup_warning: std::sync::Mutex::new(None),
         money_preview: std::sync::Mutex::new(None),
         bank_preview: std::sync::Mutex::new(None),
     };
@@ -267,11 +268,19 @@ fn importing_to_a_new_file_preserves_the_available_default_database() {
 
     assert!(import_into_new_file(&state, &default_path.0, &preview, &selection).is_err());
     import_into_new_file(&state, &other_path.0, &preview, &selection).unwrap();
-    let active = state.database.lock().unwrap();
-    let accounts = crate::accounts::list_accounts_in_db(&active, "2026-12-01").unwrap();
+    let (reopened, warning) = crate::database::open_startup_database(&default_path.0).unwrap();
+    assert!(warning.is_none());
+    assert_eq!(reopened.path().map(Path::new), Some(other_path.0.as_path()));
+    let accounts = crate::accounts::list_accounts_in_db(&reopened, "2026-12-01").unwrap();
     assert_eq!(accounts[0].id, "money-account-1");
     let default_db = Connection::open(&default_path.0).unwrap();
     assert!(can_import_into_default_database(&default_db, &default_path.0).unwrap());
+
+    crate::database::switch_database(&state, &default_path.0, true).unwrap();
+    let (reopened, warning) = crate::database::open_startup_database(&default_path.0).unwrap();
+    assert!(warning.is_none());
+    assert!(can_import_into_default_database(&reopened, &default_path.0).unwrap());
+    fs::remove_file(default_path.0.with_file_name("config.json")).unwrap();
 }
 
 #[test]

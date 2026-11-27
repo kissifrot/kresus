@@ -262,10 +262,14 @@ fn import_into_new_file(
             .database
             .lock()
             .map_err(|_| "Base indisponible.".to_string())?;
-        *state
+        let mut bank_preview = state
             .bank_preview
             .lock()
-            .map_err(|_| "Aperçu indisponible.")? = None;
+            .map_err(|_| "Aperçu indisponible.")?;
+        if can_import_into_default_database(&current, &state.default_path)? {
+            crate::database::remember_startup_database(&state.default_path, path)?;
+        }
+        *bank_preview = None;
         *current = db;
         Ok::<(), String>(())
     })();
@@ -296,10 +300,7 @@ fn try_import_into_default_database(
 }
 
 fn can_import_into_default_database(db: &Connection, default_path: &Path) -> Result<bool, String> {
-    if !db.path().is_some_and(|path| {
-        fs::canonicalize(default_path)
-            .is_ok_and(|default| fs::canonicalize(path).is_ok_and(|active| active == default))
-    }) {
+    if !crate::database::is_default_database(db, default_path) {
         return Ok(false);
     }
 

@@ -26,6 +26,81 @@ fn new_database_starts_empty_and_an_empty_backup_can_be_opened() {
 }
 
 #[test]
+fn missing_startup_database_falls_back_to_the_default_and_can_be_retried() {
+    let default_path = temporary_database_path();
+    let imported_path = temporary_database_path();
+    super::remember_startup_database(&default_path.0, &imported_path.0).unwrap();
+
+    let (db, warning) = super::open_startup_database(&default_path.0).unwrap();
+    assert!(super::is_default_database(&db, &default_path.0));
+    assert!(
+        warning
+            .unwrap()
+            .contains(&*imported_path.0.to_string_lossy())
+    );
+    assert!(!imported_path.0.exists());
+    drop(db);
+
+    let db = Connection::open(&imported_path.0).unwrap();
+    initialize_test_accounts(&db);
+    drop(db);
+    let (db, warning) = super::open_startup_database(&default_path.0).unwrap();
+    assert_eq!(
+        db.path().map(std::path::Path::new),
+        Some(imported_path.0.as_path())
+    );
+    assert!(warning.is_none());
+    super::forget_startup_database(&default_path.0).unwrap();
+    std::fs::remove_file(super::config_path(&default_path.0)).unwrap();
+}
+
+#[test]
+fn startup_choice_is_migrated_to_config_json() {
+    let default_path = temporary_database_path();
+    let imported_path = temporary_database_path();
+    let db = Connection::open(&imported_path.0).unwrap();
+    initialize_test_accounts(&db);
+    drop(db);
+    let legacy = default_path.0.with_file_name("base-demarrage.json");
+    std::fs::write(&legacy, serde_json::to_vec(&imported_path.0).unwrap()).unwrap();
+
+    let (db, warning) = super::open_startup_database(&default_path.0).unwrap();
+    assert!(warning.is_none());
+    assert_eq!(
+        db.path().map(std::path::Path::new),
+        Some(imported_path.0.as_path())
+    );
+    let config_path = super::config_path(&default_path.0);
+    let config = crate::config::Config::load(&config_path).unwrap();
+    assert_eq!(config.startup_database.as_ref(), Some(&imported_path.0));
+    assert!(!legacy.exists());
+    std::fs::remove_file(config_path).unwrap();
+}
+
+#[test]
+fn saving_and_resetting_the_startup_choice_preserves_other_settings() {
+    let default_path = temporary_database_path();
+    let imported_path = temporary_database_path();
+    let config_path = super::config_path(&default_path.0);
+    let settings = serde_json::json!({"appearance": {"theme": "dark"}});
+    std::fs::write(&config_path, serde_json::to_vec(&settings).unwrap()).unwrap();
+    let read = || -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap()
+    };
+
+    super::remember_startup_database(&default_path.0, &imported_path.0).unwrap();
+    let saved = read();
+    assert_eq!(
+        saved["startupDatabase"],
+        serde_json::to_value(&imported_path.0).unwrap()
+    );
+    assert_eq!(saved["appearance"], settings["appearance"]);
+    super::forget_startup_database(&default_path.0).unwrap();
+    assert_eq!(read(), settings);
+    std::fs::remove_file(config_path).unwrap();
+}
+
+#[test]
 #[ignore = "manual performance reference; run with --ignored --nocapture"]
 fn performance_reference_10000_operations() {
     performance_reference(10_000, 3652);
@@ -172,10 +247,11 @@ fn switching_databases_preserves_each_file_and_rejects_invalid_candidates() {
     let state = AppState {
         database: Mutex::new(primary),
         default_path: first.0.clone(),
+        startup_warning: Mutex::new(None),
         money_preview: Mutex::new(None),
         bank_preview: Mutex::new(None),
     };
-    switch_database(&state, &second.0).unwrap();
+    switch_database(&state, &second.0, false).unwrap();
     let name: String = state
         .database
         .lock()
@@ -185,7 +261,7 @@ fn switching_databases_preserves_each_file_and_rejects_invalid_candidates() {
         })
         .unwrap();
     assert_eq!(name, "Base de test");
-    assert!(switch_database(&state, &invalid.0).is_err());
+    assert!(switch_database(&state, &invalid.0, false).is_err());
     assert_eq!(std::fs::read(&invalid.0).unwrap(), before);
     let name: String = state
         .database
@@ -196,7 +272,7 @@ fn switching_databases_preserves_each_file_and_rejects_invalid_candidates() {
         })
         .unwrap();
     assert_eq!(name, "Base de test");
-    switch_database(&state, &first.0).unwrap();
+    switch_database(&state, &first.0, false).unwrap();
     let name: String = state
         .database
         .lock()

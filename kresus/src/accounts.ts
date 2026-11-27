@@ -413,7 +413,7 @@ export async function openRequestedDatabase(path: string) {
   await changeDatabase(false, path);
 }
 
-// Refresh all domains after importing into a newly created database.
+// Refresh all domains for the active database.
 export async function reloadDatabase(path: string | null) {
   activeDatabase = path;
   resetReconciliation();
@@ -491,7 +491,7 @@ export async function runMenuAction(action: string) {
         await changeDatabase(false);
         break;
       case "default":
-        if (activeDatabase) await changeDatabase(true);
+        await changeDatabase(true);
         break;
       case "backup":
         await backupDatabase();

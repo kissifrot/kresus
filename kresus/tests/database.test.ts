@@ -16,6 +16,22 @@ afterEach(() => {
   vi.doUnmock("@tauri-apps/api/core");
 });
 
+it.each([
+  { path: "/tmp/foyer.kresus", warning: null, label: "foyer.kresus" },
+  { path: null, warning: "Fichier indisponible", label: "Base habituelle" },
+])("identifies the startup database as $label", async ({ path, warning, label }) => {
+  vi.doMock("@tauri-apps/api/core", () => ({
+    invoke: vi.fn(async (command: string) =>
+      command === "startup_database" ? { path, warning } : [],
+    ),
+  }));
+  await import("../src/main");
+  await vi.waitFor(() =>
+    expect(document.querySelector(".database-controls small")?.textContent).toBe(label),
+  );
+  expect(document.querySelector(".database-error")?.textContent).toBe(warning ?? "");
+});
+
 it("switches databases, supports cancellation and returns to the default database", async () => {
   let active = "default";
   let choice: string | null = "/tmp/test.kresus";
@@ -34,6 +50,7 @@ it("switches databases, supports cancellation and returns to the default databas
       active = "default";
       return;
     }
+    if (command === "startup_database") return { path: null, warning: null };
     if (command === "list_accounts")
       return [
         {
@@ -106,6 +123,7 @@ it("confirms restoration, refreshes data, and reports backup and restore failure
       active = "after";
       return;
     }
+    if (command === "startup_database") return { path: null, warning: null };
     if (command === "list_accounts")
       return [
         {

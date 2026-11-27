@@ -10,6 +10,8 @@ async function openCategories(
 ) {
   const invoke = vi.fn(async (command: string, args?: Record<string, any>) => {
     switch (command) {
+      case "startup_database":
+        return { path: null, warning: null };
       case "list_accounts":
         return [
           {
