@@ -16,6 +16,7 @@ fn account_number_is_optional_text_and_can_be_changed_or_cleared() {
     };
     let mut settings = AccountSettings {
         name: "Household".into(),
+        kind: None,
         bank: "Bank".into(),
         account_number: Some("00034".into()),
         archived: false,
@@ -37,6 +38,7 @@ fn creation_rejects_duplicate_names_and_numbers_even_for_archived_accounts() {
         "ccp",
         &AccountSettings {
             name: "Épargne familiale".into(),
+            kind: None,
             bank: "Première banque".into(),
             account_number: Some("0012 AB".into()),
             archived: true,
@@ -72,6 +74,7 @@ fn editing_prevents_new_duplicates_and_can_resolve_existing_ones_separately() {
 
     let mut settings = AccountSettings {
         name: "Compte principal".into(),
+        kind: None,
         bank: "Nouvelle banque".into(),
         account_number: Some("00123456".into()),
         archived: false,
@@ -121,6 +124,7 @@ fn edits_account_settings_and_archives_without_losing_history() {
     };
     let mut settings = AccountSettings {
         name: "  Compte renommé  ".into(),
+        kind: Some("Assurance vie".into()),
         bank: "  Nouvelle banque  ".into(),
         account_number: None,
         archived: true,
@@ -129,6 +133,7 @@ fn edits_account_settings_and_archives_without_losing_history() {
     let saved = current(&db);
     assert!(saved.archived);
     assert_eq!(saved.name, "Compte renommé");
+    assert_eq!(saved.kind, "Assurance vie");
     assert_eq!(saved.bank, "Nouvelle banque");
     assert_eq!(saved.current_balance, -1234);
     let rows = crate::transactions::list_transactions_in_db(&db, "ccp").unwrap();
@@ -142,8 +147,18 @@ fn edits_account_settings_and_archives_without_losing_history() {
     assert_eq!(current(&db).bank, "Nouvelle banque");
 
     settings.bank.clear();
+    settings.kind = Some("Autre".into());
+    assert_eq!(
+        update_account_in_db(&mut db, "ccp", &settings).unwrap_err(),
+        "Choisissez un type de compte valide."
+    );
+    assert_eq!(current(&db).kind, "Assurance vie");
+    assert!(current(&db).archived);
+
+    settings.kind = None;
     update_account_in_db(&mut db, "ccp", &settings).unwrap();
     assert!(!current(&db).archived);
+    assert_eq!(current(&db).kind, "Assurance vie");
     assert!(current(&db).bank.is_empty());
     assert!(update_account_in_db(&mut db, "missing", &settings).is_err());
 }

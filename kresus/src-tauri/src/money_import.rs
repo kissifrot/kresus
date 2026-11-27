@@ -366,7 +366,7 @@ fn import_money_data(
     if selected.len() != selection.len()
         || selected.is_empty()
         || selected.iter().any(|(id, kind)| {
-            !matches!(*kind, "Compte courant" | "Épargne")
+            !crate::accounts::valid_account_kind(kind)
                 || !preview.accounts.iter().any(|a| a.id == *id)
         })
     {

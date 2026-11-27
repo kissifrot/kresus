@@ -337,7 +337,7 @@ describe("accounts", () => {
     expect(document.querySelector(".page-heading h1")?.textContent).toBe("Vue d’ensemble");
   });
 
-  it("creates and selects an account with its type and opening balance", async () => {
+  it("creates an account and can update its type and number", async () => {
     const invoke = await openRegister();
     click(".add-account");
     const form = document.querySelector<HTMLFormElement>("#account-form")!;
@@ -364,11 +364,20 @@ describe("accounts", () => {
     expect(document.querySelector("#account-number")?.textContent).toContain("00012 AB");
 
     click("#edit-account");
-    const numberForm = document.querySelector<HTMLFormElement>("#account-settings-form")!;
-    expect(field(numberForm, "accountNumber").value).toBe("00012 AB");
-    field(numberForm, "accountNumber").value = "";
-    submit(numberForm);
+    const settingsForm = document.querySelector<HTMLFormElement>("#account-settings-form")!;
+    expect(field(settingsForm, "accountNumber").value).toBe("00012 AB");
+    expect(field(settingsForm, "kind").value).toBe("Épargne");
+    field(settingsForm, "accountNumber").value = "";
+    field(settingsForm, "kind").value = "Assurance vie";
+    submit(settingsForm);
     await vi.waitFor(() => expect(document.querySelector("#account-number")).toBeNull());
+    expect(document.querySelector(".account-heading .eyebrow")?.textContent).toContain(
+      "Assurance vie",
+    );
+    expect(
+      document.querySelector(".account-item.active")?.closest(".account-group")?.textContent,
+    ).toContain("ASSURANCE VIE");
+    expect(document.querySelector(".balance-card")?.textContent).toContain("12,50");
   });
 
   it("keeps archived registers accessible and restores them to the sidebar", async () => {
@@ -389,6 +398,7 @@ describe("accounts", () => {
       id: "one",
       settings: {
         name: "Compte renommé",
+        kind: "Compte courant",
         bank: "Nouvel établissement",
         accountNumber: null,
         archived: true,

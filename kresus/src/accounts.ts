@@ -48,6 +48,11 @@ import { confirmAction } from "./confirmation";
 import { showAbout } from "./about";
 
 const brandIcon = new URL("../assets/kresus-icon.svg", import.meta.url).href;
+const accountGroups: { kind: AccountKind; label: string }[] = [
+  { kind: "Compte courant", label: "Comptes courants" },
+  { kind: "Épargne", label: "Comptes d’épargne" },
+  { kind: "Assurance vie", label: "Assurances vie" },
+];
 let activeDatabase: string | null = null;
 let showTransactionComments = false;
 let commentPreferenceChange = Promise.resolve();
@@ -101,6 +106,12 @@ function transactionCategory(transaction: Transaction) {
   return `<span class="category-pill" title="${escapeHtml(description)}">Ventilée · ${transaction.splits.length}</span>`;
 }
 
+export function accountKindOptions(selected?: AccountKind) {
+  return accountGroups
+    .map(({ kind }) => `<option ${kind === selected ? "selected" : ""}>${kind}</option>`)
+    .join("");
+}
+
 function renderSearchResults(rows: Transaction[]) {
   const accountNames = new Map(accounts.map((account) => [account.id, account.name]));
   return `<div class="table-wrap"><table class="search-results"><thead><tr><th>DATE</th><th>COMPTE</th><th>RÉF. / N° CHÈQUE</th><th>TIERS / OPÉRATION</th><th>CATÉGORIE</th><th class="right">MONTANT (€)</th><th></th></tr></thead><tbody>${
@@ -139,6 +150,7 @@ function bindAccountSettings(account: Account) {
         id: account.id,
         settings: {
           name: name.value.trim(),
+          kind: String(values.get("kind")),
           bank: String(values.get("bank")).trim(),
           accountNumber: String(values.get("accountNumber")).trim() || null,
           archived: values.has("archived"),
@@ -273,13 +285,14 @@ export function render(allAccounts = false) {
     </main>
     ${renderAmountFilterDialog(allAccounts)}
     ${renderPeriodFilterDialog()}
-    <dialog id="account-dialog"><form id="account-form"><div class="dialog-heading"><h2>Nouveau compte</h2><button type="button" class="dialog-close account-close" aria-label="Fermer">×</button></div><label>Nom du compte<input name="name" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Compte courant"></label><label>Type de compte<select name="kind"><option>Compte courant</option><option>Épargne</option><option>Assurance vie</option></select></label><label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="${TEXT_NAME_LIMIT}" placeholder="Nom de la banque"></label><label>Numéro de compte <span class="optional">(facultatif)</span><input name="accountNumber" maxlength="${TEXT_NAME_LIMIT}"></label><label>Solde initial (€)<input name="balance" type="text" inputmode="decimal" value="0" required></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button account-close">Annuler</button><button type="submit" class="primary-button">Créer le compte</button></div></form></dialog>
+    <dialog id="account-dialog"><form id="account-form"><div class="dialog-heading"><h2>Nouveau compte</h2><button type="button" class="dialog-close account-close" aria-label="Fermer">×</button></div><label>Nom du compte<input name="name" required maxlength="${TEXT_NAME_LIMIT}" placeholder="Ex. Compte courant"></label><label>Type de compte<select name="kind" required>${accountKindOptions()}</select></label><label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="${TEXT_NAME_LIMIT}" placeholder="Nom de la banque"></label><label>Numéro de compte <span class="optional">(facultatif)</span><input name="accountNumber" maxlength="${TEXT_NAME_LIMIT}"></label><label>Solde initial (€)<input name="balance" type="text" inputmode="decimal" value="0" required></label><p class="editor-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary-button account-close">Annuler</button><button type="submit" class="primary-button">Créer le compte</button></div></form></dialog>
     ${
       selected
         ? `<dialog id="account-settings-dialog" aria-labelledby="account-settings-title">
       <form id="account-settings-form">
         <div class="dialog-heading"><h2 id="account-settings-title">Modifier le compte</h2><button type="button" class="dialog-close" aria-label="Fermer">×</button></div>
         <label>Nom du compte<input name="name" required maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(selected.name)}"></label>
+        <label>Type de compte<select name="kind" required>${accountKindOptions(selected.kind)}</select></label>
         <label>Établissement <span class="optional">(facultatif)</span><input name="bank" maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(selected.bank)}"></label>
         <label>Numéro de compte <span class="optional">(facultatif)</span><input name="accountNumber" maxlength="${TEXT_NAME_LIMIT}" value="${escapeHtml(selected.accountNumber ?? "")}"></label>
         <label class="archive-account-control"><input name="archived" type="checkbox" aria-describedby="archive-account-help" ${selected.archived ? "checked" : ""}> Archiver le compte</label>
@@ -364,11 +377,6 @@ export function renderAccountsList() {
   document.querySelector<HTMLElement>(".breadcrumb")!.innerHTML =
     '<button type="button" id="household-breadcrumb">Mon foyer</button> <span>/</span> <strong>Comptes</strong>';
   document.querySelector("#household-breadcrumb")?.addEventListener("click", renderHousehold);
-  const groups: { kind: AccountKind; label: string }[] = [
-    { kind: "Compte courant", label: "Comptes courants" },
-    { kind: "Épargne", label: "Comptes d’épargne" },
-    { kind: "Assurance vie", label: "Assurances vie" },
-  ];
   const archived = accounts.filter((account) => account.archived);
   const active = accounts.filter((account) => !account.archived);
   const overviewRow = (account: Account) => {
@@ -378,7 +386,7 @@ export function renderAccountsList() {
   document.querySelector(".account-item.active")?.classList.remove("active");
   document.querySelector<HTMLElement>(".page-content")!.innerHTML =
     `<div class="page-heading"><div><div class="eyebrow">MON FOYER</div><h1>Mes comptes</h1><p>Consultez les soldes et ouvrez le registre d’un compte.</p></div><button type="button" class="primary-button" id="list-add-account"><span>+</span> Nouveau compte</button></div><section class="accounts-overview">${
-      groups
+      accountGroups
         .map(({ kind, label }) => {
           const items = active.filter((account) => account.kind === kind);
           if (!items.length) return "";

@@ -82,12 +82,7 @@ pub(crate) fn create_account_in_db(
     let account_number = normalize_account_number(account.account_number.as_deref())?;
     crate::text_limits::validate_name_length(name, false)?;
     crate::text_limits::validate_name_length(bank, false)?;
-    if name.is_empty()
-        || !matches!(
-            account.kind.as_str(),
-            "Compte courant" | "Épargne" | "Assurance vie"
-        )
-    {
+    if name.is_empty() || !valid_account_kind(&account.kind) {
         return Err("Veuillez saisir un nom et un type de compte valide.".to_string());
     }
     if account.opening_balance.unsigned_abs() > 100_000_000_000 {
@@ -99,6 +94,10 @@ pub(crate) fn create_account_in_db(
     check_account_uniqueness(&tx, None, Some(name), account_number)?;
     tx.execute("INSERT INTO accounts (id, name, kind, opening_balance_cents, bank, account_number) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![account.id, name, account.kind, account.opening_balance, bank, account_number]).map_err(database_error)?;
     tx.commit().map_err(database_error)
+}
+
+pub(crate) fn valid_account_kind(kind: &str) -> bool {
+    matches!(kind, "Compte courant" | "Épargne" | "Assurance vie")
 }
 
 fn check_account_uniqueness(
@@ -150,6 +149,7 @@ fn normalize_account_number(value: Option<&str>) -> Result<Option<&str>, String>
 #[serde(rename_all = "camelCase")]
 pub struct AccountSettings {
     name: String,
+    kind: Option<String>,
     bank: String,
     account_number: Option<String>,
     archived: bool,
@@ -183,6 +183,13 @@ fn update_account_in_db(
     if name.is_empty() {
         return Err("Saisissez un nom de compte.".into());
     }
+    if settings
+        .kind
+        .as_deref()
+        .is_some_and(|kind| !valid_account_kind(kind))
+    {
+        return Err("Choisissez un type de compte valide.".into());
+    }
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(database_error)?;
@@ -208,8 +215,8 @@ fn update_account_in_db(
         account_number.filter(|number| Some(*number) != old_number.as_deref().map(str::trim)),
     )?;
     tx.execute(
-        "UPDATE accounts SET name=?1, bank=?2, account_number=?3 WHERE id=?4",
-        params![name, bank, account_number, id],
+        "UPDATE accounts SET name=?1, bank=?2, account_number=?3, kind=COALESCE(?4, kind) WHERE id=?5",
+        params![name, bank, account_number, settings.kind, id],
     )
     .map_err(database_error)?;
     if settings.archived {

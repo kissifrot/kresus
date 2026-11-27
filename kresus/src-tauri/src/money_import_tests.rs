@@ -332,7 +332,7 @@ fn imports_selected_account_and_preserves_cents_categories_and_operations() {
         &preview,
         &[MoneySelection {
             id: 1,
-            kind: "Épargne".into(),
+            kind: "Assurance vie".into(),
         }],
     )
     .unwrap();
@@ -346,7 +346,7 @@ fn imports_selected_account_and_preserves_cents_categories_and_operations() {
             account.current_balance,
             account.kind.as_str()
         ),
-        (100000, 87500, "Épargne")
+        (100000, 87500, "Assurance vie")
     );
     let categories: i64 = db
         .query_row("SELECT count(*) FROM categories", [], |r| r.get(0))

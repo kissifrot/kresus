@@ -31,7 +31,10 @@ it.each([
   });
   const reload = vi.fn();
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
-  vi.doMock("../src/accounts", () => ({ reloadDatabase: reload }));
+  vi.doMock("../src/accounts", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../src/accounts")>()),
+    reloadDatabase: reload,
+  }));
   vi.doMock("../src/money-reader", () => ({
     inspect: () => ({
       schedules: [],
@@ -71,20 +74,21 @@ it.each([
   expect(otherLocation?.textContent).toBe(
     defaultAvailable ? "Choisir un autre emplacement" : undefined,
   );
-  selectedKind.value = "Épargne";
+  expect(selectedKind.value).toBe("Compte courant");
+  selectedKind.value = "Assurance vie";
   if (cancelSelection) {
     otherLocation!.click();
     expect(submit.disabled).toBe(true);
     await vi.waitFor(() => expect(otherLocation!.disabled).toBe(false));
     expect(document.querySelector("dialog[open]")).not.toBeNull();
-    expect(selectedKind.value).toBe("Épargne");
+    expect(selectedKind.value).toBe("Assurance vie");
     expect(reload).not.toHaveBeenCalled();
     cancelSelection = false;
   }
   (destination === "alternative" ? otherLocation! : submit).click();
   await vi.waitFor(() => expect(reload).toHaveBeenCalledWith(path));
   expect(invoke).toHaveBeenCalledWith("import_money", {
-    selection: [{ id: 1, kind: "Épargne" }],
+    selection: [{ id: 1, kind: "Assurance vie" }],
     chooseAnotherLocation: destination !== "default",
   });
 });

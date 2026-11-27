@@ -953,6 +953,7 @@ dialog::backdrop {
 }
 #account-form input,
 #account-form select,
+#account-settings-form select,
 #account-settings-form input:not([type="checkbox"]) {
   height: 37px;
   border: 1px solid #dfe5df;
@@ -965,6 +966,7 @@ dialog::backdrop {
 }
 #account-form input:focus,
 #account-form select:focus,
+#account-settings-form select:focus,
 #account-settings-form input:focus {
   border-color: #69a27a;
   box-shadow: 0 0 0 3px #e8f3ea;
