@@ -1,6 +1,6 @@
 # Kresus — spécification et état du projet
 
-Ce document décrit l’application telle qu’elle existe et les besoins connus restant à réaliser. Il complète la spécification initiale « Outil de Gestion de nos Comptes.docx » fournie par le demandeur ; ce document d’origine, avec son annexe de catégories, se trouve dans ses documents personnels et n’est pas inclus dans ce dépôt. En cas de reprise, utiliser également le [guide de développement](kresus/README.md) et les captures dans [references](references/). Les points ci-dessous distinguent les comportements effectifs des besoins à venir.
+Ce document présente les fonctionnalités, les règles métier et les limites connues de Kresus. Le [guide de développement](kresus/README.md) décrit l’installation et les tests. Les [captures de l’interface](references/) illustrent l’application.
 
 ## Objectif et conventions
 
@@ -80,20 +80,13 @@ Les espaces en début et fin des champs textuels saisis ou importés sont suppri
 
 Les séries, leurs jours d’ancrage, éventuelles modifications ponctuelles et destinations de virements sont conservés dans des tables distinctes. Les opérations liées par un virement et les mises à jour de séries sont enregistrées de manière atomique. Depuis le menu natif « Fichier », une sauvegarde SQLite cohérente peut être créée dans un nouveau fichier sans arrêter l’application, y compris lorsque des écritures sont présentes dans le journal WAL. La restauration vérifie le fichier sélectionné, puis remplace après confirmation la base active et rafraîchit l’interface ; elle ne modifie pas le fichier de sauvegarde. Un fichier existant ne peut pas être écrasé par une nouvelle sauvegarde. Depuis ce même menu, on peut ouvrir une autre base SQLite compatible Kresus ou revenir à la base habituelle. L’ouverture manuelle d’une autre base vaut pour la session. Lors du premier import Money depuis une base habituelle vierge, un fichier créé à un autre emplacement est mémorisé pour les prochains démarrages. La commande « Revenir à la base habituelle » rétablit aussi le démarrage sur la base du répertoire utilisateur. Le fichier choisi est utilisé en lecture-écriture : les modifications lui sont appliquées directement. Avant le changement, Kresus vérifie l’intégrité SQLite, la présence des tables et colonnes nécessaires et la validité des références ; un fichier incompatible est refusé sans remplacer la base active.
 
-## Besoins initiaux et limites restant à traiter
+## Limites et validations à venir
 
-- Le formulaire de virement permet de renseigner séparément une référence facultative pour le débit et pour le crédit. Le document initial mentionne aussi un titulaire ; son rôle exact reste à clarifier.
-- La spécification initiale envisage une liste complète des comptes à l’ouverture ; actuellement la liste est visible dans la barre latérale et le premier registre est ouvert.
 - Un import Money expérimental est disponible pour les comptes bancaires ouverts en euros, les opérations ordinaires et les catégories, sans Java ni installation supplémentaire. Après validation de l’aperçu, Kresus importe les données dans la base habituelle si elle est ouverte et contient uniquement les catégories de démarrage. L’aperçu permet aussi de choisir un autre emplacement pour créer une nouvelle base. Si la base habituelle est indisponible pour l’import, le choix d’un emplacement est requis. Les placements sont exclus, les virements enregistrés vérifiés et les opérations enregistrées ventilées entre catégories sont importés en conservant le pointage de chaque écriture ; les échéances mensuelles et certaines bimestrielles reconnues, sans limite ou avec une date de fin et un nombre d’occurrences concordants, ainsi que les séries trimestrielles et semestrielles de débit non commencées et sans limite observées, sont importées ; le virement bimensuel Money vérifié (15 et fin de mois, sans limite et non commencé) est importé ; les autres variantes bimensuelles non vérifiées restent exclues et les fichiers avec opérations non prises en charge refusés. Les séries mensuelles de débit à durée limitée partiellement enregistrées sont importées pour la configuration vérifiée ; les autres séries commencées et les limites incohérentes restent non prises en charge. Les autres échéances sont signalées avant import avec un détail dépliable et copiable (identifiant, tiers, compte, date et motif connu) ; chaque virement enregistré ou récurrent exige de sélectionner ses deux comptes ou de les omettre tous les deux. Les écritures et les échéances sans catégorie reprennent le libellé exact de « Divers » si cette catégorie figure dans Money. Certaines signatures de chèque, de paiement automatique et de versement sont reconnues. L’aperçu signale les méthodes inconnues. Les commentaires des modèles d’échéances pris en charge sont repris. L’import des fichiers protégés par mot de passe est hors périmètre du projet. Les anciens schémas MSISAM et les fichiers de plus de 64 Mio ne sont pas pris en charge. Voir le README et [l’étude Money](docs/etude-import-money.md). L’export d’opérations reste indisponible.
-
-Cette liste décrit les écarts constatés et ne constitue pas un ordre de priorité décidé par l’utilisateur.
 
 - Money stocke le numéro de compte sous forme brouillée dans `ACCT.mNum`. Si ce champ est renseigné, l’aperçu signale le compte concerné et l’import laisse son numéro vide. Le numéro peut être renseigné dans « Modifier le compte ».
 
-### Fonctionnalités envisagées
+### Validation sous Windows
 
-
-### Validation à venir
-
-- Vérifier le parcours d’import Money et les boîtes de dialogue natives sur une installation Windows ; les installateurs MSI et NSIS sont construits en CI ; leur installation et la recette Windows restent à réaliser. Sous Linux, le test WebDriver utilise la vraie WebView et une base temporaire, avec des chemins substitués aux sélecteurs natifs dans une compilation de test dédiée.
+- Vérifier l’installation des paquets MSI et NSIS construits en CI, l’import Money et les boîtes de dialogue natives.
 

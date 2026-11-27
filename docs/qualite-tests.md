@@ -10,6 +10,4 @@ Les suites d’import Money vérifient le décodage, les comptes, le pointage, l
 
 Les tests d’import OFX vérifient la validation de l’aperçu, les filtres paginés, les actions groupées et les rapprochements sans ambiguïté. Les tests Rust couvrent aussi la détection des doublons et l’annulation de l’import en cas d’erreur.
 
-Des mutations ciblées sur le calcul des fins de mois et sur la conservation du pointage Money ont provoqué des échecs dans les tests correspondants. Ces essais vérifient que ces règles sont couvertes.
-
 Les tests de performance restent des mesures manuelles sans seuil automatique ; ils ne garantissent pas qu’une régression de vitesse fera échouer la CI. Les tests WebDriver sous Windows et une inspection visuelle sur les systèmes distribués restent à réaliser.

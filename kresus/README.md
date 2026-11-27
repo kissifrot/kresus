@@ -2,7 +2,7 @@
 
 Application de bureau de gestion financière familiale pour les usages français, fondée sur Tauri 2, Rust, TypeScript et SQLite. L’interface et la documentation sont en français ; le code et ses commentaires sont en anglais. Les commentaires doivent expliquer succinctement les règles métier et les comportements non évidents, notamment en Rust et en TypeScript.
 
-La [spécification et l’état fonctionnel](../SPECIFICATION.md) décrivent les fonctionnalités réalisées, les règles métier, les limites et les besoins initiaux non encore réalisés. Les captures de référence sont dans [`references/`](../references/). Le document initial « Outil de Gestion de nos Comptes.docx » a été fourni séparément et n’est pas dans le dépôt.
+La [spécification et l’état fonctionnel](../SPECIFICATION.md) décrivent les fonctionnalités, les règles métier et les limites. Les captures de l’interface sont dans [`references/`](../references/).
 
 ## Importer un relevé bancaire
 
@@ -89,7 +89,7 @@ Le nom du tag identifie l’essai indépendamment du numéro de version déclar�
 
 Les installateurs sont des builds de test non signés. Ils ne remplacent pas une validation sur les systèmes visés ; ils peuvent nécessiter une confirmation du système à l’installation. Le paquet Debian est construit sur Ubuntu 26.04, afin de stabiliser sa base de compatibilité ; une distribution plus ancienne peut ne pas fournir les versions nécessaires de ses bibliothèques. Tauri recommande de construire sur le système le plus ancien que l’on souhaite prendre en charge : voir sa [documentation Debian](https://v2.tauri.app/distribute/debian/). Le runner Ubuntu 22.04 étant en cours de retrait, une éventuelle cible plus ancienne nécessitera une autre solution de compilation. Les formats Linux universels et d’autres architectures restent à étudier. La [documentation Tauri pour Windows](https://v2.tauri.app/distribute/windows-installer/) précise notamment que la génération MSI nécessite Windows et la fonctionnalité VBScript.
 
-Les tests de lecture Money s’exécutent dans GitHub Actions sous Linux et Windows. Le parcours WebDriver standard est lancé sous Linux avec une WebView et une base temporaires, y compris l’import Money. Le parcours des dialogues natifs et les tests WebDriver sous Windows ne sont pas lancés par ce workflow. Un résultat vert vérifie la compilation et les tests automatisés, mais ne remplace pas une recette de l’interface sous Windows.
+Les tests de lecture Money s’exécutent dans GitHub Actions sous Linux et Windows. Le parcours WebDriver standard est lancé sous Linux avec une WebView et une base temporaires, y compris l’import Money. Le parcours des dialogues natifs et les tests WebDriver sous Windows ne sont pas lancés par ce workflow. La validation interactive sous Windows reste à réaliser séparément.
 
 Les objectifs et les limites des différentes suites sont détaillés dans la [revue de qualité des tests](../docs/qualite-tests.md).
 
@@ -103,7 +103,7 @@ Depuis le répertoire `kresus`, `yarn format` applique Prettier aux fichiers Typ
 
 ### Parcours Tauri avec WebDriver sous Linux
 
-Le parcours `e2e/tauri-smoke.mjs` lance la vraie application dans sa WebView, avec une base fictive temporaire de 12 000 opérations. Il vérifie la navigation, la pagination et le filtre « À pointer », puis la création d’un compte, la gestion d’une opération avec commentaire et son pointage, la création, la modification et la suppression d’un virement, la gestion des catégories et leur création rapide depuis les formulaires d’opération, d’édition et d’échéance, ainsi que la création, la modification ponctuelle et de série, la modification d’une occurrence future, l’enregistrement et la suppression d’une échéance. Il vérifie la prévision du solde à trois tailles de fenêtre, ainsi que l’ouverture du détail en cliquant sur le graphique. Il contrôle aussi la recherche, les limites par nombre et par date, les retards depuis le foyer, un virement récurrent et les totaux du rapport de dépenses avec exclusion des virements. Il vérifie également l’aperçu Money, la création de la base importée, son contenu SQLite et l’enregistrement d’un virement récurrent importé. Les confirmations intégrées sont explicitement annulées puis validées dans cette base temporaire. Les durées affichées incluent les échanges WebDriver ; ce parcours ne couvre pas encore tous les scénarios du document initial et ne remplace pas une inspection visuelle manuelle.
+Le parcours `e2e/tauri-smoke.mjs` lance la vraie application dans sa WebView, avec une base fictive temporaire de 12 000 opérations. Il vérifie la navigation, la pagination et le filtre « À pointer », puis la création d’un compte, la gestion d’une opération avec commentaire et son pointage, la création, la modification et la suppression d’un virement, la gestion des catégories et leur création rapide depuis les formulaires d’opération, d’édition et d’échéance, ainsi que la création, la modification ponctuelle et de série, la modification d’une occurrence future, l’enregistrement et la suppression d’une échéance. Il vérifie la prévision du solde à trois tailles de fenêtre, ainsi que l’ouverture du détail en cliquant sur le graphique. Il contrôle aussi la recherche, les limites par nombre et par date, les retards depuis le foyer, un virement récurrent et les totaux du rapport de dépenses avec exclusion des virements. Il vérifie également l’aperçu Money, la création de la base importée, son contenu SQLite et l’enregistrement d’un virement récurrent importé. Les confirmations intégrées sont explicitement annulées puis validées dans cette base temporaire. Les durées affichées incluent les échanges WebDriver.
 
 Il nécessite `tauri-driver`, le pilote WebKitGTK, `dbus-run-session` et, pour un affichage virtuel, `xvfb-run`. Le bus D-Bus isolé évite que le test ne transmette ses demandes à une application Kresus déjà ouverte. Sur Ubuntu 26.04, les paquets système correspondants sont `webkitgtk-webdriver` et `xvfb` ; le pilote Tauri s’installe avec `cargo install tauri-driver --locked`. Les noms des paquets peuvent varier selon la distribution. Après installation :
 
@@ -144,32 +144,6 @@ cargo test --manifest-path src-tauri/Cargo.toml performance_reference_60000_oper
 ```
 
 Le premier mesure le registre, un filtre, le pointage et les changements de compte dans jsdom avec un backend simulé. Le second utilise une base SQLite temporaire et mesure l’insertion groupée, les soldes, la lecture complète et paginée avec totaux, leur sérialisation JSON et les suggestions de tiers. Les mesures sont indicatives, sans seuil automatique : elles varient selon la machine et la charge. Le DOM simulé ne mesure ni le rendu de la WebView Tauri, ni le transport réel entre Rust et l’interface ; le parcours WebDriver ci-dessus les exerce séparément, avec les délais propres à l’automatisation. L’insertion mesurée ne représente pas un import Money.
-
-À titre de référence, une mesure manuelle du 6 novembre 2026 a utilisé une compilation release sous Linux, WebKitGTK dans Xvfb et un processeur AMD Ryzen 9 7950X3D. La base fictive contenait 12 000 opérations, dont 10 000 sur le compte affiché. La mémoire indiquée est la PSS totale des processus Kresus et WebKit ; le CPU est exprimé en pourcentage d’un cœur :
-
-| Scénario | Mémoire PSS | CPU moyen |
-| --- | ---: | ---: |
-| Registre au repos, pendant 10 s | 158 Mio | 0,3 % |
-| Passage automatisé de 20 pages en environ 2,5 s | 199 Mio | 59 % |
-| Au repos pendant 6 s après ouverture des graphiques | 211 Mio | 2,1 % |
-
-Il s’agit d’une mesure ponctuelle, réalisée séparément des scripts de performance ci-dessus. L’affichage virtuel, la machine et l’activité de la WebView influent sur les résultats ; une comparaison doit reprendre autant que possible les mêmes conditions.
-
-Dans les mêmes conditions, une seconde mesure avec la base extrême de 60 000 opérations sur vingt ans, dont 50 000 sur le compte affiché, a donné :
-
-| Scénario | Mémoire PSS | CPU moyen |
-| --- | ---: | ---: |
-| Registre au repos, pendant 10 s | 194 Mio | 0 % |
-| Passage automatisé de 20 pages en environ 3,9 s | 222 Mio | 75 % |
-| Au repos pendant 6 s après ouverture des graphiques | 227 Mio | 2,2 % |
-
-Le CPU au repos est arrondi : aucune activité n’a été observée à la résolution de cette mesure, ce qui ne garantit pas une utilisation nulle en permanence.
-
-Après optimisation de la pagination, une nouvelle mesure ponctuelle dans les mêmes conditions sur la base extrême a donné 2,52 s pour les 20 changements de page, contre 3,85 s auparavant ; le CPU moyen pendant ce parcours est passé de 75 % à 62 % d’un cœur. La mémoire PSS médiane était de 194 Mio au repos et 243 Mio pendant la pagination, contre 194 et 222 Mio avant. Ces résultats ne démontrent donc pas de réduction de mémoire et restent sensibles à l’activité de la WebView.
-
-Un parcours ultérieur de 120 pages sur la même base a identifié des allocations répétées de formateurs de dates et de montants dans la WebView. Après leur réutilisation, deux mesures ponctuelles ont donné, après 20 secondes de repos : 241 contre 203 Mio de PSS après 20 pages, puis 342 contre 237 Mio après 120 pages. Le parcours des 20 premières pages a pris 2,76 contre 2,62 s, avec un CPU moyen de 57 % contre 54 % d’un cœur. La mémoire reste supérieure à celle du lancement ; ces mesures ne permettent pas, à elles seules, de conclure à une fuite ou de garantir les mêmes gains sur une autre machine.
-
-Une investigation manuelle plus longue, dans le même environnement et avec la base extrême, a effectué trois cycles de 200 changements de page, séparés par 20 secondes de repos. La PSS totale était d’environ 183 Mio au départ, puis 267, 273 et 313 Mio après les pauses successives. Le processus Rust restait autour de 72 Mio ; la hausse concernait principalement WebKit. Le nombre d’éléments du document visible restait stable et, parmi les anciennes lignes suivies par des références faibles (une tous les dix changements), 0 sur 40 restaient accessibles après le deuxième cycle et 3 sur 60 après le troisième. Le résultat ne démontre ni une fuite ni sa totale absence : la mémoire conservée par le moteur et le calendrier de son ramasse-miettes ne sont pas connus. Ce parcours utilisait une instrumentation temporaire distincte des tests du dépôt.
 
 ### Générer une base de test
 
