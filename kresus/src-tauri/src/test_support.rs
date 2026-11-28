@@ -2,6 +2,7 @@ use crate::accounts::Account;
 use crate::database::initialize_database;
 use rusqlite::Connection;
 use std::fs;
+use std::path::Path;
 
 // Remove the test database when the guard goes out of scope, even on failure.
 pub(crate) struct TestDatabasePath(pub(crate) std::path::PathBuf);
@@ -26,6 +27,16 @@ pub(crate) fn temporary_database_path() -> TestDatabasePath {
             Err(error) => panic!("Cannot create test directory: {error}"),
         }
     }
+}
+
+#[track_caller]
+pub(crate) fn assert_database_path(connection: &Connection, expected: &Path) {
+    // SQLite may resolve symlinks in the temporary directory before reporting the path.
+    let actual = connection.path().expect("Expected a file-backed database");
+    assert_eq!(
+        fs::canonicalize(actual).unwrap(),
+        fs::canonicalize(expected).unwrap()
+    );
 }
 
 pub(crate) fn database() -> Connection {

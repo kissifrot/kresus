@@ -1,5 +1,7 @@
 use super::{backup_to_path, initialize_database, restore_from_path};
-use crate::test_support::{initialize_test_accounts, temporary_database_path};
+use crate::test_support::{
+    assert_database_path, initialize_test_accounts, temporary_database_path,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -45,10 +47,7 @@ fn missing_startup_database_falls_back_to_the_default_and_can_be_retried() {
     initialize_test_accounts(&db);
     drop(db);
     let (db, warning) = super::open_startup_database(&default_path.0).unwrap();
-    assert_eq!(
-        db.path().map(std::path::Path::new),
-        Some(imported_path.0.as_path())
-    );
+    assert_database_path(&db, &imported_path.0);
     assert!(warning.is_none());
     super::forget_startup_database(&default_path.0).unwrap();
     std::fs::remove_file(super::config_path(&default_path.0)).unwrap();
@@ -66,10 +65,7 @@ fn startup_choice_is_migrated_to_config_json() {
 
     let (db, warning) = super::open_startup_database(&default_path.0).unwrap();
     assert!(warning.is_none());
-    assert_eq!(
-        db.path().map(std::path::Path::new),
-        Some(imported_path.0.as_path())
-    );
+    assert_database_path(&db, &imported_path.0);
     let config_path = super::config_path(&default_path.0);
     let config = crate::config::Config::load(&config_path).unwrap();
     assert_eq!(config.startup_database.as_ref(), Some(&imported_path.0));

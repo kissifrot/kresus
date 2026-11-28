@@ -270,7 +270,7 @@ fn importing_to_a_new_file_preserves_the_available_default_database() {
     import_into_new_file(&state, &other_path.0, &preview, &selection).unwrap();
     let (reopened, warning) = crate::database::open_startup_database(&default_path.0).unwrap();
     assert!(warning.is_none());
-    assert_eq!(reopened.path().map(Path::new), Some(other_path.0.as_path()));
+    crate::test_support::assert_database_path(&reopened, &other_path.0);
     let accounts = crate::accounts::list_accounts_in_db(&reopened, "2026-12-01").unwrap();
     assert_eq!(accounts[0].id, "money-account-1");
     let default_db = Connection::open(&default_path.0).unwrap();
