@@ -173,8 +173,9 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
     <div class="table-wrap bank-import-table">
       <table><thead><tr><th scope="col" class="bank-import-select"><input type="checkbox" id="bank-import-select-all" aria-label="Tout sélectionner" title="Tout sélectionner (toutes les pages du filtre)"></th><th scope="col">DATE</th><th scope="col">LIBELLÉ</th><th scope="col" class="right">MONTANT</th><th scope="col">ACTION</th></tr></thead><tbody id="bank-import-lines"></tbody></table>
     </div>
-    <div class="table-footer"><span id="bank-import-range" role="status"></span><div class="pagination">
+    <div class="table-footer"><span id="bank-import-range" role="status"></span><div class="pagination" hidden>
       <button type="button" id="bank-import-previous" aria-label="Page précédente">‹</button>
+      <strong id="bank-import-page-number"></strong>
       <button type="button" id="bank-import-next" aria-label="Page suivante">›</button>
     </div></div>
     <div id="bank-import-summary" role="group" aria-label="Filtrer les lignes du relevé">
@@ -207,7 +208,10 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
     </div>
   </form>`;
   view.append(dialog);
-  const table = dialog.querySelector("tbody")!;
+  const tableWrap = dialog.querySelector<HTMLElement>(".bank-import-table")!;
+  const table = tableWrap.querySelector("tbody")!;
+  const pagination = dialog.querySelector<HTMLElement>(".pagination")!;
+  const pageNumber = dialog.querySelector<HTMLElement>("#bank-import-page-number")!;
   const previous = dialog.querySelector<HTMLButtonElement>("#bank-import-previous")!;
   const next = dialog.querySelector<HTMLButtonElement>("#bank-import-next")!;
   const review = dialog.querySelector<HTMLButtonElement>("#bank-import-review")!;
@@ -309,7 +313,9 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
     const visible = filter ? rows.filter(({ index }) => statusOf(index) === filter) : rows;
     selectableIndices = visible.filter(({ row }) => !row.duplicate).map(({ index }) => index);
     lastPage = Math.max(0, Math.ceil(visible.length / pageSize) - 1);
+    pagination.hidden = lastPage === 0;
     page = Math.min(page, lastPage);
+    pageNumber.textContent = `${page + 1} / ${lastPage + 1}`;
     const start = page * pageSize;
     const end = Math.min(start + pageSize, visible.length);
     const emptyMessage = filter
@@ -339,10 +345,12 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   previous.addEventListener("click", () => {
     page--;
     renderPage();
+    tableWrap.scrollTop = 0;
   });
   next.addEventListener("click", () => {
     page++;
     renderPage();
+    tableWrap.scrollTop = 0;
   });
   selectAll.addEventListener("change", () => {
     for (const index of selectableIndices) {

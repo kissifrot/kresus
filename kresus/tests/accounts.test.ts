@@ -129,18 +129,27 @@ describe("accounts", () => {
       expect(document.querySelector("#bank-import-select-all")).not.toBeNull(),
     );
     const selectAll = document.querySelector<HTMLInputElement>("#bank-import-select-all")!;
+    const pagination = document.querySelector<HTMLElement>(".bank-import-dialog .pagination")!;
+    const tableWrap = document.querySelector<HTMLElement>(".bank-import-table")!;
     const count = () => document.querySelector("#bank-import-selection-count")?.textContent;
     const rowCheckbox = (index: number) =>
       document.querySelector<HTMLInputElement>(`[data-bank-select="${index}"]`)!;
+    expect(pagination.hidden).toBe(false);
+    expect(pagination.querySelector("#bank-import-page-number")?.textContent).toBe("1 / 3");
     click('[data-bank-filter="pending"]');
+    expect(pagination.hidden).toBe(true);
     rowCheckbox(53).click();
     expect(selectAll.checked).toBe(true);
 
     click('[data-bank-filter="add"]');
+    expect(pagination.hidden).toBe(false);
     expect(selectAll.checked).toBe(false);
     selectAll.click();
     expect(count()).toBe("53 lignes cochées");
+    tableWrap.scrollTop = 200;
     click("#bank-import-next");
+    expect(tableWrap.scrollTop).toBe(0);
+    expect(pagination.querySelector("#bank-import-page-number")?.textContent).toBe("2 / 3");
     expect(rowCheckbox(25).checked).toBe(true);
     rowCheckbox(25).click();
     expect(selectAll.checked).toBe(false);
@@ -152,6 +161,10 @@ describe("accounts", () => {
     selectAll.click();
     expect(count()).toBe("1 ligne cochée");
     expect(rowCheckbox(25).checked).toBe(false);
+
+    tableWrap.scrollTop = 200;
+    click("#bank-import-previous");
+    expect(tableWrap.scrollTop).toBe(0);
 
     click('[data-bank-filter="duplicate"]');
     expect(selectAll.disabled).toBe(true);
@@ -228,6 +241,7 @@ describe("accounts", () => {
       filter("skip");
       expect(visibleChoices()).toEqual([0]);
       filter("duplicate");
+      expect(document.querySelector("#bank-import-page-number")?.textContent).toBe("1 / 2");
       expect(visibleChoices()).toEqual([]);
       expect(document.querySelector("[data-bank-select]")).toBeNull();
       expect(document.querySelector("#bank-import-lines")?.textContent).toContain("Déjà importée");

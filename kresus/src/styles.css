@@ -865,7 +865,7 @@ tbody tr:last-child {
 .table-footer strong {
   color: #667169;
 }
-.pagination {
+.pagination:not([hidden]) {
   display: flex;
   align-items: center;
   gap: 5px;
