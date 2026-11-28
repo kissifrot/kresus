@@ -1029,6 +1029,192 @@ dialog::backdrop {
 .account-heading .page-actions button {
   white-space: nowrap;
 }
+.account-register,
+.account-register .page-content,
+.account-register .transactions-panel {
+  display: flex;
+  flex-direction: column;
+}
+.account-register .page-content,
+.account-register .transactions-panel {
+  flex: 1 0 auto;
+  width: 100%;
+}
+.register-table {
+  --register-header-height: 37px;
+
+  flex: 1 1 auto;
+  height: 0;
+  min-height: 100px;
+  overscroll-behavior-y: contain;
+  scroll-padding-top: var(--register-header-height);
+}
+.register-table table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.register-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.register-table th {
+  height: var(--register-header-height);
+  border-bottom: 1px solid #c3cfc5;
+}
+.register-table tbody tr:not(:last-child) td {
+  border-bottom: 1px solid #f0f2f0;
+}
+@media (max-width: 1190px) {
+  .account-register .page-content {
+    padding-inline: 16px;
+  }
+  .register-table {
+    overflow-x: hidden;
+  }
+  .register-table table {
+    min-width: 0;
+    table-layout: fixed;
+  }
+  .register-table :is(th, td) {
+    padding-inline: 5px;
+  }
+  .register-table th {
+    letter-spacing: 0.2px;
+  }
+  .register-table th:is(:first-child, :nth-child(4), .running-balance) {
+    width: 13%;
+  }
+  .register-table th:nth-child(2) {
+    width: 9%;
+  }
+  .register-table th.center {
+    width: 8%;
+  }
+  .register-table th.right:not(.running-balance) {
+    width: 10%;
+  }
+  .register-table th:last-child {
+    width: 64px;
+  }
+  .register-table :is(th, .date-cell, .category-pill, .amount) {
+    white-space: normal;
+  }
+  .register-table :is(td, .category-pill) {
+    overflow-wrap: anywhere;
+  }
+  .register-table .category-pill {
+    padding: 2px 4px;
+  }
+  .register-table .row-delete {
+    padding-inline: 1px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+}
+@media (max-height: 760px) {
+  .account-register .topbar {
+    height: 44px;
+  }
+  .account-register .page-content {
+    padding-block: 8px;
+  }
+  .account-register .account-heading,
+  .account-register .summary-grid {
+    margin-bottom: 8px;
+  }
+  .account-register .account-heading {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .account-register .account-heading > div:first-child {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 12px;
+  }
+  .account-register .account-heading p {
+    display: none;
+  }
+  .account-register .account-heading h1 {
+    font-size: 23px;
+  }
+  .account-register .account-settings-control {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    justify-content: flex-end;
+    margin-top: 0;
+  }
+  .account-register .account-heading .page-actions {
+    justify-content: flex-start;
+    gap: 4px;
+  }
+  .account-register .account-heading button {
+    height: 31px;
+    padding-inline: 4px;
+    font-size: 11px;
+  }
+  .account-register .summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .account-register .summary-card {
+    min-height: 0;
+    padding: 6px 8px;
+    overflow-wrap: anywhere;
+  }
+  .account-register .balance-decoration {
+    display: none;
+  }
+  .account-register .card-label,
+  .account-register .metric-icon {
+    height: 18px;
+  }
+  .account-register .summary-card > strong {
+    font-size: 18px;
+    line-height: 21px;
+    margin-block: 2px;
+  }
+  .account-register .panel-heading {
+    min-height: 0;
+    padding-block: 6px;
+    row-gap: 4px;
+  }
+  .account-register .panel-heading > div:first-child {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+  }
+  .account-register .panel-heading h2 {
+    margin-bottom: 0;
+  }
+  .account-register .panel-actions {
+    row-gap: 5px;
+  }
+  .account-register #transaction-search-form {
+    flex-basis: 100%;
+  }
+  .account-register
+    .panel-actions
+    :is(button, #transaction-search, #transaction-search-scope, #transaction-filter) {
+    height: 31px;
+  }
+  .account-register .transactions-panel > .table-footer {
+    min-height: 0;
+    padding-block: 4px;
+  }
+  .register-table {
+    --register-header-height: 31px;
+  }
+  .register-table tbody tr[data-transaction] {
+    height: 36px;
+  }
+  .register-table td {
+    padding-block: 3px;
+  }
+}
 .page-actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;

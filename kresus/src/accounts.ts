@@ -187,6 +187,22 @@ export function render(allAccounts = false) {
     creditCount,
     debitCount,
   } = registerSummary(allAccounts);
+  const isAccountRegister = Boolean(selected && !allAccounts);
+  const amountLabel = amountFilterLabel();
+  const periodLabel = periodFilterLabel();
+  const registerView = JSON.stringify([
+    selected?.id,
+    page,
+    transactionSearch,
+    transactionFilter,
+    amountLabel,
+    periodLabel,
+  ]);
+  const previousTable = document.querySelector<HTMLElement>(".register-table");
+  const tableScroll =
+    previousTable?.dataset.registerView === registerView
+      ? { top: previousTable.scrollTop, left: previousTable.scrollLeft }
+      : null;
   const visibleCount = allAccounts ? searchRows.length : rows.length;
   const activeAccounts = accounts.filter((account) => !account.archived);
   const accountList = (kind: AccountKind) =>
@@ -217,7 +233,7 @@ export function render(allAccounts = false) {
       </div>
       <div class="database-controls"><small title="${escapeHtml(activeDatabase ?? "Base habituelle")}">${activeDatabase ? escapeHtml(activeDatabase.split(/[\\/]/).pop() ?? activeDatabase) : "Base habituelle"}</small><p class="database-error" role="status"></p></div>
     </aside>
-    <main class="main-area">
+    <main class="main-area${isAccountRegister ? " account-register" : ""}">
       <header class="topbar"><div class="breadcrumb"><button type="button" id="household-breadcrumb">Mon foyer</button> <span>/</span> ${allAccounts ? "<strong>Recherche des opérations</strong>" : selected ? `<button type="button" id="accounts-breadcrumb">Comptes</button> <span>/</span> <strong>${escapeHtml(selected.name)}</strong>` : "<strong>Comptes</strong>"}</div></header>
       <div class="page-content">
         ${
@@ -244,8 +260,8 @@ export function render(allAccounts = false) {
               }
         <p class="register-error" role="alert"></p><section class="transactions-panel">
           <div class="panel-heading"><div><h2>${allAccounts ? "Recherche des opérations" : "Historique des opérations"}</h2>${allAccounts ? "" : `<p>${totalCount} opérations · Solde calculé à partir des mouvements</p>`}</div><div class="panel-actions"><form id="transaction-search-form" role="search"><label class="visually-hidden" for="transaction-search">Rechercher une opération</label><input class="filter-button" type="search" id="transaction-search" placeholder="Libellé, catégorie…" title="Rechercher dans le libellé, la catégorie, la référence, le numéro de chèque ou le commentaire" value="${escapeHtml(transactionSearch)}"><label class="visually-hidden" for="transaction-search-scope">Périmètre de recherche</label><select class="filter-button" id="transaction-search-scope" data-rendered-scope="${allAccounts ? "all" : "current"}"><option value="current" ${allAccounts ? "" : "selected"}>Ce compte</option><option value="all" ${allAccounts ? "selected" : ""}>Tous les comptes</option></select><button type="submit" class="secondary-button">Rechercher</button></form>
-            ${registerFilterControl("amount-filter", "Montant", amountFilterLabel(), "Effacer le filtre de montant")}
-            ${registerFilterControl("period-filter", "Période", periodFilterLabel(), "Effacer le filtre de période")}
+            ${registerFilterControl("amount-filter", "Montant", amountLabel, "Effacer le filtre de montant")}
+            ${registerFilterControl("period-filter", "Période", periodLabel, "Effacer le filtre de période")}
             ${
               allAccounts
                 ? ""
@@ -261,7 +277,7 @@ export function render(allAccounts = false) {
           ${
             allAccounts
               ? renderSearchResults(searchRows)
-              : `<div class="table-wrap"><table><thead><tr><th>DATE</th><th>RÉF. / N° CHÈQUE</th><th>TIERS / OPÉRATION</th><th>CATÉGORIE</th><th class="center">POINTÉ</th><th class="right">DÉBIT (€)</th><th class="right">CRÉDIT (€)</th><th class="right">SOLDE (€)</th><th></th></tr></thead><tbody>${
+              : `<div class="table-wrap register-table" data-register-view="${escapeHtml(registerView)}" role="region" aria-label="Tableau des opérations" tabindex="0"><table><thead><tr><th>DATE</th><th>RÉF. / N° CHÈQUE</th><th>TIERS / OPÉRATION</th><th>CATÉGORIE</th><th class="center">POINTÉ</th><th class="right">DÉBIT (€)</th><th class="right">CRÉDIT (€)</th><th class="right running-balance">SOLDE (€)</th><th></th></tr></thead><tbody>${
                   rows
                     .map(
                       (transaction) => `
@@ -307,6 +323,11 @@ export function render(allAccounts = false) {
     }`;
 
   document.querySelector<HTMLElement>(".sidebar-accounts")!.scrollTop = accountScroll;
+  const table = document.querySelector<HTMLElement>(".register-table");
+  if (table && tableScroll) {
+    table.scrollTop = tableScroll.top;
+    table.scrollLeft = tableScroll.left;
+  }
   document.querySelectorAll<HTMLElement>("[data-account]").forEach((button) =>
     button.addEventListener("click", async () => {
       setSelectedAccount(accounts.find((account) => account.id === button.dataset.account)!);
