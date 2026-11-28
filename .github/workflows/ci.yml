@@ -124,12 +124,22 @@ jobs:
 
       - name: Verify macOS disk image and architectures
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           bundle=src-tauri/target/universal-apple-darwin/release/bundle
-          contents="$bundle/macos/Kresus.app/Contents"
+          images=("$bundle"/dmg/*.dmg)
+          test "${#images[@]}" -eq 1
+          image=${images[0]}
+          hdiutil verify "$image"
+
+          mount_dir=$(mktemp -d)
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$image"
+          trap 'hdiutil detach "$mount_dir" && rmdir "$mount_dir"' EXIT
+
+          contents="$mount_dir/Kresus.app/Contents"
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$contents/Info.plist")
-          lipo -verify_arch arm64 x86_64 "$contents/MacOS/$executable"
-          hdiutil verify "$bundle"/dmg/*.dmg
+          lipo "$contents/MacOS/$executable" -verify_arch arm64 x86_64
+          lipo -archs "$contents/MacOS/$executable"
 
       - name: Upload Debian package
         if: runner.os == 'Linux'
