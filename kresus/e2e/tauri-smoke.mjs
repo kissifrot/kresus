@@ -1051,14 +1051,14 @@ try {
     throw new Error("Solde ou commentaire après modification incorrect");
   await clickRegisterControl("[data-reconcile]");
   await waitFor(async () => (await text("[data-reconcile]")) === "P", "Pointage");
-  await click("[data-delete]");
+  await clickRegisterControl("[data-delete]");
   await waitFor(() => visible("#delete-transaction-dialog[open]"), "Confirmation de suppression");
   if (!(await text(".delete-confirmation-message")).includes("Achat modifié"))
     throw new Error("Confirmation d’opération incorrecte");
   await click(".delete-cancel");
   if (!(await text("tbody")).includes("Achat modifié"))
     throw new Error("L’annulation a supprimé l’opération");
-  await click("[data-delete]");
+  await clickRegisterControl("[data-delete]");
   await click(".delete-confirm");
   await waitFor(
     async () => !(await text("tbody")).includes("Achat modifié"),
@@ -1116,7 +1116,7 @@ try {
   const transferDeleteId = await execute(
     "return [...document.querySelectorAll('tbody tr')].find(row => row.textContent.includes('Virement depuis Compte recette'))?.querySelector('[data-delete]')?.dataset.delete;",
   );
-  await click(`[data-delete="${transferDeleteId}"]`);
+  await clickRegisterControl(`[data-delete="${transferDeleteId}"]`);
   await waitFor(
     () => visible("#delete-transaction-dialog[open]"),
     "Confirmation de suppression du virement",
@@ -1126,7 +1126,7 @@ try {
   await click(".delete-cancel");
   if (!(await text("tbody")).includes("Virement depuis Compte recette"))
     throw new Error("L’annulation a supprimé le virement");
-  await click(`[data-delete="${transferDeleteId}"]`);
+  await clickRegisterControl(`[data-delete="${transferDeleteId}"]`);
   await click(".delete-confirm");
   await waitFor(
     async () => !(await text("tbody")).includes("Virement depuis Compte recette"),
