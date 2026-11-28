@@ -2037,13 +2037,25 @@ tr[data-transaction].editing {
 }
 .bank-import-dialog {
   width: min(920px, calc(100% - 32px));
-  max-height: 90vh;
-  padding: 20px;
 }
 .bank-import-dialog form {
   display: flex;
   flex-direction: column;
+  max-height: 90vh;
+  padding: 20px;
+}
+.bank-import-content {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  min-height: 0;
+  margin: -4px;
+  padding: 4px;
+  overflow: auto;
+}
+.bank-import-content > :not(.bank-import-table),
+.bank-import-dialog .dialog-actions {
+  flex-shrink: 0;
 }
 .bank-import-dialog p {
   font-size: 13px;
@@ -2054,6 +2066,7 @@ tr[data-transaction].editing {
   overflow-wrap: anywhere;
 }
 .bank-import-table {
+  min-height: 90px;
   max-height: 42vh;
   border: 1px solid #edf0ed;
   border-radius: 6px;
@@ -2061,7 +2074,18 @@ tr[data-transaction].editing {
 .bank-import-table table {
   min-width: 560px;
   table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
+}
+.bank-import-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.bank-import-table th {
+  padding-block: 8px;
+  border-bottom: 1px solid #c3cfc5;
 }
 .bank-import-table th:nth-child(2),
 .bank-import-table th:nth-child(4) {
@@ -2072,6 +2096,9 @@ tr[data-transaction].editing {
 }
 .bank-import-table td {
   padding-block: 8px;
+}
+.bank-import-table tbody tr:not(:last-child) td {
+  border-bottom: 1px solid #f0f2f0;
 }
 .bank-import-table .bank-import-select {
   width: 38px;

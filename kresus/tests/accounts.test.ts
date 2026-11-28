@@ -136,7 +136,9 @@ describe("accounts", () => {
       document.querySelector<HTMLInputElement>(`[data-bank-select="${index}"]`)!;
     expect(pagination.hidden).toBe(false);
     expect(pagination.querySelector("#bank-import-page-number")?.textContent).toBe("1 / 3");
+    tableWrap.scrollTop = 200;
     click('[data-bank-filter="pending"]');
+    expect(tableWrap.scrollTop).toBe(0);
     expect(pagination.hidden).toBe(true);
     rowCheckbox(53).click();
     expect(selectAll.checked).toBe(true);
@@ -164,6 +166,10 @@ describe("accounts", () => {
 
     tableWrap.scrollTop = 200;
     click("#bank-import-previous");
+    expect(tableWrap.scrollTop).toBe(0);
+
+    tableWrap.scrollTop = 200;
+    click('[data-bank-filter="add"]');
     expect(tableWrap.scrollTop).toBe(0);
 
     click('[data-bank-filter="duplicate"]');

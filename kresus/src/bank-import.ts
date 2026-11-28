@@ -157,49 +157,51 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
   dialog.className = "bank-import-dialog";
   dialog.setAttribute("aria-labelledby", "bank-import-title");
   dialog.innerHTML = `<form>
-    <div class="dialog-heading"><h2 id="bank-import-title">Importer un relevé bancaire</h2><button type="button" class="dialog-close" aria-label="Fermer">×</button></div>
-    <div class="bank-import-source">
-      <p><strong>Compte de destination</strong> · ${escapeHtml(account.name)}</p>
-      <p><strong>Relevé OFX</strong> · ${escapeHtml(preview.fileName)} · Compte ${escapeHtml(preview.bankAccount)} · Banque ${escapeHtml(preview.bankId)}</p>
-      ${preview.closing.amount !== null ? `<p><strong>Solde de clôture</strong> · ${euro(preview.closing.amount)}${preview.closing.date ? ` au ${dateLabel(preview.closing.date)}` : ""}</p>` : ""}
-      ${
-        account.accountNumber &&
-        account.accountNumber.replace(/\s/g, "") !== preview.bankAccount.replace(/\s/g, "")
-          ? '<p class="money-warning">Le numéro du relevé diffère du numéro enregistré dans Kresus. Vérifiez le compte de destination.</p>'
-          : ""
-      }
-      <p>Kresus propose les opérations de même montant et de même sens, à ${preview.matchDays} jours près. Rapprocher une ligne pointe l’opération existante.</p>
+    <div class="bank-import-content">
+      <div class="dialog-heading"><h2 id="bank-import-title">Importer un relevé bancaire</h2><button type="button" class="dialog-close" aria-label="Fermer">×</button></div>
+      <div class="bank-import-source">
+        <p><strong>Compte de destination</strong> · ${escapeHtml(account.name)}</p>
+        <p><strong>Relevé OFX</strong> · ${escapeHtml(preview.fileName)} · Compte ${escapeHtml(preview.bankAccount)} · Banque ${escapeHtml(preview.bankId)}</p>
+        ${preview.closing.amount !== null ? `<p><strong>Solde de clôture</strong> · ${euro(preview.closing.amount)}${preview.closing.date ? ` au ${dateLabel(preview.closing.date)}` : ""}</p>` : ""}
+        ${
+          account.accountNumber &&
+          account.accountNumber.replace(/\s/g, "") !== preview.bankAccount.replace(/\s/g, "")
+            ? '<p class="money-warning">Le numéro du relevé diffère du numéro enregistré dans Kresus. Vérifiez le compte de destination.</p>'
+            : ""
+        }
+        <p>Kresus propose les opérations de même montant et de même sens, à ${preview.matchDays} jours près. Rapprocher une ligne pointe l’opération existante.</p>
+      </div>
+      <div class="table-wrap bank-import-table">
+        <table><thead><tr><th scope="col" class="bank-import-select"><input type="checkbox" id="bank-import-select-all" aria-label="Tout sélectionner" title="Tout sélectionner (toutes les pages du filtre)"></th><th scope="col">DATE</th><th scope="col">LIBELLÉ</th><th scope="col" class="right">MONTANT</th><th scope="col">ACTION</th></tr></thead><tbody id="bank-import-lines"></tbody></table>
+      </div>
+      <div class="table-footer"><span id="bank-import-range" role="status"></span><div class="pagination" hidden>
+        <button type="button" id="bank-import-previous" aria-label="Page précédente">‹</button>
+        <strong id="bank-import-page-number"></strong>
+        <button type="button" id="bank-import-next" aria-label="Page suivante">›</button>
+      </div></div>
+      <div id="bank-import-summary" role="group" aria-label="Filtrer les lignes du relevé">
+        ${Object.keys(summaryLabels)
+          .map(
+            (key) =>
+              `<button type="button" class="secondary-button" data-bank-filter="${key}" aria-pressed="false" aria-controls="bank-import-lines"></button>`,
+          )
+          .join("")}
+      </div>
+      <p id="bank-import-totals" class="visually-hidden" role="status"></p>
+      <div id="bank-import-bulk-actions" role="group" aria-label="Choisir une action pour toutes les lignes à vérifier" hidden>
+        <button type="button" class="secondary-button" id="bank-import-match-pending" hidden>Rapprocher les correspondances uniques</button>
+        <button type="button" class="secondary-button" id="bank-import-add-pending">Ajouter les lignes à vérifier</button>
+        <button type="button" class="secondary-button" id="bank-import-skip-pending">Ignorer les lignes à vérifier</button>
+      </div>
+      <div id="bank-import-selection-actions" role="group" aria-label="Actions sur la sélection" hidden>
+        <span id="bank-import-selection-count" role="status"></span>
+        <button type="button" class="secondary-button" id="bank-import-match-selection" hidden>Rapprocher les correspondances uniques de la sélection</button>
+        <button type="button" class="secondary-button" id="bank-import-add-selection">Ajouter la sélection</button>
+        <button type="button" class="secondary-button" id="bank-import-skip-selection">Ignorer la sélection</button>
+        <button type="button" class="secondary-button" id="bank-import-clear-selection">Désélectionner tout</button>
+      </div>
+      <p class="editor-error" role="alert"></p>
     </div>
-    <div class="table-wrap bank-import-table">
-      <table><thead><tr><th scope="col" class="bank-import-select"><input type="checkbox" id="bank-import-select-all" aria-label="Tout sélectionner" title="Tout sélectionner (toutes les pages du filtre)"></th><th scope="col">DATE</th><th scope="col">LIBELLÉ</th><th scope="col" class="right">MONTANT</th><th scope="col">ACTION</th></tr></thead><tbody id="bank-import-lines"></tbody></table>
-    </div>
-    <div class="table-footer"><span id="bank-import-range" role="status"></span><div class="pagination" hidden>
-      <button type="button" id="bank-import-previous" aria-label="Page précédente">‹</button>
-      <strong id="bank-import-page-number"></strong>
-      <button type="button" id="bank-import-next" aria-label="Page suivante">›</button>
-    </div></div>
-    <div id="bank-import-summary" role="group" aria-label="Filtrer les lignes du relevé">
-      ${Object.keys(summaryLabels)
-        .map(
-          (key) =>
-            `<button type="button" class="secondary-button" data-bank-filter="${key}" aria-pressed="false" aria-controls="bank-import-lines"></button>`,
-        )
-        .join("")}
-    </div>
-    <p id="bank-import-totals" class="visually-hidden" role="status"></p>
-    <div id="bank-import-bulk-actions" role="group" aria-label="Choisir une action pour toutes les lignes à vérifier" hidden>
-      <button type="button" class="secondary-button" id="bank-import-match-pending" hidden>Rapprocher les correspondances uniques</button>
-      <button type="button" class="secondary-button" id="bank-import-add-pending">Ajouter les lignes à vérifier</button>
-      <button type="button" class="secondary-button" id="bank-import-skip-pending">Ignorer les lignes à vérifier</button>
-    </div>
-    <div id="bank-import-selection-actions" role="group" aria-label="Actions sur la sélection" hidden>
-      <span id="bank-import-selection-count" role="status"></span>
-      <button type="button" class="secondary-button" id="bank-import-match-selection" hidden>Rapprocher les correspondances uniques de la sélection</button>
-      <button type="button" class="secondary-button" id="bank-import-add-selection">Ajouter la sélection</button>
-      <button type="button" class="secondary-button" id="bank-import-skip-selection">Ignorer la sélection</button>
-      <button type="button" class="secondary-button" id="bank-import-clear-selection">Désélectionner tout</button>
-    </div>
-    <p class="editor-error" role="alert"></p>
     <div class="dialog-actions">
       <button type="button" class="secondary-button" id="bank-import-review">Voir la prochaine ligne à vérifier</button>
       <button type="button" class="secondary-button" id="bank-import-cancel">Annuler</button>
@@ -365,6 +367,7 @@ function showPreview(view: Element, account: Account, preview: StatementPreview)
       filter = filter === key ? null : key;
       page = 0;
       renderPage();
+      tableWrap.scrollTop = 0;
     });
   });
   const applyToPending = (action: BulkAction) => {
