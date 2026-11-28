@@ -37,7 +37,9 @@ pub fn install(app: &tauri::App, show_transaction_comments: bool) -> tauri::Resu
             &separator,
             &backup,
             &restore,
+            #[cfg(not(target_os = "macos"))]
             &PredefinedMenuItem::separator(app)?,
+            #[cfg(not(target_os = "macos"))]
             &quit,
         ],
     )?;
@@ -52,6 +54,25 @@ pub fn install(app: &tauri::App, show_transaction_comments: bool) -> tauri::Resu
     let preferences = Submenu::with_items(app, "&Préférences", true, &[&comments])?;
     let about = MenuItem::with_id(app, "about", "À propos", true, None::<&str>)?;
     let help = Submenu::with_items(app, "&Aide", true, &[&about])?;
+    #[cfg(target_os = "macos")]
+    {
+        let application = Submenu::with_items(app, "Kresus", true, &[&quit])?;
+        // The native edit actions route keyboard shortcuts to the focused WebView field.
+        let edit = tauri::menu::SubmenuBuilder::new(app, "Édition")
+            .undo_with_text("Annuler")
+            .redo_with_text("Rétablir")
+            .separator()
+            .cut_with_text("Couper")
+            .copy_with_text("Copier")
+            .paste_with_text("Coller")
+            .select_all_with_text("Tout sélectionner")
+            .build()?;
+        app.set_menu(Menu::with_items(
+            app,
+            &[&application, &file, &edit, &preferences, &help],
+        )?)?;
+    }
+    #[cfg(not(target_os = "macos"))]
     app.set_menu(Menu::with_items(app, &[&file, &preferences, &help])?)?;
     app.manage(comments);
     app.on_menu_event(|app, event| {

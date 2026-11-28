@@ -32,7 +32,8 @@ class PublishPreviewTests(unittest.TestCase):
                 "    path.mkdir(parents=True, exist_ok=True)\n"
                 "    names = {'kresus-linux-deb': 'Kresus.deb', "
                 "'kresus-windows-msi': 'Kresus.msi', "
-                "'kresus-windows-nsis': 'Kresus-setup.exe'}\n"
+                "'kresus-windows-nsis': 'Kresus-setup.exe', "
+                "'kresus-macos-dmg': 'Kresus_universal.dmg'}\n"
                 "    if name != os.environ.get('TEST_MISSING'):\n"
                 "        (path / names[name]).write_text('installer')\n",
                 encoding="utf-8",
@@ -51,22 +52,22 @@ class PublishPreviewTests(unittest.TestCase):
             calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
             return result, calls
 
-    def test_publishes_all_three_installers_as_a_prerelease(self):
+    def test_publishes_all_four_installers_as_a_prerelease(self):
         result, calls = self.run_publish()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 4)
-        self.assertTrue(all(call[:3] == ["run", "download", "42"] for call in calls[:3]))
+        self.assertEqual(len(calls), 5)
+        self.assertTrue(all(call[:3] == ["run", "download", "42"] for call in calls[:-1]))
         release = calls[-1]
         self.assertEqual(release[:3], ["release", "create", "preview-test-1"])
-        self.assertEqual([Path(path).name for path in release[3:6]], [
-            "Kresus.deb", "Kresus.msi", "Kresus-setup.exe"
+        self.assertEqual([Path(path).name for path in release[3:7]], [
+            "Kresus.deb", "Kresus.msi", "Kresus-setup.exe", "Kresus_universal.dmg"
         ])
         self.assertIn("--prerelease", release)
         self.assertIn("--verify-tag", release)
         self.assertIn("--latest=false", release)
 
     def test_does_not_publish_if_an_installer_is_missing(self):
-        result, calls = self.run_publish("kresus-windows-msi")
+        result, calls = self.run_publish("kresus-macos-dmg")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Expected exactly one", result.stderr)
         self.assertFalse(any(call[:2] == ["release", "create"] for call in calls))

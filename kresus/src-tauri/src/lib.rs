@@ -108,6 +108,12 @@ pub fn run() {
             transactions::delete_transaction,
             schedules::record_schedule
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Kresus");
+        .build(tauri::generate_context!())
+        .expect("error while building Kresus")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                file_open::receive_opened_urls(_app, urls);
+            }
+        });
 }

@@ -23,17 +23,35 @@ pub(crate) fn collect(args: Vec<String>, cwd: &Path) -> Vec<PathBuf> {
 
 pub(crate) fn receive(app: &tauri::AppHandle, args: Vec<String>, cwd: String) {
     if let Some(path) = file_argument(&args, Path::new(&cwd)) {
-        if let Some(requests) = app.try_state::<OpenRequests>() {
-            if let Ok(mut pending) = requests.0.lock() {
-                pending.push(path);
-                let _ = app.emit("kresus-file-request", ());
-            }
-        }
+        enqueue(app, path);
     }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+// Finder delivers file associations as URLs rather than as command-line arguments.
+#[cfg(target_os = "macos")]
+pub(crate) fn receive_opened_urls(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
+    for path in urls.into_iter().filter_map(|url| url.to_file_path().ok()) {
+        if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("kresus"))
+        {
+            enqueue(app, path);
+        }
+    }
+}
+
+fn enqueue(app: &tauri::AppHandle, path: PathBuf) {
+    if let Some(requests) = app.try_state::<OpenRequests>() {
+        if let Ok(mut pending) = requests.0.lock() {
+            pending.push(path);
+            drop(pending);
+            let _ = app.emit("kresus-file-request", ());
+        }
     }
 }
 

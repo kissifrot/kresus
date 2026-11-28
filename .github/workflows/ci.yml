@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-26.04, windows-latest]
+        os: [ubuntu-26.04, windows-latest, macos-latest]
     defaults:
       run:
         working-directory: kresus
@@ -45,6 +45,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+
+      - name: Install macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2.9.3
@@ -112,6 +116,21 @@ jobs:
         shell: bash
         run: yarn tauri build --bundles nsis,msi
 
+      - name: Build universal macOS disk image
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: yarn tauri build --target universal-apple-darwin --bundles app,dmg
+
+      - name: Verify macOS disk image and architectures
+        if: runner.os == 'macOS'
+        run: |
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          contents="$bundle/macos/Kresus.app/Contents"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$contents/Info.plist")
+          lipo -verify_arch arm64 x86_64 "$contents/MacOS/$executable"
+          hdiutil verify "$bundle"/dmg/*.dmg
+
       - name: Upload Debian package
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7.0.2
@@ -136,6 +155,15 @@ jobs:
         with:
           name: kresus-windows-msi
           path: kresus/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload macOS disk image
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: kresus-macos-dmg
+          path: kresus/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 7
 
