@@ -1847,10 +1847,25 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
       () =>
         execute(
           `const table = document.querySelector('.register-table');
-           const right = table.getBoundingClientRect().right;
+           const left = table.getBoundingClientRect().left + table.clientLeft;
+           const right = left + table.clientWidth;
+           const headers = [...table.querySelectorAll('thead th.right')];
            const amounts = [...document.querySelectorAll(arguments[0] + ' .amount')];
-           return innerWidth <= 900 && table.scrollWidth <= table.clientWidth + 1 &&
-             amounts.length === 3 && amounts.every(cell => cell.getBoundingClientRect().right <= right + 1);`,
+           const fits = cell => {
+             const range = document.createRange();
+             range.selectNodeContents(cell);
+             const text = range.getBoundingClientRect();
+             return text.width > 0 && text.left >= left - 1 && text.right <= right + 1;
+           };
+           const overflowX = getComputedStyle(table).overflowX;
+           if (innerWidth <= 900 && overflowX === 'hidden' && table.scrollLeft === 0 &&
+               headers.length === 3 && amounts.length === 3 && [...headers, ...amounts].every(fits))
+             return true;
+           throw new Error(JSON.stringify({
+             innerWidth, overflowX, scrollLeft: table.scrollLeft,
+             scrollWidth: table.scrollWidth, clientWidth: table.clientWidth, left, right,
+             headers: headers.map(fits), amounts: amounts.map(fits)
+           }));`,
           invoice,
         ),
       "Montants du registre Money visibles sans défilement horizontal à 900 pixels",
