@@ -72,13 +72,13 @@ Cette commande utilise le générateur d’icônes de Tauri et met à jour les f
 
 ### Vérifications GitHub Actions
 
-Le workflow [`ci.yml`](../.github/workflows/ci.yml) lance les tests TypeScript, Rust et du générateur de base sur Linux, Windows et macOS. Il construit un paquet `.deb` pour les distributions Linux compatibles Debian, deux installateurs Windows x64 (`.msi` et `-setup.exe` NSIS) et une image disque `.dmg` universelle pour Mac Intel et Apple Silicon. Les installateurs MSI et NSIS sont configurés en français.
+Le workflow [`ci.yml`](../.github/workflows/ci.yml) lance les tests TypeScript, Rust et du générateur de base sur Linux, Windows et macOS. Il utilise `tauri-action` 1.0.0 pour construire un paquet `.deb` pour les distributions Linux compatibles Debian, deux installateurs Windows x64 (`.msi` et `-setup.exe` NSIS) et une image disque `.dmg` universelle pour Mac Intel et Apple Silicon. Les installateurs MSI et NSIS sont configurés en français.
 
 Le formatage est vérifié sous Linux. La CI vérifie aussi le lanceur et le type MIME inclus dans le paquet Debian, ainsi que l’intégrité de l’image disque macOS et les deux architectures de son exécutable. Les dépendances Rust compilées sont mises en cache séparément selon l’environnement et la version de la toolchain. Le workflow se déclenche sur les pushs et les pull requests et peut aussi être lancé manuellement depuis l’onglet Actions de GitHub. Les fichiers sont téléchargeables comme artefacts de l’exécution pendant sept jours.
 
 ### Publication d’une préversion
 
-Un tag poussé dont le nom commence par `preview-` déclenche la CI. Si les trois tâches réussissent, GitHub publie une préversion contenant les quatre installateurs. Les préversions sont accessibles depuis [Releases](https://github.com/kissifrot/kresus/releases), sans compte GitHub si le dépôt est public. Les autres tags et les exécutions ordinaires ne publient rien.
+Un tag poussé dont le nom commence par `preview-` déclenche la CI. Si les trois tâches réussissent, GitHub publie une préversion contenant les quatre installateurs. Les préversions sont accessibles depuis [Releases](https://github.com/kissifrot/kresus/releases), sans compte GitHub si le dépôt est public.
 
 Depuis un commit déjà poussé, choisir un nom de tag unique, par exemple :
 
@@ -96,6 +96,12 @@ Le paquet Debian est construit sur Ubuntu 26.04, afin de stabiliser sa base de c
 Les tests de lecture Money s’exécutent dans GitHub Actions sous Linux, Windows et macOS. Le parcours WebDriver standard est lancé sous Linux avec une WebView et une base temporaires, y compris l’import Money. La validation interactive et le parcours des dialogues natifs sous Windows et macOS restent à réaliser séparément.
 
 Les objectifs et les limites des différentes suites sont détaillés dans la [revue de qualité des tests](../docs/qualite-tests.md).
+
+### Publication d’une version stable
+
+Préparer un commit sur `main` avec le même numéro de version dans `package.json`, `src-tauri/Cargo.toml` et `src-tauri/tauri.conf.json`. En cas de changement de version, mettre également à jour `src-tauri/Cargo.lock`. Pousser ensuite le tag `vMAJEUR.MINEUR.CORRECTIF` correspondant, par exemple `v0.1.0` pour la version `0.1.0`.
+
+Quand les trois builds et leurs contrôles réussissent, GitHub crée un brouillon avec les quatre installateurs et les notes de version générées. Vérifier les notes, les fichiers et les conditions d’installation avant de publier le brouillon dans GitHub Releases. Cocher **Set as latest release** lors de la publication pour que le bouton de téléchargement du site mène directement à cette version.
 
 ### Mises à jour des dépendances
 

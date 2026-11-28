@@ -17,6 +17,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-26.04, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-26.04
+            bundle-args: --bundles deb
+          - os: windows-latest
+            bundle-args: --bundles nsis,msi
+          - os: macos-latest
+            bundle-args: --target universal-apple-darwin --bundles app,dmg
     defaults:
       run:
         working-directory: kresus
@@ -92,9 +99,15 @@ jobs:
           GDK_BACKEND: x11
 
       # Build installers only after tests; retain them as workflow artifacts.
-      - name: Build Debian package
-        if: runner.os == 'Linux'
-        run: yarn tauri build --bundles deb
+      - name: Build installers with Tauri
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        with:
+          projectPath: kresus
+          tauriScript: yarn tauri
+          args: ${{ matrix.bundle-args }}
+          uploadUpdaterJson: false
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
 
       # Verify the packaged launcher, not only its source template.
       - name: Verify Debian file association
@@ -109,18 +122,6 @@ jobs:
           grep -Fx 'Exec=kresus %f' "$inspection_dir/usr/share/applications/Kresus.desktop"
           grep -Fx 'MimeType=application/x-kresus;' "$inspection_dir/usr/share/applications/Kresus.desktop"
           test -f "$inspection_dir/usr/share/mime/packages/kresus.xml"
-
-      - name: Build Windows installers
-        if: runner.os == 'Windows'
-        # Bash preserves the comma-separated argument instead of treating it as an array.
-        shell: bash
-        run: yarn tauri build --bundles nsis,msi
-
-      - name: Build universal macOS disk image
-        if: runner.os == 'macOS'
-        env:
-          APPLE_SIGNING_IDENTITY: '-'
-        run: yarn tauri build --target universal-apple-darwin --bundles app,dmg
 
       - name: Verify macOS disk image and architectures
         if: runner.os == 'macOS'
@@ -177,10 +178,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish-preview:
-    name: Publish preview
+  publish-release:
+    name: Publish preview or prepare stable draft
     needs: test-and-build
-    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'preview-')
+    if: github.event_name == 'push' && github.ref_type == 'tag' && (startsWith(github.ref_name, 'preview-') || startsWith(github.ref_name, 'v'))
     runs-on: ubuntu-26.04
     permissions:
       actions: read
@@ -188,10 +189,10 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      PREVIEW_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - name: Check out sources
         uses: actions/checkout@v7.0.1
-      - name: Publish prerelease
+      - name: Assemble GitHub release
         shell: bash
-        run: bash kresus/scripts/publish-preview.sh
+        run: bash kresus/scripts/publish-release.sh
