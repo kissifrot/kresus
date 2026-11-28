@@ -117,9 +117,8 @@ async function text(selector) {
 async function click(selector) {
   await request("POST", `/session/${session}/element/${await element(selector)}/click`, {});
 }
-async function clickRegisterDelete(row) {
-  const selector = `${row} [data-delete]`;
-  // The last column can be clipped by the register's horizontal scroll container.
+async function clickRegisterControl(selector) {
+  // Center the button in the register so the sticky header cannot cover it.
   await waitFor(
     () =>
       execute(
@@ -132,7 +131,7 @@ async function clickRegisterDelete(row) {
          ));`,
         selector,
       ),
-    `Bouton de suppression accessible pour ${row}`,
+    `Bouton du registre accessible pour ${selector}`,
   );
   await click(selector);
 }
@@ -956,9 +955,11 @@ try {
       execute(
         `const groups = [...document.querySelectorAll('.register-filter-actions')];
          const heading = document.querySelector('.transactions-panel .panel-heading').getBoundingClientRect();
-         return innerWidth <= 900 && groups.every(group => {
-           const clear = group.querySelector('.register-filter-clear').getBoundingClientRect();
-           return group.getBoundingClientRect().right <= heading.right && clear.width === 32 && clear.height === 37;
+         return innerWidth <= 900 && groups.length === 2 && groups.every(group => {
+           const filter = group.querySelector('button').getBoundingClientRect();
+           const clear = group.querySelector('.register-filter-clear')?.getBoundingClientRect();
+           return clear && group.getBoundingClientRect().right <= heading.right &&
+             clear.width === 32 && clear.height === filter.height && clear.top === filter.top;
          });`,
       ),
     "Les filtres de montant et de période tiennent dans le registre à 900 pixels",
@@ -1020,6 +1021,9 @@ try {
   );
   await execute("document.querySelector('#transaction-filter').focus()");
   await key("\uE004");
+  if (!(await execute("return document.activeElement.matches('.register-table')")))
+    throw new Error("La touche Tab n’atteint pas la zone de défilement du registre.");
+  await key("\uE004");
   if (!(await execute("return document.activeElement.matches('tbody tr[data-transaction]')")))
     throw new Error("La touche Tab n’atteint pas la première opération.");
   await key("\uE007");
@@ -1045,7 +1049,7 @@ try {
     !(await text("tbody")).includes("Commentaire modifié")
   )
     throw new Error("Solde ou commentaire après modification incorrect");
-  await click("[data-reconcile]");
+  await clickRegisterControl("[data-reconcile]");
   await waitFor(async () => (await text("[data-reconcile]")) === "P", "Pointage");
   await click("[data-delete]");
   await waitFor(() => visible("#delete-transaction-dialog[open]"), "Confirmation de suppression");
@@ -1599,9 +1603,9 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
     return [...document.querySelectorAll('tr[data-transaction]')]
       .find(row => row.textContent.includes('Remboursement OFX')).dataset.transaction;
   `);
-  await click(`[data-reconcile="${ofxOperation}"]`);
+  await clickRegisterControl(`[data-reconcile="${ofxOperation}"]`);
   await waitFor(() => gapIs(3217), "L’écart évolue au dépointage");
-  await click(`[data-reconcile="${ofxOperation}"]`);
+  await clickRegisterControl(`[data-reconcile="${ofxOperation}"]`);
   await waitFor(() => visible("#reconciliation-gap[data-balanced]"), "Repointage au centime");
   await click("#end-reconciliation");
   await click("#start-reconciliation");
@@ -1647,7 +1651,7 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
   if (splitRegister.length !== 1 || splitRegister[0][1] !== 1)
     throw new Error("Une écriture ventilée doit comporter un seul pointage.");
   const splitId = splitRegister[0][0];
-  await click(`[data-reconcile="${splitId}"]`);
+  await clickRegisterControl(`[data-reconcile="${splitId}"]`);
   await waitFor(
     () => visible(`[data-reconcile="${splitId}"][aria-pressed="true"]`),
     "Pointage de la ventilation",
@@ -1842,11 +1846,16 @@ print(c.execute("SELECT opening_balance_cents+COALESCE((SELECT sum(amount_cents)
     await waitFor(
       () =>
         execute(
-          "return innerWidth <= 900 && document.querySelector('.transactions-panel .table-wrap').scrollWidth > document.querySelector('.transactions-panel .table-wrap').clientWidth",
+          `const table = document.querySelector('.register-table');
+           const right = table.getBoundingClientRect().right;
+           const amounts = [...document.querySelectorAll(arguments[0] + ' .amount')];
+           return innerWidth <= 900 && table.scrollWidth <= table.clientWidth + 1 &&
+             amounts.length === 3 && amounts.every(cell => cell.getBoundingClientRect().right <= right + 1);`,
+          invoice,
         ),
-      "Défilement horizontal du registre Money à 900 pixels",
+      "Montants du registre Money visibles sans défilement horizontal à 900 pixels",
     );
-    await clickRegisterDelete(invoice);
+    await clickRegisterControl(`${invoice} [data-delete]`);
     await waitFor(
       () => visible("#delete-transaction-dialog[open]"),
       "Confirmation de suppression de la facture",
@@ -1931,7 +1940,7 @@ print(c.execute("SELECT opening_balance_cents + COALESCE((SELECT sum(amount_cent
     const pointedMoneyBalance = checkMatchedGroceries(true);
     await enterClosingBalance(pointedMoneyBalance);
     await waitFor(() => visible("#reconciliation-gap[data-balanced]"), "Écart initial nul");
-    await click(`${groceries} [data-reconcile]`);
+    await clickRegisterControl(`${groceries} [data-reconcile]`);
     await waitFor(
       async () =>
         (await visible(`${groceries} [data-reconcile][aria-pressed="false"]`)) &&
@@ -1945,7 +1954,7 @@ print(c.execute("SELECT opening_balance_cents + COALESCE((SELECT sum(amount_cent
       "Ligne OFX reconnue même quand l’opération est dépointée",
     );
     await click("#bank-import-cancel");
-    await click(`${groceries} [data-reconcile]`);
+    await clickRegisterControl(`${groceries} [data-reconcile]`);
     await waitFor(
       async () =>
         (await visible(`${groceries} [data-reconcile][aria-pressed="true"]`)) &&
@@ -2005,7 +2014,7 @@ print(c.execute("SELECT opening_balance_cents + COALESCE((SELECT sum(amount_cent
     );
     await click('[data-account="money-account-2"]');
     await waitFor(() => visible(groceries), "Registre avant modification de la base sauvegardée");
-    await clickRegisterDelete(groceries);
+    await clickRegisterControl(`${groceries} [data-delete]`);
     await waitFor(
       () => visible("#delete-transaction-dialog[open]"),
       "Confirmation de suppression dans la base de test",
