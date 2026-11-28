@@ -1,6 +1,6 @@
 [package]
 name = "kresus"
-version = "0.1.2"
+version = "0.1.3"
 description = "Gestion familiale des finances personnelles"
 authors = ["Kresus"]
 edition = "2024"
